@@ -7,6 +7,7 @@ service:
     existingSecretName: accounts-env
     repository: ghcr.io/x-evor/accounts
     tag: latest
+    imagePullPolicy: IfNotPresent
     env:
       PORT: "8080"
       SERVICE_NAME: accounts

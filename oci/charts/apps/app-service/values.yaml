@@ -37,6 +37,7 @@ serviceAccount:
 global:
   repository: ""
   tag: ""
+  imagePullPolicy: IfNotPresent
   env: {}
   existingSecretName: ""
   external-service: []

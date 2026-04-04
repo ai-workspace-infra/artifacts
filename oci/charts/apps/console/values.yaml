@@ -7,6 +7,7 @@ service:
     existingSecretName: console-env
     repository: ghcr.io/x-evor/console
     tag: latest
+    imagePullPolicy: IfNotPresent
     env:
       PORT: "3000"
       SERVICE_NAME: console
