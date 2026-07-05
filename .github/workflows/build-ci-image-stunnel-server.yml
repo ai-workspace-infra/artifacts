@@ -1,0 +1,29 @@
+name: build image stunnel-server
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'oci/stunnel-server/Dockerfile'
+      - '.github/workflows/build-ci-image-stunnel-server.yml'
+  workflow_dispatch:
+    branches:
+      - main
+
+env:
+  IMAGE_REPO: "artifact.svc.plus"
+
+jobs:
+  stunnel-server:
+    name: Build stunnel-server image
+    uses: svc-design/actions/.github/workflows/build-images.yaml@main
+    with:
+      method: 'docker'
+      registry_addr: "ghcr.io"
+      dockerfile_path: 'oci/stunnel-server'
+      image_name: 'public/base/stunnel-server'
+      image_tag: 'latest'
+    secrets:
+      artifactory_sa: ${{ secrets.REPO_USER }}
+      artifactory_pw: ${{ secrets.HELM_REPO_PASSWORD }}
