@@ -7,23 +7,47 @@ on:
     paths:
       - 'oci/stunnel-client/Dockerfile'
       - '.github/workflows/build-ci-image-stunnel-client.yml'
-  workflow_dispatch:
+  push:
     branches:
       - main
+    paths:
+      - 'oci/stunnel-client/Dockerfile'
+      - '.github/workflows/build-ci-image-stunnel-client.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
 
 env:
-  IMAGE_REPO: "artifact.svc.plus"
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/stunnel-client
 
 jobs:
   stunnel-client:
     name: Build stunnel-client image
-    uses: svc-design/actions/.github/workflows/build-images.yaml@main
-    with:
-      method: 'docker'
-      registry_addr: "ghcr.io"
-      dockerfile_path: 'oci/stunnel-client'
-      image_name: 'public/base/stunnel-client'
-      image_tag: 'latest'
-    secrets:
-      artifactory_sa: ${{ secrets.REPO_USER }}
-      artifactory_pw: ${{ secrets.HELM_REPO_PASSWORD }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        run: |
+          short_sha="$(git rev-parse --short HEAD)"
+          echo "SHORT_SHA=${short_sha}" >> "$GITHUB_ENV"
+          docker build \
+            -t "${IMAGE_NAME}:${short_sha}" \
+            -t "${IMAGE_NAME}:latest" \
+            oci/stunnel-client
+
+      # PR 只构建验证, 推送仅发生在 main push / 手动触发
+      - name: Push image
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push "${IMAGE_NAME}:${SHORT_SHA}"
+          docker push "${IMAGE_NAME}:latest"
