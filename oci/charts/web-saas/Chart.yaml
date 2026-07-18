@@ -1,0 +1,25 @@
+apiVersion: v2
+name: web-saas
+description: A Helm chart for Web SaaS domain (accounts, billing, console, postgres, caddy, stunnel)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: postgresql
+    version: 0.1.0
+    repository: "file://./charts/postgresql"
+  - name: stunnel
+    version: 0.1.0
+    repository: "file://./charts/stunnel"
+  - name: accounts
+    version: 0.1.0
+    repository: "file://./charts/accounts"
+  - name: billing
+    version: 0.1.0
+    repository: "file://./charts/billing"
+  - name: console
+    version: 0.1.0
+    repository: "file://./charts/console"
+  - name: caddy
+    version: 0.1.0
+    repository: "file://./charts/caddy"

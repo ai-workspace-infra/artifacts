@@ -1,0 +1,17 @@
+# Global values
+global:
+  domain: local
+
+# Subchart configurations
+postgresql:
+  enabled: true
+stunnel:
+  enabled: true
+accounts:
+  enabled: true
+billing:
+  enabled: true
+console:
+  enabled: true
+caddy:
+  enabled: true
