@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "xworkmate-bridge.fullname" . }}
+  labels:
+    app: xworkmate-bridge
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: xworkmate-bridge
+  template:
+    metadata:
+      labels:
+        app: xworkmate-bridge
+    spec:
+      containers:
+        - name: xworkmate-bridge
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP

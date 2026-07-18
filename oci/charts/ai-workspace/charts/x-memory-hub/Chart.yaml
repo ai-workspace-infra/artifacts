@@ -1,0 +1,6 @@
+apiVersion: v2
+name: x-memory-hub
+description: A Helm chart for x-memory-hub
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

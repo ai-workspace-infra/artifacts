@@ -1,0 +1,20 @@
+# Global values
+global:
+  domain: local
+
+xworkspace-console:
+  enabled: true
+xworkmate-bridge:
+  enabled: true
+postgresql:
+  enabled: true
+vault:
+  enabled: true
+litellm:
+  enabled: true
+qmd:
+  enabled: true
+x-memory-hub:
+  enabled: true
+caddy:
+  enabled: true

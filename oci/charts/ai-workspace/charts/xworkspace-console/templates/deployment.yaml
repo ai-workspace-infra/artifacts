@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "xworkspace-console.fullname" . }}
+  labels:
+    app: xworkspace-console
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: xworkspace-console
+  template:
+    metadata:
+      labels:
+        app: xworkspace-console
+    spec:
+      containers:
+        - name: xworkspace-console
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
