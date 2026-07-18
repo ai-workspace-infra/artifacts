@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "x-memory-hub.fullname" . }}
+  labels:
+    app: x-memory-hub
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: x-memory-hub
+  template:
+    metadata:
+      labels:
+        app: x-memory-hub
+    spec:
+      containers:
+        - name: x-memory-hub
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP

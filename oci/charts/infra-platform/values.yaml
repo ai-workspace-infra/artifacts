@@ -1,0 +1,12 @@
+# Global values
+global:
+  domain: local
+
+gitea:
+  enabled: true
+zitadel:
+  enabled: true
+observability:
+  enabled: true
+caddy:
+  enabled: true

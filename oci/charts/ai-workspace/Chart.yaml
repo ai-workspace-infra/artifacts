@@ -1,0 +1,31 @@
+apiVersion: v2
+name: ai-workspace
+description: A Helm chart for AI Workspace domain (console, bridge, postgres, vault, litellm, qmd, x-memory-hub, caddy)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: xworkspace-console
+    version: 0.1.0
+    repository: "file://./charts/xworkspace-console"
+  - name: xworkmate-bridge
+    version: 0.1.0
+    repository: "file://./charts/xworkmate-bridge"
+  - name: postgresql
+    version: 0.1.0
+    repository: "file://./charts/postgresql"
+  - name: vault
+    version: 0.1.0
+    repository: "file://./charts/vault"
+  - name: litellm
+    version: 0.1.0
+    repository: "file://./charts/litellm"
+  - name: qmd
+    version: 0.1.0
+    repository: "file://./charts/qmd"
+  - name: x-memory-hub
+    version: 0.1.0
+    repository: "file://./charts/x-memory-hub"
+  - name: caddy
+    version: 0.1.0
+    repository: "file://./charts/caddy"
