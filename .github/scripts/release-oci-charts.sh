@@ -3,7 +3,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 package_dir="${RUNNER_TEMP:-$repo_root/dist}/oci-charts-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
-legacy_charts=(oci/charts/open-platform oci/charts/apps/app-service oci/charts/postgresql oci/charts/observability)
+legacy_charts=(oci/charts/open-platform oci/charts/apps/app-service oci/charts/observability)
 case "${1:-}" in
   validate)
     for chart in "${legacy_charts[@]}"; do helm lint "$chart"; done
@@ -30,12 +30,13 @@ PY
     trap 'rm -rf "$work_dir"' EXIT
     for pkg in "$package_dir"/*.tgz; do
       metadata="$(helm show chart "$pkg")"
-      name="$(awk '$1 == "name:" {print $2; exit}' <<< "$metadata")"
-      version="$(awk '$1 == "version:" {print $2; exit}' <<< "$metadata")"
-      if [[ "$name" != web-saas-* && "$name" != distributed-web-saas-fullstack ]]; then
-        helm push "$pkg" "oci://${GHCR_NAMESPACE:?}"
-        continue
-      fi
+      read -r name version < <(python3 -c "
+import sys, re
+metadata = sys.stdin.read()
+name = re.search(r'^name:\s*([^\s#]+)', metadata, re.MULTILINE).group(1).strip('\"\'')
+version = re.search(r'^version:\s*([^\s#]+)', metadata, re.MULTILINE).group(1).strip('\"\'')
+print(f'{name} {version}')
+" <<< "$metadata")
       if helm pull "oci://${GHCR_NAMESPACE:?}/$name" --version "$version" --destination "$work_dir" 2>"$work_dir/pull.log"; then
         mkdir "$work_dir/local" "$work_dir/remote"
         tar -xzf "$pkg" -C "$work_dir/local"
