@@ -65,6 +65,19 @@ def by_kind(objs, kind):
     return {o['metadata']['name']: o for o in objs if o['kind'] == kind}
 
 class Charts(unittest.TestCase):
+    def test_platform_hosts_preserve_upstream_tls_and_reject_duplicates(self):
+        v = config()
+        v['caddy']['additionalHosts'] = [dict(name='vault', host='vault.example.test', upstream='https://vault.example.svc:8200', tlsSecret='example-platform-tls', upstreamCAConfigMap='example-vault-ca')]
+        objs = objects(v)
+        caddy = by_kind(objs, 'ConfigMap')['example-caddy-config']['data']['Caddyfile']
+        self.assertIn('https://vault.example.test:8443', caddy)
+        self.assertIn('tls_trust_pool file /trust/vault/ca.crt', caddy)
+        self.assertNotIn('tls_insecure_skip_verify', caddy)
+        pod = by_kind(objs, 'Deployment')['example-caddy']['spec']['template']['spec']
+        self.assertTrue(any(x.get('configMap', {}).get('name') == 'example-vault-ca' for x in pod['volumes']))
+        v['caddy']['additionalHosts'][0]['host'] = 'console.example.test'
+        self.assertNotEqual(render(v).returncode, 0)
+
     def test_default_is_disabled_and_no_legacy_contract(self):
         self.assertEqual(objects({}), [])
         self.assertNotEqual(render({'components': {}}).returncode, 0)
