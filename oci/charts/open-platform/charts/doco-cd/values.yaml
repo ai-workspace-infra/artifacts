@@ -1,0 +1,16 @@
+replicaCount: 1
+image:
+  repository: ghcr.io/kimdre/doco-cd
+  tag: "0.1.28"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  httpPort: 80
+  metricsPort: 9120
+
+persistence:
+  enabled: true
+  size: 5Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""

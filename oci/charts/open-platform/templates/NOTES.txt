@@ -1,0 +1,40 @@
+==============================================================================
+🎉 Open Platform 10 Core Services Umbrella Helm Chart Deployed Successfully!
+==============================================================================
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+Active Core Services Endpoints:
+------------------------------------------------------------------------------
+{{- if .Values.gitea.enabled }}
+- 01 Git & CI/CD (Gitea):        http://gitea.{{ .Values.global.domain }}:3000 (SSH :22)
+{{- end }}
+{{- if .Values.harbor.enabled }}
+- 02 Artifact Registry (Harbor): http://harbor.{{ .Values.global.domain }}:8080
+{{- end }}
+{{- if .Values.silo.enabled }}
+- 03 S3 Storage (Silo):          http://s3.{{ .Values.global.domain }}:9000 (Console :9001)
+{{- end }}
+{{- if .Values.cmdb.enabled }}
+- 04 CMDB Inventory:            http://cmdb.{{ .Values.global.domain }}:8000/api/v1/inventory
+{{- end }}
+{{- if (index .Values "vault-zitadel").enabled }}
+- 05 Identity (Vault/Zitadel):   http://vault.{{ .Values.global.domain }}:8200 (PG :5432)
+{{- end }}
+{{- if (index .Values "doco-cd").enabled }}
+- 06 GitOps (Doco CD):           http://doco.{{ .Values.global.domain }}:80 (Metrics :9120)
+{{- end }}
+{{- if .Values.pgvector.enabled }}
+- 07 Vector DB (pgvector):       postgresql://k3s@pgvector.{{ .Values.global.domain }}:5432/k3s_vector
+{{- end }}
+{{- if (index .Values "pg-backup").enabled }}
+- 08 Backup Drill (PostgreSQL):  postgresql://postgres@pg-backup.{{ .Values.global.domain }}:5432/test_backup_db
+{{- end }}
+{{- if (index .Values "ai-gateway").enabled }}
+- 09 AI Gateway (New API/Lite):  http://new-api.{{ .Values.global.domain }}:3000 & http://litellm.{{ .Values.global.domain }}:4000
+{{- end }}
+{{- if (index .Values "mcp-gateway").enabled }}
+- 10 MCP Gateway:                http://mcp.{{ .Values.global.domain }}:8080/
+{{- end }}
+------------------------------------------------------------------------------

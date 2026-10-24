@@ -1,0 +1,65 @@
+apiVersion: v2
+name: open-platform
+description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating 10 core infrastructure services
+type: application
+version: 1.0.0
+appVersion: "2026.10"
+keywords:
+  - platform-engineering
+  - cloud-neutral
+  - open-platform
+  - gitea
+  - harbor
+  - silo
+  - cmdb
+  - vault
+  - zitadel
+  - doco-cd
+  - pgvector
+  - ai-gateway
+  - mcp
+home: https://github.com/ai-workspace-infra
+maintainers:
+  - name: Platform Engineering Team
+    email: platform@svc.plus
+dependencies:
+  - name: gitea
+    version: 1.0.0
+    repository: "file://./charts/gitea"
+    condition: gitea.enabled
+  - name: harbor
+    version: 1.0.0
+    repository: "file://./charts/harbor"
+    condition: harbor.enabled
+  - name: silo
+    version: 1.0.0
+    repository: "file://./charts/silo"
+    condition: silo.enabled
+  - name: cmdb
+    version: 1.0.0
+    repository: "file://./charts/cmdb"
+    condition: cmdb.enabled
+  - name: vault-zitadel
+    version: 1.0.0
+    repository: "file://./charts/vault-zitadel"
+    condition: vault-zitadel.enabled
+  - name: doco-cd
+    version: 1.0.0
+    repository: "file://./charts/doco-cd"
+    condition: doco-cd.enabled
+  - name: pgvector
+    version: 1.0.0
+    repository: "file://./charts/pgvector"
+    condition: pgvector.enabled
+  - name: pg-backup
+    version: 1.0.0
+    repository: "file://./charts/pg-backup"
+    condition: pg-backup.enabled
+  - name: ai-gateway
+    version: 1.0.0
+    repository: "file://./charts/ai-gateway"
+    condition: ai-gateway.enabled
+  - name: mcp-gateway
+    version: 1.0.0
+    repository: "file://./charts/mcp-gateway"
+    condition: mcp-gateway.enabled

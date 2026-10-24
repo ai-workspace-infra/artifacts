@@ -1,0 +1,27 @@
+replicaCount: 1
+image:
+  repository: pgsty/silo
+  tag: "RELEASE.2026-10-18T00-00-00Z"
+  pullPolicy: IfNotPresent
+
+rootUser: "silo_admin"
+rootPassword: "SiloAdminPassword2026!"
+
+service:
+  type: ClusterIP
+  apiPort: 9000
+  consolePort: 9001
+
+persistence:
+  enabled: true
+  size: 20Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi

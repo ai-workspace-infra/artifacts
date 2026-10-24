@@ -1,0 +1,30 @@
+replicaCount: 1
+portal:
+  image:
+    repository: goharbor/harbor-portal
+    tag: "v2.15.4"
+    pullPolicy: IfNotPresent
+core:
+  image:
+    repository: goharbor/harbor-core
+    tag: "v2.15.4"
+    pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+  portalPort: 80
+
+persistence:
+  enabled: true
+  size: 20Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi

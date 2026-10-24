@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vault-zitadel.fullname" . }}-vault
+  labels:
+    {{- include "vault-zitadel.labels" . | nindent 4 }}
+    app.kubernetes.io/subcomponent: vault
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vault-zitadel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/subcomponent: vault
+  template:
+    metadata:
+      labels:
+        {{- include "vault-zitadel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/subcomponent: vault
+    spec:
+      containers:
+        - name: vault
+          image: "{{ .Values.vault.image.repository }}:{{ .Values.vault.image.tag }}"
+          imagePullPolicy: {{ .Values.vault.image.pullPolicy }}
+          env:
+            - name: VAULT_DEV_ROOT_TOKEN_ID
+              value: {{ .Values.vault.devRootToken | quote }}
+            - name: VAULT_DEV_LISTEN_ADDRESS
+              value: "0.0.0.0:8200"
+            - name: VAULT_ADDR
+              value: "http://127.0.0.1:8200"
+          ports:
+            - name: vault-http
+              containerPort: 8200
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /v1/sys/health
+              port: vault-http
+            initialDelaySeconds: 5
+            periodSeconds: 10

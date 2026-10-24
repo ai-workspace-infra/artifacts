@@ -1,0 +1,21 @@
+replicaCount: 1
+image:
+  repository: pgvector/pgvector
+  tag: "pg16"
+  pullPolicy: IfNotPresent
+
+postgres:
+  db: "k3s_vector"
+  user: "k3s"
+  password: "K3sVectorPassword2026!"
+  port: 5432
+
+service:
+  type: ClusterIP
+  port: 5432
+
+persistence:
+  enabled: true
+  size: 20Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""

@@ -1,0 +1,26 @@
+vault:
+  image:
+    repository: hashicorp/vault
+    tag: "1.17.6"
+    pullPolicy: IfNotPresent
+  port: 8200
+  devRootToken: "root-token-dev"
+
+zitadelDb:
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  port: 5432
+  dbName: "zitadel"
+  user: "zitadel"
+  password: "ZitadelPassword2026!"
+
+service:
+  type: ClusterIP
+
+persistence:
+  enabled: true
+  size: 10Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""

@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vault-zitadel.fullname" . }}-zitadel-db
+  labels:
+    {{- include "vault-zitadel.labels" . | nindent 4 }}
+    app.kubernetes.io/subcomponent: zitadel-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vault-zitadel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/subcomponent: zitadel-db
+  template:
+    metadata:
+      labels:
+        {{- include "vault-zitadel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/subcomponent: zitadel-db
+    spec:
+      containers:
+        - name: zitadel-db
+          image: "{{ .Values.zitadelDb.image.repository }}:{{ .Values.zitadelDb.image.tag }}"
+          imagePullPolicy: {{ .Values.zitadelDb.image.pullPolicy }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.zitadelDb.dbName | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.zitadelDb.user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.zitadelDb.password | quote }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.zitadelDb.user | quote }}, "-d", {{ .Values.zitadelDb.dbName | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: db-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: db-data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "vault-zitadel.fullname" . }}-db-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

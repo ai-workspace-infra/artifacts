@@ -1,0 +1,6 @@
+apiVersion: v2
+name: silo
+description: Silo S3-Compatible Object Storage Subchart
+type: application
+version: 1.0.0
+appVersion: "RELEASE.2026-10-18T00-00-00Z"

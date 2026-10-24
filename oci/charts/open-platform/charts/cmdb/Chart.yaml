@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cmdb
+description: CMDB Dynamic Inventory Service Subchart
+type: application
+version: 1.0.0
+appVersion: "3.11-alpine"
