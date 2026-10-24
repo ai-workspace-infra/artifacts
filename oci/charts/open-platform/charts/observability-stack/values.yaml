@@ -1,4 +1,5 @@
 replicaCount: 1
+serviceAccountName: default
 
 domain: "open-platform.local"
 
@@ -42,6 +43,8 @@ grafana:
   port: 3000
   existingSecret: grafana-admin
   adminPasswordKey: password
+  rootUrl: ""
+  plugins: []
 
 service:
   type: ClusterIP
@@ -71,3 +74,5 @@ telemetry:
   cluster: ""
   environment: unspecified
   extraScrapeConfigs: []
+  kubernetes:
+    enabled: false
