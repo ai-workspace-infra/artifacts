@@ -56,6 +56,13 @@ data:
           - key: environment
             value: {{ .Values.telemetry.environment | quote }}
             action: upsert
+      resource/prometheus:
+        attributes:
+          # The exporter derives job/instance from canonical OTel service fields.
+          - key: instance
+            action: delete
+          - key: job
+            action: delete
       batch: {}
     exporters:
       prometheus:
@@ -74,7 +81,7 @@ data:
           exporters: [otlphttp/traces{{ if .Values.telemetry.spanMetrics }}, spanmetrics{{ end }}]
         metrics:
           receivers: [otlp{{ if .Values.telemetry.spanMetrics }}, spanmetrics{{ end }}{{ if .Values.telemetry.kubernetes.enabled }}, kubeletstats{{ end }}]
-          processors: [resource/cluster, batch]
+          processors: [resource/cluster, resource/prometheus, batch]
           exporters: [prometheus]
         logs:
           receivers: [otlp]
