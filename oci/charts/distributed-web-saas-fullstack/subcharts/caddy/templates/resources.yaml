@@ -56,6 +56,24 @@ handle @api {
 }
 {{- end }}
 {{- end }}
+{{- $names := dict }}
+{{- range .Values.additionalHosts }}
+{{- if hasKey $names .name }}{{ fail "Caddy additional host names must be distinct" }}{{ end }}
+{{- $_ := set $names .name true }}
+{{- if and .upstreamCAConfigMap (not (hasPrefix "https://" .upstream)) }}{{ fail "Caddy upstream CA requires an HTTPS upstream" }}{{ end }}
+{{- if hasKey $seen .host }}{{ fail "Caddy public hosts must be distinct" }}{{ end }}
+{{- $_ := set $seen .host true }}
+https://{{ .host }}:8443 {
+  tls /tls/extra-{{ .name }}/tls.crt /tls/extra-{{ .name }}/tls.key
+  reverse_proxy {{ .upstream }} {
+    {{- if .upstreamCAConfigMap }}
+    transport http {
+      tls_trust_pool file /trust/{{ .name }}/ca.crt
+    }
+    {{- end }}
+  }
+}
+{{- end }}
 {{- end -}}
 {{- if .Values.enabled }}
 {{- if not .Values.routes.consoleHost }}{{ fail "caddy.routes.consoleHost is required" }}{{ end }}
@@ -66,6 +84,14 @@ handle @api {
 {{- $secret := required (printf "caddy.tls.%sSecret is required for HTTPS" $role) (index $.Values.tls (printf "%sSecret" $role)) }}
 {{- $volumes = append $volumes (dict "name" (printf "tls-%s" $role) "secret" (dict "secretName" $secret "defaultMode" 288)) }}
 {{- $mounts = append $mounts (dict "name" (printf "tls-%s" $role) "mountPath" (printf "/tls/%s" $role) "readOnly" true) }}
+{{- end }}
+{{- end }}
+{{- range .Values.additionalHosts }}
+{{- $volumes = append $volumes (dict "name" (printf "tls-extra-%s" .name) "secret" (dict "secretName" .tlsSecret "defaultMode" 288)) }}
+{{- $mounts = append $mounts (dict "name" (printf "tls-extra-%s" .name) "mountPath" (printf "/tls/extra-%s" .name) "readOnly" true) }}
+{{- if .upstreamCAConfigMap }}
+{{- $volumes = append $volumes (dict "name" (printf "trust-%s" .name) "configMap" (dict "name" .upstreamCAConfigMap)) }}
+{{- $mounts = append $mounts (dict "name" (printf "trust-%s" .name) "mountPath" (printf "/trust/%s" .name) "readOnly" true) }}
 {{- end }}
 {{- end }}
 {{- $_ := set .Values "volumes" $volumes }}
