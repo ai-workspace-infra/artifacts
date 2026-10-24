@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       WEBSAAS_VALIDATE_CADDY: "1"
-      WEBSAAS_RENDER_DIR: ${{ runner.temp }}/websaas-rendered
+      WEBSAAS_RENDER_DIR: /tmp/websaas-rendered-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4

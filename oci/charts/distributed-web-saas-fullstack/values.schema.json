@@ -47,7 +47,10 @@
     "caddy": {
       "type": "object"
     },
-    "stunnel": {
+    "stunnelClient": {
+      "type": "object"
+    },
+    "stunnelServer": {
       "type": "object"
     }
   }

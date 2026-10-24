@@ -69,6 +69,7 @@ class Charts(unittest.TestCase):
         self.assertEqual(objects({}), [])
         self.assertNotEqual(render({'components': {}}).returncode, 0)
         self.assertNotEqual(render({'database': {}}).returncode, 0)
+        self.assertNotEqual(render({'stunnel': {'enabled': True}}).returncode, 0)
         self.assertNotEqual(render({'ingress': {'enabled': True}}).returncode, 0)
 
     def test_independent_topology_routes_secrets_and_storage(self):
@@ -141,9 +142,11 @@ class Charts(unittest.TestCase):
         self.assertNotIn('volumeClaimTemplates',by_kind(objects(v),'StatefulSet')['example-postgresql']['spec'])
 
     def test_tunnel_peer_verification_and_key_permissions(self):
-        v=config();v['stunnel']=defaults('stunnel');v['stunnel'].update(enabled=True,image=IMAGE)
-        v['stunnel']['client'].update(enabled=True,connect='database.example.test:15432',checkHost='database.example.test',existingSecret='client-identity')
-        v['stunnel']['server'].update(enabled=True,existingSecret='server-identity',allowedCIDRs=['192.0.2.0/24'])
+        v=config()
+        v['stunnelClient']=defaults('stunnel-client')
+        v['stunnelClient'].update(enabled=True,image=IMAGE,connect='database.example.test:15432',checkHost='database.example.test',existingSecret='client-identity')
+        v['stunnelServer']=defaults('stunnel-server')
+        v['stunnelServer'].update(enabled=True,image=IMAGE,existingSecret='server-identity',allowedCIDRs=['192.0.2.0/24'])
         objs=objects(v);dep=by_kind(objs,'Deployment');cm=by_kind(objs,'ConfigMap')
         self.assertIn('checkHost = database.example.test',cm['example-stunnel-client']['data']['stunnel.conf'])
         self.assertIn('verifyChain = yes',cm['example-stunnel-client']['data']['stunnel.conf'])
@@ -156,6 +159,15 @@ class Charts(unittest.TestCase):
             self.assertEqual(secrets[0]['secretName'],role+'-identity')
             self.assertEqual(secrets[0]['defaultMode'],0o440)
         self.assertEqual(by_kind(objs,'Service')['example-stunnel-client']['spec']['ports'][0]['port'],5432)
+
+    def test_tunnel_roles_install_independently(self):
+        for role in ['client','server']:
+            v=defaults('stunnel-'+role)
+            v.update(enabled=True,image=IMAGE,existingSecret='example-identity')
+            if role=='client':v.update(connect='database.example.test:15432',checkHost='database.example.test')
+            else:v['allowedCIDRs']=['192.0.2.0/24']
+            objs=objects(v,SUB/('stunnel-'+role))
+            self.assertEqual(list(by_kind(objs,'Deployment')),['example-stunnel-'+role])
 
     def test_standalone_application_charts(self):
         for name in ['accounts','billing','content','static-pages','frontend-router','frontend-ssr']:
@@ -178,7 +190,7 @@ class Charts(unittest.TestCase):
         v=config();v['console']['deploymentProfile']='grouped';v['console']['groups']={'all':{'members':FRONT,'replicas':1}};cases.append(v)  # port conflict
         v=config();v['accounts']['workload']['replicas']=-1;cases.append(v)
         v=config();v['accounts']['workload']['autoscaling'].update(enabled=True,minReplicas=4,maxReplicas=2);cases.append(v)
-        v=config();v['stunnel']=defaults('stunnel');v['stunnel'].update(enabled=True,image=IMAGE);v['stunnel']['server'].update(enabled=True,existingSecret='example-tls');cases.append(v)
+        v=config();v['stunnelServer']=defaults('stunnel-server');v['stunnelServer'].update(enabled=True,image=IMAGE,existingSecret='example-tls');cases.append(v)
         for i,v in enumerate(cases):
             with self.subTest(case=i):self.assertNotEqual(render(v).returncode,0)
 

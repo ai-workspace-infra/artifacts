@@ -41,5 +41,7 @@ caddy:
     consoleHost: console.localhost
     accountsHost: accounts.localhost
     billingHost: billing.localhost
-stunnel:
+stunnelClient:
+  enabled: false
+stunnelServer:
   enabled: false

@@ -1,8 +1,11 @@
 # Distributed Web SaaS Fullstack — 0.2.0
 
 Composable Helm charts for Kubernetes 1.32+ with Caddy as the public HTTPS
-entry point. Version 0.2.0 replaces the 0.1 `components`, `database` and
-`ingress` contracts; legacy keys fail schema validation. Review rendered changes
+ingress entry point. The implemented ingress mode uses a Caddy Deployment and
+generated Caddyfile; it does not install an Ingress API/Gateway API controller.
+No Traefik Ingress or class is generated. Version 0.2.0 replaces the 0.1 `components`, `database` and
+`ingress` contracts; legacy keys fail schema validation. The combined `stunnel` values key is also
+rejected; configure `stunnelClient` and `stunnelServer` separately. Review rendered changes
 before upgrading: the previous monolithic resource layout is not upgrade-compatible.
 
 ## Topology and modes
@@ -43,7 +46,7 @@ collisions with existing generic service charts.
 
 Child chart sources are in `subcharts/`; generated dependency packages belong in
 `charts/` and are ignored by Git. Every application child has its own schema,
-version, README and local library lock; the umbrella locks its eight application
+version, README and local library lock; the umbrella locks its nine application
 dependencies. Sources are excluded from the umbrella archive, which embeds the
 locked dependency packages. This keeps Helm's dependency loader from treating
 unrelated standalone sources or duplicate directory/archive pairs as dependencies.
@@ -57,7 +60,8 @@ unrelated standalone sources or duplicate directory/archive pairs as dependencie
 | Group assignment | `console.groups` / `edgeGateway.groups`; `members`, `replicas`, optional `autoscaling` |
 | Caddy entry | `caddy.image`, `routes`, `tls`, `service.type`, `frontendService`, `gatewayEnabled` |
 | Database | `postgresql.image`, `existingSecret`, `storage`, `username`, `database` |
-| Tunnels | `stunnel.image`, `client`, `server` |
+| Tunnel client | `stunnelClient.image`, `existingSecret`, `connect`, `checkHost`, `port`, `replicas` |
+| Tunnel server | `stunnelServer.image`, `existingSecret`, `connect`, `allowedCIDRs`, `port`, `replicas` |
 
 Workload image fields require `repository@sha256:<64 hex characters>`.
 Images are empty by default, with every application disabled. The open example
@@ -125,7 +129,9 @@ are configurable. Generated PVCs retain data when the StatefulSet is removed or
 scaled. Backup labels mark inventory only; they do not execute a backup.
 Perform backups, restore drills and `migratectl` outside Helm lifecycle hooks.
 
-stunnel roles are disabled by default. A role requires an image with a `stunnel`
+`stunnelClient` and `stunnelServer` are separate independently installable child
+charts, disabled by default. Each has its own image, replicas, scheduling,
+certificate identity and enable switch. A role requires an image with a `stunnel`
 binary and an existing Secret containing `ca.crt`, `tls.crt`, `tls.key`. Both roles
 verify certificate chains; the client additionally requires `checkHost`, and the
 server requires an explicit source CIDR list and client certificates. Private keys

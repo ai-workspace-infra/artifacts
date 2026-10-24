@@ -81,7 +81,8 @@ oci/charts/distributed-web-saas-fullstack/
 │   ├── content/
 │   ├── postgresql/                    # StatefulSet、Service、PVC
 │   ├── caddy/                         # HTTP(S) 入口与应用路由
-│   └── stunnel/                       # client/server 隧道组件
+│   ├── stunnel-client/                # 独立隧道客户端
+│   └── stunnel-server/                # 独立隧道服务端
 └── README.md / HELM-SUBCHART-PLAN.zh.md
 
 oci/charts/flux-system/                # 可选的独立 Flux 安装/升级包；不作为应用子 Chart
@@ -100,7 +101,8 @@ oci/charts/flux-system/                # 可选的独立 Flux 安装/升级包�
 | Content | Deployment/Service、文档服务端口及探针 | Console 可访问文档服务，内容版本与应用版本可追踪 |
 | PostgreSQL | 自有镜像 StatefulSet、Headless/ClusterIP Service、PVC、探针、备份标签与持久化策略 | 不使用通用 Deployment；PVC 删除/回收策略显式；备份恢复演练通过 |
 | Caddy | 专用 Deployment/Service、受控 Caddyfile/站点配置、TLS Secret 引用 | `caddy validate`、Host matcher 去重、HTTPS/SNI 和每个上游路由核验 |
-| stunnel | 同一子 Chart 管理 client 与 server 工作负载/Service，按网络边界限制端口 | 应用只连客户端入口；服务端 TLS、CA/证书挂载及来源限制通过 |
+| stunnel client | 独立子 Chart，客户端 Deployment/Service、CA/客户端身份及 checkHost | 应用只连客户端入口；严格验证远端证书与 hostname |
+| stunnel server | 独立子 Chart，服务端 Deployment/Service、服务端身份及来源 CIDR | 验证客户端证书、限制来源和数据库上游 |
 
 PostgreSQL 的 5432 不公开；如需要跨节点数据库访问，只能经 stunnel server 的受限入口，并由网络/IaC 声明来源策略。`postgresql.svc.plus` 等 DNS CNAME 仍归 GitOps/IaC owner 管理，不由 Helm 修改。
 
@@ -155,8 +157,8 @@ Chart 模板、schema、锁文件、三种部署模式、Caddy/stunnel、Postgre
 
 - Chart 合同：umbrella `0.2.0`；独立子 Chart/library 首版 `0.1.0`，旧 values 合同不兼容并明确拒绝。
 - Helm `3.15.4` 与本地 Helm `4.3.1` lint/render/package：PASS。
-- 11 项离线语义检查（含真实 Caddy 2.10.2 配置验证、独立/分组/单容器、Secret 引用、PVC 保留、非法配置和打包依赖）：PASS。
-- Kubernetes `1.32.0` 严格 schema：13 份有效场景渲染、276 个资源，全部有效，无跳过。
+- 12 项离线语义检查（含真实 Caddy 2.10.2 配置验证、独立/分组/单容器、Secret 引用、PVC 保留、非法配置和打包依赖）：PASS。
+- Kubernetes `1.32.0` 严格 schema：15 份有效场景渲染、284 个资源，全部有效，无跳过。
 - 三次重复模板渲染无差异：PASS；不等同于三轮在线部署/迁移幂等验收。
 - 真实 Worker 容器适配镜像、Kubernetes 部署、恢复演练、迁移及业务验收：NOT_RUN。
 

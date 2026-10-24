@@ -1,0 +1,1 @@
+{{ include "websaas.stunnel.role" (dict "root" . "role" "server") }}

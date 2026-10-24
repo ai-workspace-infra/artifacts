@@ -18,5 +18,7 @@ postgresql:
   enabled: false
 caddy:
   enabled: false
-stunnel:
+stunnelClient:
+  enabled: false
+stunnelServer:
   enabled: false

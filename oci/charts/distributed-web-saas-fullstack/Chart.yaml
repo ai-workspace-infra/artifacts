@@ -41,8 +41,13 @@ dependencies:
     version: 0.1.0
     repository: file://subcharts/caddy
     condition: caddy.enabled
-  - name: web-saas-stunnel
-    alias: stunnel
+  - name: web-saas-stunnel-client
+    alias: stunnelClient
     version: 0.1.0
-    repository: file://subcharts/stunnel
-    condition: stunnel.enabled
+    repository: file://subcharts/stunnel-client
+    condition: stunnelClient.enabled
+  - name: web-saas-stunnel-server
+    alias: stunnelServer
+    version: 0.1.0
+    repository: file://subcharts/stunnel-server
+    condition: stunnelServer.enabled

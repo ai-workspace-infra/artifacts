@@ -11,18 +11,6 @@ volumes: []
 networkPolicy:
   enabled: true
 image: ''
-client:
-  enabled: false
-  connect: ''
-  checkHost: ''
-  existingSecret: ''
-  port: 5432
-server:
-  enabled: false
-  connect: RELEASE_NAME-postgresql:5432
-  existingSecret: ''
-  port: 15432
-  allowedCIDRs: []
 resources:
   requests:
     cpu: 50m
@@ -30,3 +18,8 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+connect: RELEASE_NAME-postgresql:5432
+existingSecret: ''
+port: 15432
+allowedCIDRs: []
+replicas: 1
