@@ -16,6 +16,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/grafana-bundle: {{ .Values.grafana.bundleChecksum | quote }}
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         {{- include "observability-stack.selectorLabels" . | nindent 8 }}
@@ -128,9 +129,18 @@ spec:
             - name: GF_SERVER_ROOT_URL
               value: {{ .Values.grafana.rootUrl | default (printf "http://grafana.%s:3000/" ((and .Values.global .Values.global.domain) | default .Values.domain | default "open-platform.local")) | quote }}
             {{- if .Values.grafana.plugins }}
-            - name: GF_INSTALL_PLUGINS
+            - name: GF_PLUGINS_PREINSTALL_SYNC
               value: {{ join "," .Values.grafana.plugins | quote }}
             {{- end }}
+            {{- if .Values.grafana.unsignedPlugins }}
+            - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
+              value: {{ join "," .Values.grafana.unsignedPlugins | quote }}
+            {{- end }}
+          {{- if .Values.grafana.runtimeSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.grafana.runtimeSecret | quote }}
+          {{- end }}
           ports:
             - name: grafana
               containerPort: 3000
@@ -145,20 +155,52 @@ spec:
             - name: data
               mountPath: /var/lib/grafana
               subPath: grafana
-            - name: config
+            - name: {{ if .Values.grafana.datasourcesConfigMap }}grafana-datasources{{ else }}config{{ end }}
               mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
               subPath: datasources.yaml
 
-            {{- if .Values.grafana.dashboardsConfigMap }}
+            {{- if .Values.grafana.appsConfigMap }}
+            - name: grafana-apps
+              mountPath: /etc/grafana/provisioning/plugins/apps.yaml
+              subPath: apps.yaml
+              readOnly: true
+            {{- end }}
+            {{- range $i, $provider := .Values.grafana.dashboardProviders }}
+            - name: grafana-provider-{{ $i }}
+              mountPath: /etc/grafana/imported-dashboards/{{ $provider.path }}
+              readOnly: true
+            {{- end }}
+            {{- if or .Values.grafana.dashboardsConfigMap .Values.grafana.dashboardProviders }}
             - name: config
               mountPath: /etc/grafana/provisioning/dashboards/platform.yaml
               subPath: dashboards.yaml
+            {{- end }}
+            {{- if .Values.grafana.dashboardsConfigMap }}
             - name: dashboards
               mountPath: /etc/grafana/platform-dashboards
               readOnly: true
             {{- end }}
 
       volumes:
+        {{- if .Values.grafana.datasourcesConfigMap }}
+        - name: grafana-datasources
+          configMap:
+            name: {{ .Values.grafana.datasourcesConfigMap | quote }}
+        {{- end }}
+        {{- if .Values.grafana.appsConfigMap }}
+        - name: grafana-apps
+          configMap:
+            name: {{ .Values.grafana.appsConfigMap | quote }}
+        {{- end }}
+        {{- range $i, $provider := .Values.grafana.dashboardProviders }}
+        - name: grafana-provider-{{ $i }}
+          projected:
+            sources:
+              {{- range $provider.configMaps }}
+              - configMap:
+                  name: {{ . | quote }}
+              {{- end }}
+        {{- end }}
         {{- if .Values.grafana.dashboardsConfigMap }}
         - name: dashboards
           configMap:

@@ -1,0 +1,18 @@
+{{- range .Values.grafana.plugins }}
+{{- if not (regexMatch "^[a-zA-Z0-9_-]+@[0-9]+[.][0-9]+[.][0-9]+$" .) }}
+{{- fail "grafana.plugins must pin signed catalog plugins as id@version; custom archives require a verified image" }}
+{{- end }}
+{{- end }}
+{{- range .Values.grafana.unsignedPlugins }}
+{{- if not (regexMatch "^[a-zA-Z0-9_-]+$" .) }}
+{{- fail "grafana.unsignedPlugins requires exact plugin IDs (no wildcard)" }}
+{{- end }}
+{{- end }}
+{{- range .Values.grafana.dashboardProviders }}
+{{- if not (regexMatch "^[a-z0-9-]+$" .path) }}
+{{- fail "grafana.dashboardProviders.path must be a single safe directory name" }}
+{{- end }}
+{{- if not .configMaps }}
+{{- fail "grafana.dashboardProviders requires configMaps" }}
+{{- end }}
+{{- end }}

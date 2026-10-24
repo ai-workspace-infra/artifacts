@@ -104,10 +104,11 @@ data:
         access: proxy
         url: http://127.0.0.1:10428/select/jaeger
 
-  {{- if .Values.grafana.dashboardsConfigMap }}
+  {{- if or .Values.grafana.dashboardsConfigMap .Values.grafana.dashboardProviders }}
   dashboards.yaml: |
     apiVersion: 1
     providers:
+      {{- if .Values.grafana.dashboardsConfigMap }}
       - name: platform
         orgId: 1
         folder: Platform
@@ -117,4 +118,17 @@ data:
         updateIntervalSeconds: 15
         options:
           path: /etc/grafana/platform-dashboards
+      {{- end }}
+      {{- range .Values.grafana.dashboardProviders }}
+      - name: {{ .name | quote }}
+        orgId: 1
+        folder: {{ .folder | quote }}
+        folderUid: {{ .folderUid | quote }}
+        type: file
+        disableDeletion: false
+        allowUiUpdates: false
+        updateIntervalSeconds: 15
+        options:
+          path: /etc/grafana/imported-dashboards/{{ .path }}
+      {{- end }}
   {{- end }}
