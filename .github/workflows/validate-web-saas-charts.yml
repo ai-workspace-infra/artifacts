@@ -7,6 +7,7 @@ on:
       - '.github/scripts/*web-saas-*.sh'
       - '.github/tests/test_web_saas_charts.py'
       - '.github/tests/test_otel_spanmetrics_runtime.py'
+      - '.github/tests/test_grafana_config_render.py'
       - '.github/tests/requirements-charts.txt'
       - '.github/workflows/validate-web-saas-charts.yml'
       - '.github/workflows/release-oci-charts.yml'
@@ -32,5 +33,7 @@ jobs:
         run: |
           helm lint oci/charts/open-platform/charts/observability-stack
           helm template platform-observability oci/charts/open-platform/charts/observability-stack --set telemetry.cluster=validation --set telemetry.environment=prod >/tmp/observability-rendered.yaml
+      - name: Verify Grafana external configuration and rejection cases
+        run: python3 .github/tests/test_grafana_config_render.py
       - name: Verify OTLP request metrics with legacy resource labels
         run: python3 .github/tests/test_otel_spanmetrics_runtime.py
