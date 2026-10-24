@@ -45,7 +45,7 @@ PY
         fi
         rm -r "$work_dir/local" "$work_dir/remote"
         echo "Skipping identical published chart $name:$version"
-      elif rg -qi 'not found|404|MANIFEST_UNKNOWN|NAME_UNKNOWN' "$work_dir/pull.log"; then
+      elif grep -Eqi 'not found|404|MANIFEST_UNKNOWN|NAME_UNKNOWN' "$work_dir/pull.log"; then
         helm push "$pkg" "oci://${GHCR_NAMESPACE}"
       else
         cat "$work_dir/pull.log" >&2; exit 1
