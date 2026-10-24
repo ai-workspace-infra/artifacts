@@ -9,6 +9,7 @@ vault:
   devRootToken: "root-token-dev"
 
 zitadelDb:
+  enabled: true
   image:
     repository: postgres
     tag: "16-alpine"
