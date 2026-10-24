@@ -65,3 +65,8 @@ resources:
   requests:
     cpu: 200m
     memory: 512Mi
+
+telemetry:
+  cluster: ""
+  environment: unspecified
+  extraScrapeConfigs: []
