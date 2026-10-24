@@ -1,0 +1,294 @@
+enabled: false
+global:
+  imagePullSecrets: []
+  podLabels: {}
+podAnnotations: {}
+podSecurityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumes: []
+networkPolicy:
+  enabled: true
+deploymentProfile: independent
+groups: {}
+singleContainer:
+  image: ''
+  port: 8080
+  replicas: 1
+  env: {}
+  secretRefs: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  probes:
+    readinessProbe:
+      httpGet:
+        path: /healthz
+        port: primary
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: primary
+      initialDelaySeconds: 20
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+components:
+  static-pages:
+    image: ''
+    port: 8080
+    replicas: 1
+    env: {}
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+  frontend-router:
+    image: ''
+    port: 8080
+    replicas: 1
+    env:
+      STATIC_ORIGIN: http://RELEASE_NAME-static-pages
+      SSR_PUBLIC_ORIGIN: http://RELEASE_NAME-ssr-public
+      SSR_CONTENT_ORIGIN: http://RELEASE_NAME-ssr-content
+      SSR_AUTH_ORIGIN: http://RELEASE_NAME-ssr-auth
+      SSR_CONSOLE_ORIGIN: http://RELEASE_NAME-ssr-console
+      SSR_WORKSPACE_ORIGIN: http://RELEASE_NAME-ssr-workspace
+      API_ORIGIN: http://RELEASE_NAME-caddy
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+  ssr-public:
+    image: ''
+    port: 8080
+    replicas: 1
+    env: {}
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+  ssr-content:
+    image: ''
+    port: 8080
+    replicas: 1
+    env: {}
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+  ssr-auth:
+    image: ''
+    port: 8080
+    replicas: 1
+    env: {}
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+  ssr-console:
+    image: ''
+    port: 8080
+    replicas: 1
+    env: {}
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+  ssr-workspace:
+    image: ''
+    port: 8080
+    replicas: 1
+    env: {}
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70

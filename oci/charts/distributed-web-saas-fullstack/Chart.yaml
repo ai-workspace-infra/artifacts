@@ -1,15 +1,53 @@
 apiVersion: v2
 name: distributed-web-saas-fullstack
-description: Open, self-hostable distributed Web SaaS full-stack for K3s and Kubernetes
+description: Composable Web SaaS services with a Caddy HTTPS ingress
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
-keywords:
-  - distributed
-  - self-hosted
-  - k3s
-  - kubernetes
-  - web-saas
-home: https://github.com/ai-workspace-infra/artifacts
-maintainers:
-  - name: AI Workspace Infrastructure
+kubeVersion: ">=1.32.0-0"
+version: 0.2.0
+appVersion: "0.2.0"
+dependencies:
+  - name: web-saas-console
+    alias: console
+    version: 0.1.0
+    repository: file://subcharts/console
+    condition: console.enabled
+  - name: web-saas-accounts
+    alias: accounts
+    version: 0.1.0
+    repository: file://subcharts/accounts
+    condition: accounts.enabled
+  - name: web-saas-billing
+    alias: billing
+    version: 0.1.0
+    repository: file://subcharts/billing
+    condition: billing.enabled
+  - name: web-saas-content
+    alias: content
+    version: 0.1.0
+    repository: file://subcharts/content
+    condition: content.enabled
+  - name: web-saas-edge-gateway
+    alias: edgeGateway
+    version: 0.1.0
+    repository: file://subcharts/edge-gateway
+    condition: edgeGateway.enabled
+  - name: web-saas-postgresql
+    alias: postgresql
+    version: 0.1.0
+    repository: file://subcharts/postgresql
+    condition: postgresql.enabled
+  - name: web-saas-caddy
+    alias: caddy
+    version: 0.1.0
+    repository: file://subcharts/caddy
+    condition: caddy.enabled
+  - name: web-saas-stunnel-client
+    alias: stunnelClient
+    version: 0.1.0
+    repository: file://subcharts/stunnel-client
+    condition: stunnelClient.enabled
+  - name: web-saas-stunnel-server
+    alias: stunnelServer
+    version: 0.1.0
+    repository: file://subcharts/stunnel-server
+    condition: stunnelServer.enabled

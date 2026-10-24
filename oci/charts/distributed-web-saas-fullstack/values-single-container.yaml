@@ -1,0 +1,10 @@
+# Overlay on values-open.yaml plus real image/Secret configuration.
+console:
+  deploymentProfile: single-container
+  singleContainer:
+    secretRefs: [example-runtime]
+edgeGateway:
+  enabled: false
+caddy:
+  frontendService: console
+  gatewayEnabled: false

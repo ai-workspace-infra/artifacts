@@ -1,0 +1,4 @@
+{{- if .Values.enabled }}
+{{- $name := "frontend-router" }}
+{{ include "websaas.fleet" (dict "root" . "items" (dict $name .Values.workload) "profile" "independent" "groups" (dict)) }}
+{{- end }}

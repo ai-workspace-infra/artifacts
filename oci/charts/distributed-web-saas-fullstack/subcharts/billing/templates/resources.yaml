@@ -1,0 +1,4 @@
+{{- if .Values.enabled }}
+{{- $name := "billing" }}
+{{ include "websaas.fleet" (dict "root" . "items" (dict $name .Values.workload) "profile" "independent" "groups" (dict)) }}
+{{- end }}

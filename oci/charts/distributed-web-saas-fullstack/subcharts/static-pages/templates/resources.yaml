@@ -1,0 +1,4 @@
+{{- if .Values.enabled }}
+{{- $name := "static-pages" }}
+{{ include "websaas.fleet" (dict "root" . "items" (dict $name .Values.workload) "profile" "independent" "groups" (dict)) }}
+{{- end }}

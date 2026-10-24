@@ -1,0 +1,34 @@
+enabled: false
+global:
+  imagePullSecrets: []
+  podLabels: {}
+podAnnotations: {}
+podSecurityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumes: []
+networkPolicy:
+  enabled: true
+image: ''
+frontendService: frontend-router
+gatewayEnabled: false
+httpOnly: false
+replicas: 1
+service:
+  type: LoadBalancer
+routes:
+  consoleHost: ''
+  accountsHost: ''
+  billingHost: ''
+tls:
+  consoleSecret: ''
+  accountsSecret: ''
+  billingSecret: ''
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

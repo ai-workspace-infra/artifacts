@@ -1,0 +1,49 @@
+# Overlay on values-open.yaml plus reviewed image/Secret configuration.
+# Every application must honor its PORT value. Group replicas copy the full Pod.
+console:
+  deploymentProfile: grouped
+  groups:
+    assets:
+      members:
+      - static-pages
+      - frontend-router
+      replicas: 1
+    ssr:
+      members:
+      - ssr-public
+      - ssr-content
+      - ssr-auth
+      - ssr-console
+      - ssr-workspace
+      replicas: 2
+  components:
+    static-pages:
+      port: 8100
+    frontend-router:
+      port: 8101
+    ssr-public:
+      port: 8102
+    ssr-content:
+      port: 8103
+    ssr-auth:
+      port: 8104
+    ssr-console:
+      port: 8105
+    ssr-workspace:
+      port: 8106
+edgeGateway:
+  deploymentProfile: grouped
+  groups:
+    api:
+      members:
+      - gateway-auth
+      - gateway-admin
+      - gateway-core
+      replicas: 2
+  boundaries:
+    auth:
+      port: 8200
+    admin:
+      port: 8201
+    core:
+      port: 8202

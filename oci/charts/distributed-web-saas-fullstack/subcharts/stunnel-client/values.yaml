@@ -1,0 +1,25 @@
+enabled: false
+global:
+  imagePullSecrets: []
+  podLabels: {}
+podAnnotations: {}
+podSecurityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumes: []
+networkPolicy:
+  enabled: true
+image: ''
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+connect: ''
+checkHost: ''
+existingSecret: ''
+port: 5432
+replicas: 1

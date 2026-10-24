@@ -9,6 +9,11 @@ on:
       - "oci/charts/apps/app-service/**"
       - "oci/charts/postgresql/**"
       - "oci/charts/observability/**"
+      - "oci/charts/distributed-web-saas-fullstack/**"
+      - ".github/scripts/*web-saas-*.sh"
+      - ".github/scripts/release-oci-charts.sh"
+      - ".github/tests/test_web_saas_charts.py"
+      - ".github/tests/requirements-charts.txt"
       - ".github/workflows/release-oci-charts.yml"
   workflow_dispatch:
     inputs:
@@ -30,6 +35,7 @@ env:
 
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     runs-on: ${{ inputs.runner || 'self-runner' }}
     steps:
       - name: Checkout
@@ -47,36 +53,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Lint charts
-        run: |
-          set -euo pipefail
-          charts=(
-            "oci/charts/open-platform"
-            "oci/charts/apps/app-service"
-            "oci/charts/postgresql"
-            "oci/charts/observability"
-          )
-          for chart in "${charts[@]}"; do
-            helm lint "./${chart}"
-          done
+      - name: Validate charts and deployment profiles
+        run: .github/scripts/release-oci-charts.sh validate
 
-      - name: Package charts
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          charts=(
-            "oci/charts/open-platform"
-            "oci/charts/apps/app-service"
-            "oci/charts/postgresql"
-            "oci/charts/observability"
-          )
-          for chart in "${charts[@]}"; do
-            helm package "./${chart}" --destination dist
-          done
+      - name: Package charts and source manifest
+        run: .github/scripts/release-oci-charts.sh package
 
-      - name: Push charts to GHCR
-        run: |
-          set -euo pipefail
-          for pkg in dist/*.tgz; do
-            helm push "${pkg}" "oci://${GHCR_NAMESPACE}"
-          done
+      - name: Push immutable charts to GHCR
+        run: .github/scripts/release-oci-charts.sh push
+
+      - name: Preserve package checksums and source identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: oci-charts-${{ github.sha }}
+          path: ${{ runner.temp }}/oci-charts-${{ github.run_id }}-${{ github.run_attempt }}/

@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "enum": [
+            "local",
+            "sit",
+            "uat",
+            "prod"
+          ]
+        },
+        "expectedNamespace": {
+          "type": "string"
+        },
+        "imagePullSecrets": {
+          "type": "array"
+        },
+        "podLabels": {
+          "type": "object"
+        }
+      }
+    },
+    "console": {
+      "type": "object"
+    },
+    "accounts": {
+      "type": "object"
+    },
+    "billing": {
+      "type": "object"
+    },
+    "content": {
+      "type": "object"
+    },
+    "edgeGateway": {
+      "type": "object"
+    },
+    "postgresql": {
+      "type": "object"
+    },
+    "caddy": {
+      "type": "object"
+    },
+    "stunnelClient": {
+      "type": "object"
+    },
+    "stunnelServer": {
+      "type": "object"
+    }
+  }
+}

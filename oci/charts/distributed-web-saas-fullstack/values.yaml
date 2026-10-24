@@ -1,28 +1,24 @@
-# Base values intentionally do not name a public image tag. Install the
-# open/self-hosted profile with `-f values-open.yaml` and replace each image
-# with an immutable tag produced by the corresponding service repository.
+# Intentional 0.2 contract break: no legacy components/database/ingress keys.
 global:
+  environment: local
+  expectedNamespace: ""
   imagePullSecrets: []
   podLabels: {}
-
-ingress:
+console:
   enabled: false
-  className: traefik
-  consoleHost: console.localhost
-  accountsHost: accounts.localhost
-  annotations: {}
-  tls: []
-
-database:
-  mode: postgresql
-  postgresql:
-    enabled: true
-    image: ghcr.io/ai-workspace-infra/postgresql:17
-    existingSecret: distributed-web-saas-postgresql
-    secretKey: password
-    username: app
-    database: app
-    storageClass: ""
-    size: 10Gi
-
-components: {}
+accounts:
+  enabled: false
+billing:
+  enabled: false
+content:
+  enabled: false
+edgeGateway:
+  enabled: false
+postgresql:
+  enabled: false
+caddy:
+  enabled: false
+stunnelClient:
+  enabled: false
+stunnelServer:
+  enabled: false

@@ -26,3 +26,7 @@ dist/bin/*
 
 # Packaged Helm charts generated in-place during release work
 oci/charts/apps/*/charts/*.tgz
+
+# Rebuilt from local Web SaaS subchart sources and locked dependencies
+oci/charts/distributed-web-saas-fullstack/charts/*.tgz
+oci/charts/distributed-web-saas-fullstack/subcharts/*/charts/*.tgz

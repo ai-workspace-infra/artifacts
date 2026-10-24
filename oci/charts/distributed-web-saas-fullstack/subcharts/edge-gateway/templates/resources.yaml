@@ -1,0 +1,7 @@
+{{- if .Values.enabled }}
+{{- $items := dict }}
+{{- range $name, $item := .Values.boundaries }}
+{{- $_ := set $items (printf "gateway-%s" $name) $item }}
+{{- end }}
+{{ include "websaas.fleet" (dict "root" . "items" $items "profile" .Values.deploymentProfile "groups" .Values.groups) }}
+{{- end }}

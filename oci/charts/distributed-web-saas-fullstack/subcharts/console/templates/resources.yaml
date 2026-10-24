@@ -1,0 +1,7 @@
+{{- if .Values.enabled }}
+{{- $items := .Values.components }}
+{{- if eq .Values.deploymentProfile "single-container" }}
+  {{- $items = dict "console" .Values.singleContainer }}
+{{- end }}
+{{ include "websaas.fleet" (dict "root" . "items" $items "profile" .Values.deploymentProfile "groups" .Values.groups) }}
+{{- end }}

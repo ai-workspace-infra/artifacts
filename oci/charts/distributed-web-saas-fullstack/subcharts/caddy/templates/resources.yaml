@@ -1,0 +1,123 @@
+{{- define "websaas.caddy.api" -}}
+{{- $root := . -}}
+{{- if .Values.gatewayEnabled }}
+@auth path /api/auth /api/auth/* /api/v1/auth /api/v1/auth/*
+handle @auth {
+  reverse_proxy {{ .Release.Name }}-gateway-auth:80
+}
+@admin path /api/admin /api/admin/*
+handle @admin {
+  reverse_proxy {{ .Release.Name }}-gateway-admin:80
+}
+@core path /api /api/*
+handle @core {
+  reverse_proxy {{ .Release.Name }}-gateway-core:80
+}
+{{- else }}
+@api path /api /api/*
+handle @api {
+  reverse_proxy {{ .Release.Name }}-accounts:80
+}
+{{- end }}
+{{- end -}}
+{{- define "websaas.caddy.config" -}}
+{
+  admin off
+  auto_https off
+  http_port 8080
+  https_port 8443
+}
+:8080 {
+  handle /healthz {
+    respond "ok" 200
+  }
+  {{- include "websaas.caddy.api" . | nindent 2 }}
+  handle {
+    respond "not found" 404
+  }
+}
+{{- $seen := dict -}}
+{{- range $role, $host := dict "console" .Values.routes.consoleHost "accounts" .Values.routes.accountsHost "billing" .Values.routes.billingHost }}
+{{- if $host }}
+{{- if hasKey $seen $host }}{{ fail "Caddy public hosts must be distinct" }}{{ end }}
+{{- $_ := set $seen $host true }}
+{{ ternary "http" "https" $.Values.httpOnly }}://{{ $host }}:{{ ternary 8080 8443 $.Values.httpOnly }} {
+  {{- if not $.Values.httpOnly }}
+  tls /tls/{{ $role }}/tls.crt /tls/{{ $role }}/tls.key
+  {{- end }}
+  {{- if eq $role "billing" }}
+  reverse_proxy {{ $.Release.Name }}-billing:80
+  {{- else }}
+  {{- include "websaas.caddy.api" $ | nindent 2 }}
+  handle {
+    reverse_proxy {{ $.Release.Name }}-{{ ternary $.Values.frontendService "accounts" (eq $role "console") }}:80
+  }
+  {{- end }}
+}
+{{- end }}
+{{- end }}
+{{- end -}}
+{{- if .Values.enabled }}
+{{- if not .Values.routes.consoleHost }}{{ fail "caddy.routes.consoleHost is required" }}{{ end }}
+{{- $volumes := list (dict "name" "configuration" "configMap" (dict "name" (printf "%s-caddy-config" .Release.Name))) (dict "name" "data" "emptyDir" (dict)) (dict "name" "config" "emptyDir" (dict)) }}
+{{- $mounts := list (dict "name" "configuration" "mountPath" "/etc/caddy" "readOnly" true) (dict "name" "data" "mountPath" "/data") (dict "name" "config" "mountPath" "/config") }}
+{{- range $role, $host := dict "console" .Values.routes.consoleHost "accounts" .Values.routes.accountsHost "billing" .Values.routes.billingHost }}
+{{- if and $host (not $.Values.httpOnly) }}
+{{- $secret := required (printf "caddy.tls.%sSecret is required for HTTPS" $role) (index $.Values.tls (printf "%sSecret" $role)) }}
+{{- $volumes = append $volumes (dict "name" (printf "tls-%s" $role) "secret" (dict "secretName" $secret "defaultMode" 288)) }}
+{{- $mounts = append $mounts (dict "name" (printf "tls-%s" $role) "mountPath" (printf "/tls/%s" $role) "readOnly" true) }}
+{{- end }}
+{{- end }}
+{{- $_ := set .Values "volumes" $volumes }}
+{{- $_ := set .Values "networkPolicy" (dict "enabled" false) }}
+{{- $_ := set .Values "podSecurityContext" (dict "runAsNonRoot" true "runAsUser" 1000 "runAsGroup" 1000 "fsGroup" 1000) }}
+{{- $_ := set .Values.podAnnotations "checksum/caddyfile" (include "websaas.caddy.config" . | sha256sum) }}
+{{- $workload := dict "image" .Values.image "port" 8080 "replicas" .Values.replicas "securityContext" (dict "capabilities" (dict "drop" (list "ALL") "add" (list "NET_BIND_SERVICE"))) "resources" .Values.resources "volumeMounts" $mounts "extraPorts" (list (dict "name" "https" "containerPort" 8443)) "command" (list "caddy") "args" (list "run" "--config" "/etc/caddy/Caddyfile" "--adapter" "caddyfile") "probes" (dict "readinessProbe" (dict "httpGet" (dict "path" "/healthz" "port" 8080)) "livenessProbe" (dict "httpGet" (dict "path" "/healthz" "port" 8080))) }}
+{{ include "websaas.fleet" (dict "root" . "items" (dict "caddy" $workload) "profile" "independent" "groups" (dict)) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-caddy-config
+data:
+  Caddyfile: |
+    {{- include "websaas.caddy.config" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-caddy-ingress
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    websaas.io/workload: caddy
+  ports:
+    - name: {{ ternary "http" "https" .Values.httpOnly }}
+      port: {{ ternary 80 443 .Values.httpOnly }}
+      targetPort: {{ ternary 8080 8443 .Values.httpOnly }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-caddy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      websaas.io/workload: caddy
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ ternary 8080 8443 .Values.httpOnly }}
+    {{- if not .Values.httpOnly }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 8080
+    {{- end }}
+{{- end }}
