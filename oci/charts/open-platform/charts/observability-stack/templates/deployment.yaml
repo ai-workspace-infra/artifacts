@@ -22,6 +22,28 @@ spec:
         {{- include "observability-stack.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.serviceAccountName | quote }}
+      {{- if .Values.grafana.pluginArchives }}
+      initContainers:
+        - name: verified-grafana-plugins
+          image: {{ .Values.grafana.pluginInstallerImage | quote }}
+          command: [python3, /installer/install-plugins.py]
+          env:
+            - name: PLUGIN_ARCHIVES
+              value: {{ .Values.grafana.pluginArchives | toJson | quote }}
+          securityContext:
+            runAsUser: 472
+            runAsGroup: 472
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: grafana-plugins
+              mountPath: /plugins
+            - name: grafana-plugin-installer
+              mountPath: /installer
+              readOnly: true
+      {{- end }}
       containers:
         - name: victoria-metrics
           image: "{{ .Values.victoriaMetrics.image.repository }}:{{ .Values.victoriaMetrics.image.tag }}"
@@ -121,6 +143,10 @@ spec:
           image: "{{ .Values.grafana.image.repository }}:{{ .Values.grafana.image.tag }}"
           imagePullPolicy: {{ .Values.grafana.image.pullPolicy }}
           env:
+            {{- if .Values.grafana.pluginArchives }}
+            - name: GF_PATHS_PLUGINS
+              value: /opt/grafana/plugins
+            {{- end }}
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -155,6 +181,10 @@ spec:
             - name: data
               mountPath: /var/lib/grafana
               subPath: grafana
+            {{- if .Values.grafana.pluginArchives }}
+            - name: grafana-plugins
+              mountPath: /opt/grafana/plugins
+            {{- end }}
             - name: {{ if .Values.grafana.datasourcesConfigMap }}grafana-datasources{{ else }}config{{ end }}
               mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
               subPath: datasources.yaml
@@ -182,6 +212,13 @@ spec:
             {{- end }}
 
       volumes:
+        {{- if .Values.grafana.pluginArchives }}
+        - name: grafana-plugins
+          emptyDir: {}
+        - name: grafana-plugin-installer
+          configMap:
+            name: {{ include "observability-stack.fullname" . }}-plugin-installer
+        {{- end }}
         {{- if .Values.grafana.datasourcesConfigMap }}
         - name: grafana-datasources
           configMap:
