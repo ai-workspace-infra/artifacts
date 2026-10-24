@@ -8,7 +8,7 @@ python3 -m venv "$validation_dir/venv"
 export PATH="$validation_dir/venv/bin:$PATH"
 "$repo_root/.github/scripts/web-saas-charts.sh" build
 "$repo_root/.github/scripts/web-saas-charts.sh" package "$validation_dir/packages"
-export WEBSAAS_PACKAGED_CHART="$validation_dir/packages/distributed-web-saas-fullstack-0.2.0.tgz"
+export WEBSAAS_PACKAGED_CHART="$(find "$validation_dir/packages" -name "distributed-web-saas-fullstack-*.tgz" | head -n1)"
 "$repo_root/.github/scripts/web-saas-charts.sh" validate
 # Validate the packaged umbrella, whose local source directories are excluded.
 helm lint "$WEBSAAS_PACKAGED_CHART" --strict --kube-version 1.32.0
