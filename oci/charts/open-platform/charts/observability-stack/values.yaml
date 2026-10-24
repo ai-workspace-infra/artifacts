@@ -40,7 +40,8 @@ grafana:
     tag: "11.3.0"
     pullPolicy: IfNotPresent
   port: 3000
-  adminPassword: "admin"
+  existingSecret: grafana-admin
+  adminPasswordKey: password
 
 service:
   type: ClusterIP
