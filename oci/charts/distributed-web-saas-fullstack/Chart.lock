@@ -1,30 +1,30 @@
 dependencies:
 - name: web-saas-console
   repository: file://subcharts/console
-  version: 0.1.0
+  version: 0.1.1
 - name: web-saas-accounts
   repository: file://subcharts/accounts
-  version: 0.1.0
+  version: 0.1.1
 - name: web-saas-billing
   repository: file://subcharts/billing
-  version: 0.1.0
+  version: 0.1.1
 - name: web-saas-content
   repository: file://subcharts/content
-  version: 0.1.0
+  version: 0.1.1
 - name: web-saas-edge-gateway
   repository: file://subcharts/edge-gateway
-  version: 0.1.0
+  version: 0.1.1
 - name: web-saas-postgresql
   repository: file://subcharts/postgresql
-  version: 0.1.0
+  version: 0.1.1
 - name: web-saas-caddy
   repository: file://subcharts/caddy
-  version: 0.1.1
+  version: 0.1.2
 - name: web-saas-stunnel-client
   repository: file://subcharts/stunnel-client
-  version: 0.1.0
+  version: 0.1.1
 - name: web-saas-stunnel-server
   repository: file://subcharts/stunnel-server
-  version: 0.1.0
-digest: sha256:fc642509b7fbba1777002b3e3cf6e3baa74198ff5438b609ee814fdb2621fe94
-generated: "2026-10-24T22:46:22.327619+08:00"
+  version: 0.1.1
+digest: sha256:ae70e4e9d629cb3add4d011c6125f774bf96b3e2277181c76330f754a1b12bf7
+generated: "2026-10-24T23:12:32.449+08:00"

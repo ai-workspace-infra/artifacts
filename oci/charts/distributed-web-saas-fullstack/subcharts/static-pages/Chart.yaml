@@ -2,9 +2,9 @@ apiVersion: v2
 name: web-saas-static-pages
 description: Independent static-pages workload
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: 0.1.0
 dependencies:
-  - name: web-saas-common
-    version: 0.1.0
-    repository: file://../web-saas-common
+- name: web-saas-common
+  version: 0.1.1
+  repository: file://../web-saas-common
