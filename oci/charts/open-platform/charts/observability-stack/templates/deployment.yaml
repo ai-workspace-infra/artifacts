@@ -107,7 +107,10 @@ spec:
           imagePullPolicy: {{ .Values.grafana.image.pullPolicy }}
           env:
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: {{ .Values.grafana.adminPassword | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "grafana.existingSecret is required" .Values.grafana.existingSecret | quote }}
+                  key: {{ .Values.grafana.adminPasswordKey | quote }}
             - name: GF_SERVER_ROOT_URL
               value: "http://grafana.{{ (and .Values.global .Values.global.domain) | default .Values.domain | default "open-platform.local" }}:3000/"
           ports:

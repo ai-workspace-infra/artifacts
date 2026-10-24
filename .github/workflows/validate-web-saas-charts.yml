@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'oci/charts/distributed-web-saas-fullstack/**'
+      - 'oci/charts/open-platform/**'
       - '.github/scripts/*web-saas-*.sh'
       - '.github/tests/test_web_saas_charts.py'
       - '.github/tests/requirements-charts.txt'
@@ -26,3 +27,7 @@ jobs:
         run: .github/scripts/check-web-saas-charts.sh
       - name: Validate rendered Kubernetes API schemas
         run: .github/scripts/check-web-saas-schemas.sh
+      - name: Validate observability chart and secret references
+        run: |
+          helm lint oci/charts/open-platform/charts/observability-stack
+          helm template platform-observability oci/charts/open-platform/charts/observability-stack --set telemetry.cluster=validation --set telemetry.environment=prod >/tmp/observability-rendered.yaml
