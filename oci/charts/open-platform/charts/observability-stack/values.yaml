@@ -45,6 +45,7 @@ grafana:
   adminPasswordKey: password
   rootUrl: ""
   plugins: []
+  dashboardsConfigMap: ""
 
 service:
   type: ClusterIP
