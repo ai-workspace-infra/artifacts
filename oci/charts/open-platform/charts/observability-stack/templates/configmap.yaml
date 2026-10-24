@@ -38,6 +38,8 @@ data:
     {{- if .Values.telemetry.spanMetrics }}
     connectors:
       spanmetrics:
+        # The Prometheus exporter already promotes this resource attribute.
+        exclude_dimensions: [service.name]
         metrics_flush_interval: 15s
         dimensions:
           - name: http.method
