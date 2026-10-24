@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - "oci/charts/open-platform/**"
       - "oci/charts/apps/app-service/**"
       - "oci/charts/postgresql/**"
       - "oci/charts/observability/**"
@@ -50,6 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           charts=(
+            "oci/charts/open-platform"
             "oci/charts/apps/app-service"
             "oci/charts/postgresql"
             "oci/charts/observability"
@@ -63,6 +65,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           charts=(
+            "oci/charts/open-platform"
             "oci/charts/apps/app-service"
             "oci/charts/postgresql"
             "oci/charts/observability"
