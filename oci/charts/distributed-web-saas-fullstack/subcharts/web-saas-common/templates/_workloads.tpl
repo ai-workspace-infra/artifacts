@@ -130,7 +130,7 @@ spec:
             {{- end }}
           env:
             - name: PORT
-              value: {{ $item.port | quote }}
+              value: {{ default $item.port $item.internalPort | quote }}
             {{- range $key, $value := $item.env }}
             {{- if eq $key "PORT" }}{{ fail "set the workload port instead of env.PORT" }}{{ end }}
             - name: {{ $key }}
