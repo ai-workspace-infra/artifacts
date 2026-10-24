@@ -2,5 +2,5 @@ apiVersion: v2
 name: observability-stack
 description: Full-Stack Observability Central Service (VictoriaMetrics + VictoriaLogs + VictoriaTraces + Otel Collector + Grafana)
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "1.101.0"

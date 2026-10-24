@@ -11,7 +11,13 @@ data:
     scrape_configs:
       - job_name: 'victoriametrics'
         static_configs:
-          - targets: ['127.0.0.1:8428']
+          - targets: ['127.0.0.1:8428', '127.0.0.1:9428', '127.0.0.1:10428', '127.0.0.1:8888', '127.0.0.1:8889']
+            labels:
+              cluster: {{ .Values.telemetry.cluster | default .Release.Name | quote }}
+              environment: {{ .Values.telemetry.environment | quote }}
+    {{- with .Values.telemetry.extraScrapeConfigs }}
+    {{- toYaml . | nindent 6 }}
+    {{- end }}
   otel-collector.yml: |
     receivers:
       otlp:
@@ -20,19 +26,39 @@ data:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
+    processors:
+      resource/cluster:
+        attributes:
+          - key: cluster
+            value: {{ .Values.telemetry.cluster | default .Release.Name | quote }}
+            action: upsert
+          - key: environment
+            value: {{ .Values.telemetry.environment | quote }}
+            action: upsert
+      batch: {}
     exporters:
       prometheus:
         endpoint: 0.0.0.0:8889
-      debug:
-        verbosity: basic
+        resource_to_telemetry_conversion:
+          enabled: true
+      otlphttp/traces:
+        traces_endpoint: http://127.0.0.1:10428/insert/opentelemetry/v1/traces
+      otlphttp/logs:
+        logs_endpoint: http://127.0.0.1:9428/insert/opentelemetry/v1/logs
     service:
       pipelines:
         traces:
           receivers: [otlp]
-          exporters: [debug]
+          processors: [resource/cluster, batch]
+          exporters: [otlphttp/traces]
         metrics:
           receivers: [otlp]
+          processors: [resource/cluster, batch]
           exporters: [prometheus]
+        logs:
+          receivers: [otlp]
+          processors: [resource/cluster, batch]
+          exporters: [otlphttp/logs]
   datasources.yaml: |
     apiVersion: 1
     datasources:
@@ -45,3 +71,7 @@ data:
         type: victoriametrics-logs-datasource
         access: proxy
         url: http://127.0.0.1:9428
+      - name: VictoriaTraces
+        type: jaeger
+        access: proxy
+        url: http://127.0.0.1:10428/select/jaeger

@@ -11,6 +11,8 @@ spec:
       {{- include "observability-stack.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         {{- include "observability-stack.selectorLabels" . | nindent 8 }}
     spec:
@@ -73,12 +75,6 @@ spec:
             - name: traces
               containerPort: 10428
               protocol: TCP
-            - name: otlp-http
-              containerPort: 4318
-              protocol: TCP
-            - name: otlp-grpc
-              containerPort: 4317
-              protocol: TCP
           livenessProbe:
             httpGet:
               path: /health
@@ -95,8 +91,11 @@ spec:
           imagePullPolicy: {{ .Values.otelCollector.image.pullPolicy }}
           command: ["/otelcol-contrib", "--config=/etc/otelcol-contrib/config.yaml"]
           ports:
-            - name: otel-in
+            - name: otlp-http
               containerPort: 4318
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
               protocol: TCP
           volumeMounts:
             - name: config
