@@ -1,3 +1,5 @@
+domain: "open-platform.local"
+
 vault:
   image:
     repository: hashicorp/vault

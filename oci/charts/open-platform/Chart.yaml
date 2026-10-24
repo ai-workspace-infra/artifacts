@@ -1,8 +1,8 @@
 apiVersion: v2
 name: open-platform
-description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating 10 core infrastructure services
+description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating 11 core infrastructure services
 type: application
-version: 1.0.0
+version: 1.1.0
 appVersion: "2026.10"
 keywords:
   - platform-engineering
@@ -12,6 +12,10 @@ keywords:
   - harbor
   - silo
   - cmdb
+  - observability
+  - victoriametrics
+  - grafana
+  - vector
   - vault
   - zitadel
   - doco-cd
@@ -39,6 +43,14 @@ dependencies:
     version: 1.0.0
     repository: "file://./charts/cmdb"
     condition: cmdb.enabled
+  - name: observability-stack
+    version: 1.0.0
+    repository: "file://./charts/observability-stack"
+    condition: observability-stack.enabled
+  - name: observability-agent
+    version: 1.0.0
+    repository: "file://./charts/observability-agent"
+    condition: observability-agent.enabled
   - name: vault-zitadel
     version: 1.0.0
     repository: "file://./charts/vault-zitadel"

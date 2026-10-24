@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "observability-agent.fullname" . }}
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "observability-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability-agent.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: node-exporter
+          image: "{{ .Values.nodeExporter.image.repository }}:{{ .Values.nodeExporter.image.tag }}"
+          imagePullPolicy: {{ .Values.nodeExporter.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+        - name: vector
+          image: "{{ .Values.vector.image.repository }}:{{ .Values.vector.image.tag }}"
+          imagePullPolicy: {{ .Values.vector.image.pullPolicy }}
+          command: ["vector", "--config", "/etc/vector/vector.toml"]
+          ports:
+            - name: vector-api
+              containerPort: 8686
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector/vector.toml
+              subPath: vector.toml
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability-agent.fullname" . }}-vector-config

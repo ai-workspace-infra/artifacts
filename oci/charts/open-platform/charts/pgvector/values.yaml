@@ -4,6 +4,8 @@ image:
   tag: "pg16"
   pullPolicy: IfNotPresent
 
+domain: "open-platform.local"
+
 postgres:
   db: "k3s_vector"
   user: "k3s"

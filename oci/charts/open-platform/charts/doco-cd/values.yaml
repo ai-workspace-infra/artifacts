@@ -4,6 +4,8 @@ image:
   tag: "0.1.28"
   pullPolicy: IfNotPresent
 
+domain: "open-platform.local"
+
 service:
   type: ClusterIP
   httpPort: 80

@@ -1,0 +1,67 @@
+replicaCount: 1
+
+domain: "open-platform.local"
+
+victoriaMetrics:
+  image:
+    repository: victoriametrics/victoria-metrics
+    tag: "v1.101.0"
+    pullPolicy: IfNotPresent
+  port: 8428
+  retentionPeriod: "30d"
+
+victoriaLogs:
+  image:
+    repository: victoriametrics/victoria-logs
+    tag: "v1.52.0"
+    pullPolicy: IfNotPresent
+  port: 9428
+  retentionPeriod: "1y"
+
+victoriaTraces:
+  image:
+    repository: victoriametrics/victoria-traces
+    tag: "v0.1.0"
+    pullPolicy: IfNotPresent
+  port: 10428
+  otlpHttpPort: 4318
+  otlpGrpcPort: 4317
+
+otelCollector:
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.114.0"
+    pullPolicy: IfNotPresent
+  port: 4319
+
+grafana:
+  image:
+    repository: grafana/grafana
+    tag: "11.3.0"
+    pullPolicy: IfNotPresent
+  port: 3000
+  adminPassword: "admin"
+
+service:
+  type: ClusterIP
+  grafanaPort: 3000
+  metricsPort: 8428
+  logsPort: 9428
+  tracesPort: 10428
+  otlpHttpPort: 4318
+  otlpGrpcPort: 4317
+  otelCollectorPort: 4319
+
+persistence:
+  enabled: true
+  size: 20Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2048Mi
+  requests:
+    cpu: 200m
+    memory: 512Mi
