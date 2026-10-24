@@ -19,8 +19,11 @@ service:
   type: LoadBalancer
 routes:
   consoleHost: ''
+  consoleAliases: []
   accountsHost: ''
+  accountsAliases: []
   billingHost: ''
+  billingAliases: []
 tls:
   consoleSecret: ''
   accountsSecret: ''

@@ -1,5 +1,4 @@
 {{- define "websaas.caddy.api" -}}
-{{- $root := . -}}
 {{- if .Values.gatewayEnabled }}
 @auth path /api/auth /api/auth/* /api/v1/auth /api/v1/auth/*
 handle @auth {
@@ -37,7 +36,13 @@ handle @api {
   }
 }
 {{- $seen := dict -}}
-{{- range $role, $host := dict "console" .Values.routes.consoleHost "accounts" .Values.routes.accountsHost "billing" .Values.routes.billingHost }}
+{{- $routeHosts := dict
+  "console" (concat (list .Values.routes.consoleHost) .Values.routes.consoleAliases)
+  "accounts" (concat (list .Values.routes.accountsHost) .Values.routes.accountsAliases)
+  "billing" (concat (list .Values.routes.billingHost) .Values.routes.billingAliases)
+-}}
+{{- range $role, $hosts := $routeHosts }}
+{{- range $host := $hosts }}
 {{- if $host }}
 {{- if hasKey $seen $host }}{{ fail "Caddy public hosts must be distinct" }}{{ end }}
 {{- $_ := set $seen $host true }}
@@ -56,23 +61,28 @@ handle @api {
 }
 {{- end }}
 {{- end }}
+{{- end }}
 {{- $names := dict }}
 {{- range .Values.additionalHosts }}
+{{- $additional := . }}
 {{- if hasKey $names .name }}{{ fail "Caddy additional host names must be distinct" }}{{ end }}
 {{- $_ := set $names .name true }}
 {{- if and .upstreamCAConfigMap (not (hasPrefix "https://" .upstream)) }}{{ fail "Caddy upstream CA requires an HTTPS upstream" }}{{ end }}
-{{- if hasKey $seen .host }}{{ fail "Caddy public hosts must be distinct" }}{{ end }}
-{{- $_ := set $seen .host true }}
-https://{{ .host }}:8443 {
-  tls /tls/extra-{{ .name }}/tls.crt /tls/extra-{{ .name }}/tls.key
-  reverse_proxy {{ .upstream }} {
-    {{- if .upstreamCAConfigMap }}
+{{- $hosts := concat (list .host) (.aliases | default list) }}
+{{- range $host := $hosts }}
+{{- if hasKey $seen $host }}{{ fail "Caddy public hosts must be distinct" }}{{ end }}
+{{- $_ := set $seen $host true }}
+https://{{ $host }}:8443 {
+  tls /tls/extra-{{ $additional.name }}/tls.crt /tls/extra-{{ $additional.name }}/tls.key
+  reverse_proxy {{ $additional.upstream }} {
+    {{- if $additional.upstreamCAConfigMap }}
     transport http {
-      tls_trust_pool file /trust/{{ .name }}/ca.crt
+      tls_trust_pool file /trust/{{ $additional.name }}/ca.crt
     }
     {{- end }}
   }
 }
+{{- end }}
 {{- end }}
 {{- end -}}
 {{- if .Values.enabled }}

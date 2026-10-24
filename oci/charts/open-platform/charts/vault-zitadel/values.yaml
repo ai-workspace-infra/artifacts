@@ -6,6 +6,7 @@ vault:
     tag: "1.17.6"
     pullPolicy: IfNotPresent
   port: 8200
+  apiAddr: ""
   devRootToken: "root-token-dev"
 
 zitadelDb:
