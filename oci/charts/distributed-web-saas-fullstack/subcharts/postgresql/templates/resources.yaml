@@ -1,0 +1,153 @@
+{{- if .Values.enabled }}
+{{- $name := include "websaas.name" (dict "root" . "name" "postgresql") }}
+{{- if and (not .Values.storage.existingClaim) (not .Values.storage.className) }}{{ fail "postgresql.storage.className or existingClaim is required" }}{{ end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-headless
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: postgresql
+  ports:
+    - name: postgresql
+      port: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: postgresql
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "websaas.labels" (dict "root" . "name" "postgresql") | nindent 4 }}
+spec:
+  serviceName: {{ $name }}-headless
+  replicas: 1
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        {{- include "websaas.labels" (dict "root" . "name" "postgresql") | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets: {{ toJson . }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext: {{ toJson . }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{ toJson . }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{ toJson . }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{ toJson . }}
+      {{- end }}
+      containers:
+        - name: postgresql
+          image: {{ include "websaas.image" .Values.image | quote }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.username | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.database | quote }}
+            - name: PGDATA
+              value: {{ .Values.storage.pgdata | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "postgresql.existingSecret is required" .Values.existingSecret }}
+                  key: {{ .Values.secretKey }}
+          startupProbe:
+            exec:
+              command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            exec:
+              command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+          livenessProbe:
+            exec:
+              command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.storage.mountPath }}
+      {{- if .Values.storage.existingClaim }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.existingClaim }}
+      {{- end }}
+  {{- if not .Values.storage.existingClaim }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          backup.websaas.io/enabled: "true"
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.storage.className | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.storage.size }}
+  {{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: postgresql
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: [accounts, billing, content, stunnel-server]
+      ports:
+        - protocol: TCP
+          port: 5432
+{{- end }}
+{{- end }}

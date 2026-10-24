@@ -1,0 +1,76 @@
+{{- define "websaas.stunnel.config" -}}
+foreground = yes
+pid =
+syslog = no
+debug = notice
+[database]
+client = {{ ternary "yes" "no" (eq .role "client") }}
+accept = 0.0.0.0:{{ .config.port }}
+connect = {{ required "stunnel connect is required" .config.connect | replace "RELEASE_NAME" .root.Release.Name }}
+CAfile = /tls/{{ .role }}/ca.crt
+cert = /tls/{{ .role }}/tls.crt
+key = /tls/{{ .role }}/tls.key
+verifyChain = yes
+{{- if eq .role "client" }}
+checkHost = {{ required "stunnel.client.checkHost is required" .config.checkHost }}
+{{- else }}
+requireCert = yes
+{{- end }}
+{{- end -}}
+{{- if .Values.enabled }}
+{{- if not (or .Values.client.enabled .Values.server.enabled) }}{{ fail "enable at least one stunnel role" }}{{ end }}
+{{- $items := dict }}
+{{- $volumes := list }}
+{{- range $role, $config := dict "client" .Values.client "server" .Values.server }}
+{{- if $config.enabled }}
+{{- $secret := required (printf "stunnel.%s.existingSecret is required" $role) $config.existingSecret }}
+{{- if and (eq $role "server") (not $config.allowedCIDRs) }}{{ fail "stunnel.server.allowedCIDRs is required" }}{{ end }}
+{{- $name := printf "stunnel-%s" $role }}
+{{- $volumes = list (dict "name" (printf "tls-%s" $role) "secret" (dict "secretName" $secret "defaultMode" 288)) }}
+{{- $volumes = append $volumes (dict "name" (printf "config-%s" $role) "configMap" (dict "name" (printf "%s-%s" $.Release.Name $name))) }}
+{{- $_ := set $items $name (dict "image" $.Values.image "port" $config.port "servicePort" $config.port "replicas" 1 "resources" $.Values.resources "command" (list "stunnel") "args" (list (printf "/etc/stunnel/%s/stunnel.conf" $role)) "probes" (dict "readinessProbe" (dict "tcpSocket" (dict "port" $config.port)) "livenessProbe" (dict "tcpSocket" (dict "port" $config.port))) "volumes" $volumes "volumeMounts" (list (dict "name" (printf "tls-%s" $role) "mountPath" (printf "/tls/%s" $role) "readOnly" true) (dict "name" (printf "config-%s" $role) "mountPath" (printf "/etc/stunnel/%s" $role) "readOnly" true))) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $.Release.Name }}-{{ $name }}
+data:
+  stunnel.conf: |
+    {{- include "websaas.stunnel.config" (dict "root" $ "role" $role "config" $config) | nindent 4 }}
+{{- end }}
+{{- end }}
+
+{{- $_ := set .Values "podSecurityContext" (dict "runAsNonRoot" true "runAsUser" 1000 "runAsGroup" 1000 "fsGroup" 1000) }}
+{{- $_ := set .Values "networkPolicy" (dict "enabled" false) }}
+{{- $_ := set .Values.podAnnotations "checksum/stunnel" (toJson (dict "client" .Values.client "server" .Values.server) | sha256sum) }}
+{{ include "websaas.fleet" (dict "root" . "items" $items "profile" "independent" "groups" (dict)) }}
+{{- range $role, $config := dict "client" .Values.client "server" .Values.server }}
+{{- if $config.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $.Release.Name }}-stunnel-{{ $role }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      websaas.io/workload: stunnel-{{ $role }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+        {{- if eq $role "server" }}
+        {{- range $config.allowedCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $config.port }}
+{{- end }}
+{{- end }}
+{{- end }}

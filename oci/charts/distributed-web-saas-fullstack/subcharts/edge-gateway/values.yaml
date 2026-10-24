@@ -1,0 +1,126 @@
+enabled: false
+global:
+  imagePullSecrets: []
+  podLabels: {}
+podAnnotations: {}
+podSecurityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumes: []
+networkPolicy:
+  enabled: true
+deploymentProfile: independent
+groups: {}
+boundaries:
+  auth:
+    image: ''
+    port: 8080
+    replicas: 1
+    env:
+      PRIMARY_UPSTREAM: http://RELEASE_NAME-accounts
+      BILLING_UPSTREAM: http://RELEASE_NAME-billing
+      CONTENT_UPSTREAM: http://RELEASE_NAME-content
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+  admin:
+    image: ''
+    port: 8080
+    replicas: 1
+    env:
+      PRIMARY_UPSTREAM: http://RELEASE_NAME-accounts
+      BILLING_UPSTREAM: http://RELEASE_NAME-billing
+      CONTENT_UPSTREAM: http://RELEASE_NAME-content
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+  core:
+    image: ''
+    port: 8080
+    replicas: 1
+    env:
+      PRIMARY_UPSTREAM: http://RELEASE_NAME-accounts
+      BILLING_UPSTREAM: http://RELEASE_NAME-billing
+      CONTENT_UPSTREAM: http://RELEASE_NAME-content
+    secretRefs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: primary
+        initialDelaySeconds: 20
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70

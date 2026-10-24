@@ -1,7 +1,7 @@
 # Distributed Web SaaS Helm 主 Chart 与子 Chart 规划
 
 日期：2026-10-24
-状态：规划稿；未修改 Chart、GitOps 声明或运行环境。
+状态：已落实 Chart 0.2.0 模板与离线验证；真实 Kubernetes 部署、数据迁移和业务验收均为 NOT_RUN。
 
 ## 目标
 
@@ -9,7 +9,7 @@
 
 本计划基于 artifacts `main` `049bc37` 和 GitOps `main` `f9d42a6`。当前 V5 仍使用 Docker Compose 与 Doco-CD；Helm/Kubernetes 是新部署目标，不是直接替换 V5 现有部署的操作步骤。
 
-## 当前 Chart 盘点
+## 实施前 Chart 盘点（基于上述 main 采样）
 
 - `distributed-web-saas-fullstack` 已有通用组件 Deployment/Service 模板、Ingress 及 PostgreSQL StatefulSet/PVC，但服务仍通过一个 `components` values 集合渲染，没有各服务独立的子 Chart。
 - 旧 `web-saas` 目录虽含六个子 Chart 脚手架，但应用值仍有 `latest`/占位镜像；PostgreSQL 子 Chart 是通用 Deployment/HTTP Service，不具备数据库状态与持久化语义。不要把它直接作为生产数据库 Chart 发布。
@@ -24,10 +24,10 @@
 
 | Serverless 单元 | Kubernetes 资源建议 | 默认隔离方式 | 扩缩容配置 |
 | --- | --- | --- | --- |
-| 静态 Pages 项目 | `static-pages` Deployment + ClusterIP Service；镜像内置静态资产和轻量文件服务 | 独立 Deployment | `staticPages.replicas` / HPA |
-| SSR：`public`、`content`、`auth`、`console`、`workspace` | 每个 boundary 一个 Deployment + ClusterIP Service | 默认五个独立 Deployment | 每个 `ssr.<boundary>.replicas` / HPA 独立设置 |
-| Frontend Router Worker | `frontend-router` Deployment + ClusterIP Service | 独立 Deployment，连接静态 Pages 与五个 SSR Service | `frontendRouter.replicas` / HPA |
-| Edge Gateway：`auth`、`admin`、`core` | 每个 boundary 一个 Deployment + ClusterIP Service | 默认三个独立 Deployment；不直接公开为 LoadBalancer/NodePort | 每个 `edgeGateway.<boundary>.replicas` / HPA 独立设置 |
+| 静态 Pages 项目 | `static-pages` Deployment + ClusterIP Service；镜像内置静态资产和轻量文件服务 | 独立 Deployment | `console.components.static-pages.replicas` / HPA |
+| SSR：`public`、`content`、`auth`、`console`、`workspace` | 每个 boundary 一个 Deployment + ClusterIP Service | 默认五个独立 Deployment | 每个 `console.components.ssr-<boundary>.replicas` / HPA 独立设置 |
+| Frontend Router Worker | `frontend-router` Deployment + ClusterIP Service | 独立 Deployment，连接静态 Pages 与五个 SSR Service | `console.components.frontend-router.replicas` / HPA |
+| Edge Gateway：`auth`、`admin`、`core` | 每个 boundary 一个 Deployment + ClusterIP Service | 默认三个独立 Deployment；不直接公开为 LoadBalancer/NodePort | 每个 `edgeGateway.boundaries.<boundary>.replicas` / HPA 独立设置 |
 
 以上前端与 Gateway 组件默认合计 **10 个 Deployment 工作负载模板**（不含 Caddy 和 Accounts/Billing/Content/数据库等后端服务）。Pod 副本数由各组件 values 独立设置，实际 Pod 数是各副本数之和；“5 个 SSR”表示 5 个不同的 SSR boundary，不是固定 5 个 Pod，也不是一个 5 容器 Pod。
 
@@ -45,7 +45,7 @@ Chart 规划提供三类组合策略：
 
 ### Caddy 保持唯一外部 Ingress
 
-保留现有 Caddy Deployment/Service 作为对集群外的 HTTPS 入口。Caddy 的公共 host/path 规则来自 GitOps 非敏感 values，渲染为受控 Caddyfile：Console host 转发到 `frontend-router` Service；两个 API host（Accounts、Billing）按现有 `/api/auth/*`、`/api/v1/auth/*`、`/api/admin/*`、`/api/*` 边界转发到 `gateway-auth`、`gateway-admin`、`gateway-core` Service，具体业务 upstream 选择仍由对应 Gateway 实现。匹配次序先处理 auth/admin 精确前缀，再处理 `/api/*`，并保留 Host 与必要请求头。
+保留现有 Caddy Deployment/Service 作为对集群外的 HTTPS 入口。Caddy 的公共 host/path 规则来自 GitOps 非敏感 values，渲染为受控 Caddyfile：Console host 转发到 `frontend-router` Service；Console/Accounts API 请求按现有 `/api/auth/*`、`/api/v1/auth/*`、`/api/admin/*`、`/api/*` 边界转发到 `gateway-auth`、`gateway-admin`、`gateway-core` Service，专用 Billing host 直接转发 Billing Service，Gateway 内部的 Billing API 分派仍由对应 Gateway 实现。匹配次序先处理 auth/admin 精确前缀，再处理 `/api/*`，并保留 Host 与必要请求头。
 
 这些是 Caddy 的站点/路径路由声明；在当前 Caddyfile 模式下，不应把它们误称为 Kubernetes `HTTPRoute` 对象。Kubernetes `Ingress`/Gateway API `HTTPRoute` 资源必须由对应 Controller 接管；只有未来明确安装并验证 Caddy Controller 后，才考虑改成 Kubernetes Route 资源。本方案不增加第二个外部 Ingress 或 Gateway 数据面。
 
@@ -54,31 +54,12 @@ Public DNS 中 Console、Accounts、Billing 等别名仍由 GitOps/IaC 管理；
 | 配置维度 | 规划字段示例 | 说明 |
 | --- | --- | --- |
 | 部署策略 | `console.deploymentProfile: independent` | `independent` / `grouped` / `single-container` 互斥选择 |
-| SSR boundary | `console.ssr.<id>.image`、`replicas`、`resources`、`service.port`、`probes` | 5 个 id 固定为 `public/content/auth/console/workspace`；每个副本数可独立设置 |
-| Gateway boundary | `edgeGateway.<id>.image`、`replicas`、`resources`、`service.port` | 3 个 id 固定为 `auth/admin/core`；仅 ClusterIP，入口由 Caddy 代理 |
-| 前端组件 | `staticPages.*`、`frontendRouter.*` | 静态资产与 Router 分开发布、部署和扩缩容 |
+| SSR boundary | `console.components.ssr-<id>.image`、`replicas`、`resources`、`port`、`probes` | 5 个 id 固定为 `public/content/auth/console/workspace`；每个副本数可独立设置 |
+| Gateway boundary | `edgeGateway.boundaries.<id>.image`、`replicas`、`resources`、`port` | 3 个 id 固定为 `auth/admin/core`；仅 ClusterIP，入口由 Caddy 代理 |
+| 前端组件 | `console.components.static-pages.*`、`console.components.frontend-router.*` | 静态资产与 Router 分开发布、部署和扩缩容 |
 | Caddy 路由 | `caddy.routes.consoleHost`、`accountsHost`、`billingHost`、`gatewayPaths` | 由 Helm 渲染配置；host 值由 GitOps 提供，证书私钥只引用 Secret |
 
-独立副本的 values 形态示例（镜像须由环境锁定 digest）：
-
-```yaml
-console:
-  deploymentProfile: independent
-  staticPages:
-    replicas: 2
-  frontendRouter:
-    replicas: 2
-  ssr:
-    public: { replicas: 2 }
-    content: { replicas: 2 }
-    auth: { replicas: 3 }
-    console: { replicas: 3 }
-    workspace: { replicas: 2 }
-edgeGateway:
-  auth: { replicas: 3 }
-  admin: { replicas: 2 }
-  core: { replicas: 3 }
-```
+实际配置合同见 [README](README.md)、[独立部署示例](values-open.yaml)、[同 Pod 分组覆盖](values-grouped.yaml)及[单容器覆盖](values-single-container.yaml)。Console 子 Chart 统一拥有 7 个前端边界；独立的 static-pages/frontend-router/frontend-ssr 子 Chart 作为单独 release 的可复用包发布，umbrella 不重复安装它们。所有子 Chart 的 OCI 名称使用 `web-saas-` 前缀，避免与既有通用 Chart 冲突。
 
 Gateway API 的 `HTTPRoute` 可以按 hostname/path 绑定 Gateway 并指向 Kubernetes Service；若将来采用该路线，需把 Caddy 配为实际的 Gateway API Controller，避免仅创建 Route 资源却无人消费。当前保持 Caddyfile 入口更贴近现有交付模式。[Kubernetes Ingress 文档](https://kubernetes.io/docs/concepts/services-networking/ingress/)说明 Ingress 需要 Controller 才会生效；[Gateway API HTTPRoute 文档](https://gateway-api.sigs.k8s.io/reference/api-types/httproute/)定义了 parent Gateway、hostnames、matches 与 backendRefs 的模型。
 
@@ -89,7 +70,7 @@ oci/charts/distributed-web-saas-fullstack/
 ├── Chart.yaml                         # umbrella chart，锁定子 Chart 依赖版本
 ├── values.yaml                        # 通用安全默认值，不含生产目标或凭据
 ├── values-open.yaml                   # 可公开的本地/K3s 示例，不用于 PROD
-├── charts/
+├── subcharts/                     # 子 Chart 源码；charts/ 仅存放生成依赖包
 │   ├── console/                       # Console 部署模式选择器/配置
 │   ├── static-pages/                  # 单一静态 Pages 项目的容器化服务
 │   ├── frontend-router/               # 前端 host/path 到 SSR 与静态服务的内部路由
@@ -159,7 +140,7 @@ V5 当前使用 Doco-CD。将 V5 从 Doco-CD 切换到 Flux 是独立的控制�
 
 ## 尚待实现的事项
 
-本文件是方案，不代表上述 Chart、Flux 安装方式、CI 发布路径或 Kubernetes 目标集群已经实现。首个实施 PR 应先解决 chart 归属/命名、`apps/app-service` 的复用方式、PostgreSQL PVC/备份 owner、Caddy/stunnel 网络暴露模型以及 Flux 与 Doco-CD 的目标关系，并附具体验证命令和回滚计划。
+Chart 模板、schema、锁文件、三种部署模式、Caddy/stunnel、PostgreSQL 保留策略与 OCI 发布路径已实现。公共工作负载模板由 web-saas-common library 复用；Flux 不包含在应用 Chart 内。尚未完成 Worker 容器适配构件、真实集群部署、备份恢复、三轮在线幂等部署/迁移及业务验收。回滚需恢复上一 Chart/GitOps 固定版本，数据库不得依赖 Helm 回滚恢复，持久数据恢复须走独立流程。
 
 ## 盘点依据
 
@@ -169,3 +150,14 @@ V5 当前使用 Doco-CD。将 V5 从 Doco-CD 切换到 Flux 是独立的控制�
 - [Serverless 发布编排工作流（固定提交）](https://github.com/ai-workspace-infra/platform-ops-toolkit/blob/7fa316dd61dcb1b15e261d24c8b22ae4357c1fd8/.github/workflows/serverless-orchestrator.yml)
 - [GitOps V5 Compose 候选](https://github.com/ai-workspace-infra/gitops/blob/f9d42a6980cf3e14f488e786ec8a29404513f76c/compose/web-saas/docker-compose.prod-v5-candidate.yml)
 - [GitOps Serverless 运行拓扑（固定提交）](https://github.com/ai-workspace-infra/gitops/blob/f9d42a6980cf3e14f488e786ec8a29404513f76c/topology/prod/serverless/runtime-topology.yaml)
+
+## 本轮实现与验证回执
+
+- Chart 合同：umbrella `0.2.0`；独立子 Chart/library 首版 `0.1.0`，旧 values 合同不兼容并明确拒绝。
+- Helm `3.15.4` 与本地 Helm `4.3.1` lint/render/package：PASS。
+- 11 项离线语义检查（含真实 Caddy 2.10.2 配置验证、独立/分组/单容器、Secret 引用、PVC 保留、非法配置和打包依赖）：PASS。
+- Kubernetes `1.32.0` 严格 schema：13 份有效场景渲染、276 个资源，全部有效，无跳过。
+- 三次重复模板渲染无差异：PASS；不等同于三轮在线部署/迁移幂等验收。
+- 真实 Worker 容器适配镜像、Kubernetes 部署、恢复演练、迁移及业务验收：NOT_RUN。
+
+以上使用通用测试域名与合成 digest；测试构件不能作为部署构件。命令与实际 values 合同见 README 和仓库内校验脚本。

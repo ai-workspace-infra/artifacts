@@ -1,0 +1,30 @@
+enabled: false
+global:
+  imagePullSecrets: []
+  podLabels: {}
+podAnnotations: {}
+podSecurityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumes: []
+networkPolicy:
+  enabled: true
+image: ''
+username: app
+database: app
+existingSecret: ''
+secretKey: password
+storage:
+  className: ''
+  size: 10Gi
+  existingClaim: ''
+  mountPath: /var/lib/postgresql/data
+  pgdata: /var/lib/postgresql/data/pgdata
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: '1'
+    memory: 1Gi

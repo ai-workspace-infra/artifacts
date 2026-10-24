@@ -1,0 +1,5 @@
+apiVersion: v2
+name: web-saas-common
+description: Shared workload primitives for Distributed Web SaaS
+version: 0.1.0
+type: library

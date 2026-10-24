@@ -1,0 +1,28 @@
+name: validate-web-saas-charts
+on:
+  pull_request:
+    paths:
+      - 'oci/charts/distributed-web-saas-fullstack/**'
+      - '.github/scripts/*web-saas-*.sh'
+      - '.github/tests/test_web_saas_charts.py'
+      - '.github/tests/requirements-charts.txt'
+      - '.github/workflows/validate-web-saas-charts.yml'
+      - '.github/workflows/release-oci-charts.yml'
+      - '.github/scripts/release-oci-charts.sh'
+permissions:
+  contents: read
+jobs:
+  render-and-package:
+    runs-on: ubuntu-latest
+    env:
+      WEBSAAS_VALIDATE_CADDY: "1"
+      WEBSAAS_RENDER_DIR: ${{ runner.temp }}/websaas-rendered
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4
+        with:
+          version: v3.15.4
+      - name: Validate profiles, rejection cases and packaged dependencies
+        run: .github/scripts/check-web-saas-charts.sh
+      - name: Validate rendered Kubernetes API schemas
+        run: .github/scripts/check-web-saas-schemas.sh

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: web-saas-billing
+description: Independent billing workload
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: web-saas-common
+    version: 0.1.0
+    repository: file://../web-saas-common
