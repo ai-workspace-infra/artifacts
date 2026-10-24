@@ -1,0 +1,28 @@
+domain: "open-platform.local"
+
+nodeExporter:
+  image:
+    repository: prom/node-exporter
+    tag: "v1.8.2"
+    pullPolicy: IfNotPresent
+  port: 9100
+
+vector:
+  image:
+    repository: timberio/vector
+    tag: "0.41.1-alpine"
+    pullPolicy: IfNotPresent
+  apiPort: 8686
+
+service:
+  type: ClusterIP
+  nodeExporterPort: 9100
+  vectorPort: 8686
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi

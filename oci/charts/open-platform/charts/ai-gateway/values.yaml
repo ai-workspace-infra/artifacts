@@ -1,3 +1,5 @@
+domain: "open-platform.local"
+
 newApi:
   image:
     repository: calciumion/new-api

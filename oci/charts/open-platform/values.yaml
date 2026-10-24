@@ -20,26 +20,34 @@ silo:
 cmdb:
   enabled: true
 
-# 05 Secret Engine & IAM Backend
+# 05 Full-Stack Observability & Telemetry Central Stack
+observability-stack:
+  enabled: true
+
+# 05 Host & Node Telemetry Agent
+observability-agent:
+  enabled: true
+
+# 06 Secret Engine & IAM Backend
 vault-zitadel:
   enabled: true
 
-# 06 Declarative GitOps Controller
+# 07 Declarative GitOps Controller
 doco-cd:
   enabled: true
 
-# 07 Cloud-Neutral Container & Vector DB
+# 08 Cloud-Neutral Container & Vector DB
 pgvector:
   enabled: true
 
-# 08 Database Backup & Restore Sandbox
+# 09 Database Backup & Restore Sandbox
 pg-backup:
   enabled: true
 
-# 09 Dual-Tier AI Gateway (New API + LiteLLM)
+# 10 Dual-Tier AI Gateway (New API + LiteLLM)
 ai-gateway:
   enabled: true
 
-# 10 Infrastructure MCP Tool Gateway
+# 11 Infrastructure MCP Tool Gateway
 mcp-gateway:
   enabled: true

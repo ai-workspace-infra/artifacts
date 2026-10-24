@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
 Scaffolding script for open-platform Umbrella Helm Chart
-Aggregates 10 Core Services as modular Subcharts:
-  01. gitea          - Git & CI/CD Engine (gitea/gitea:1.22.6)
-  02. harbor         - Cloud-Native Artifact Registry (goharbor/harbor v2.15.4)
-  03. silo           - S3-Compatible Object Storage (pgsty/silo:RELEASE.2026-10-18T00-00-00Z)
-  04. cmdb           - Dynamic Inventory & CMDB API (python:3.11-alpine)
-  05. vault-zitadel  - Secret Engine & IAM Backend (hashicorp/vault:1.17.6 + postgres:16-alpine)
-  06. doco-cd        - Declarative GitOps Controller (ghcr.io/kimdre/doco-cd:0.1.28)
-  07. pgvector       - Cloud-Neutral Container & Vector DB (pgvector/pgvector:pg16)
-  08. pg-backup      - Database Backup & Restore Sandbox (postgres:16-alpine)
-  09. ai-gateway     - Dual-Tier AI Gateway (calciumion/new-api:v0.4.10 + ghcr.io/berriai/litellm:v1.51.0)
-  10. mcp-gateway    - Infrastructure MCP Tool Gateway (alpine:3.20)
+Aggregates 11 Core Service Categories (12 modular subcharts):
+  01. gitea                - Git & CI/CD Engine (gitea/gitea:1.22.6)
+  02. harbor               - Cloud-Native Artifact Registry (goharbor/harbor v2.15.4)
+  03. silo                 - S3-Compatible Object Storage (pgsty/silo:RELEASE.2026-10-18T00-00-00Z)
+  04. cmdb                 - Dynamic Inventory & CMDB API (python:3.11-alpine)
+  05. observability-stack  - Full-Stack Observability Central Service (VictoriaMetrics + Logs + Traces + Grafana)
+      observability-agent  - Host & Node Telemetry Agent (Node Exporter + Vector)
+  06. vault-zitadel        - Secret Engine & IAM Backend (hashicorp/vault:1.17.6 + postgres:16-alpine)
+  07. doco-cd              - Declarative GitOps Controller (ghcr.io/kimdre/doco-cd:0.1.28)
+  08. pgvector             - Cloud-Neutral Container & Vector DB (pgvector/pgvector:pg16)
+  09. pg-backup            - Database Backup & Restore Sandbox (postgres:16-alpine)
+  10. ai-gateway           - Dual-Tier AI Gateway (calciumion/new-api:v0.4.10 + ghcr.io/berriai/litellm:v1.51.0)
+  11. mcp-gateway          - Infrastructure MCP Tool Gateway (alpine:3.20)
 """
 import os
 from pathlib import Path
@@ -32,9 +34,9 @@ print(f"Scaffolding open-platform umbrella chart at: {BASE_DIR}")
 write(BASE_DIR / "Chart.yaml", """
 apiVersion: v2
 name: open-platform
-description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating 10 core infrastructure services
+description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating 11 core infrastructure services
 type: application
-version: 1.0.0
+version: 1.1.0
 appVersion: "2026.10"
 keywords:
   - platform-engineering
@@ -44,6 +46,10 @@ keywords:
   - harbor
   - silo
   - cmdb
+  - observability
+  - victoriametrics
+  - grafana
+  - vector
   - vault
   - zitadel
   - doco-cd
@@ -71,6 +77,14 @@ dependencies:
     version: 1.0.0
     repository: "file://./charts/cmdb"
     condition: cmdb.enabled
+  - name: observability-stack
+    version: 1.0.0
+    repository: "file://./charts/observability-stack"
+    condition: observability-stack.enabled
+  - name: observability-agent
+    version: 1.0.0
+    repository: "file://./charts/observability-agent"
+    condition: observability-agent.enabled
   - name: vault-zitadel
     version: 1.0.0
     repository: "file://./charts/vault-zitadel"
@@ -120,27 +134,35 @@ silo:
 cmdb:
   enabled: true
 
-# 05 Secret Engine & IAM Backend
+# 05 Full-Stack Observability & Telemetry Central Stack
+observability-stack:
+  enabled: true
+
+# 05 Host & Node Telemetry Agent
+observability-agent:
+  enabled: true
+
+# 06 Secret Engine & IAM Backend
 vault-zitadel:
   enabled: true
 
-# 06 Declarative GitOps Controller
+# 07 Declarative GitOps Controller
 doco-cd:
   enabled: true
 
-# 07 Cloud-Neutral Container & Vector DB
+# 08 Cloud-Neutral Container & Vector DB
 pgvector:
   enabled: true
 
-# 08 Database Backup & Restore Sandbox
+# 09 Database Backup & Restore Sandbox
 pg-backup:
   enabled: true
 
-# 09 Dual-Tier AI Gateway (New API + LiteLLM)
+# 10 Dual-Tier AI Gateway (New API + LiteLLM)
 ai-gateway:
   enabled: true
 
-# 10 Infrastructure MCP Tool Gateway
+# 11 Infrastructure MCP Tool Gateway
 mcp-gateway:
   enabled: true
 """)
@@ -183,7 +205,7 @@ app.kubernetes.io/part-of: open-platform
 
 write(BASE_DIR / "templates" / "NOTES.txt", """
 ==============================================================================
-🎉 Open Platform 10 Core Services Umbrella Helm Chart Deployed Successfully!
+🎉 Open Platform 11 Core Services Umbrella Helm Chart Deployed Successfully!
 ==============================================================================
 
 Release:   {{ .Release.Name }}
@@ -203,23 +225,29 @@ Active Core Services Endpoints:
 {{- if .Values.cmdb.enabled }}
 - 04 CMDB Inventory:            http://cmdb.{{ .Values.global.domain }}:8000/api/v1/inventory
 {{- end }}
+{{- if (index .Values "observability-stack").enabled }}
+- 05 Observability Stack:       http://grafana.{{ .Values.global.domain }}:3000 (Metrics :8428, Logs :9428, Traces :10428)
+{{- end }}
+{{- if (index .Values "observability-agent").enabled }}
+- 05 Observability Agent:       Node Exporter :9100, Vector :8686
+{{- end }}
 {{- if (index .Values "vault-zitadel").enabled }}
-- 05 Identity (Vault/Zitadel):   http://vault.{{ .Values.global.domain }}:8200 (PG :5432)
+- 06 Identity (Vault/Zitadel):   http://vault.{{ .Values.global.domain }}:8200 (PG :5432)
 {{- end }}
 {{- if (index .Values "doco-cd").enabled }}
-- 06 GitOps (Doco CD):           http://doco.{{ .Values.global.domain }}:80 (Metrics :9120)
+- 07 GitOps (Doco CD):           http://doco.{{ .Values.global.domain }}:80 (Metrics :9120)
 {{- end }}
 {{- if .Values.pgvector.enabled }}
-- 07 Vector DB (pgvector):       postgresql://k3s@pgvector.{{ .Values.global.domain }}:5432/k3s_vector
+- 08 Vector DB (pgvector):       postgresql://k3s@pgvector.{{ .Values.global.domain }}:5432/k3s_vector
 {{- end }}
 {{- if (index .Values "pg-backup").enabled }}
-- 08 Backup Drill (PostgreSQL):  postgresql://postgres@pg-backup.{{ .Values.global.domain }}:5432/test_backup_db
+- 09 Backup Drill (PostgreSQL):  postgresql://postgres@pg-backup.{{ .Values.global.domain }}:5432/test_backup_db
 {{- end }}
 {{- if (index .Values "ai-gateway").enabled }}
-- 09 AI Gateway (New API/Lite):  http://new-api.{{ .Values.global.domain }}:3000 & http://litellm.{{ .Values.global.domain }}:4000
+- 10 AI Gateway (New API/Lite):  http://new-api.{{ .Values.global.domain }}:3000 & http://litellm.{{ .Values.global.domain }}:4000
 {{- end }}
 {{- if (index .Values "mcp-gateway").enabled }}
-- 10 MCP Gateway:                http://mcp.{{ .Values.global.domain }}:8080/
+- 11 MCP Gateway:                http://mcp.{{ .Values.global.domain }}:8080/
 {{- end }}
 ------------------------------------------------------------------------------
 """)
@@ -227,7 +255,7 @@ Active Core Services Endpoints:
 write(BASE_DIR / "README.md", """
 # Open Platform Umbrella Helm Chart
 
-The `open-platform` Helm chart is a production-grade umbrella chart packaging all **10 Core Infrastructure Services** of the Cloud-Neutral Platform Engineering blueprint into modular subcharts.
+The `open-platform` Helm chart is a production-grade umbrella chart packaging all **11 Core Infrastructure Service Categories** of the Cloud-Neutral Platform Engineering blueprint into modular subcharts.
 
 ## Architecture & Subcharts
 
@@ -237,17 +265,19 @@ The `open-platform` Helm chart is a production-grade umbrella chart packaging al
 | 02 | `harbor` | Artifact Registry | `goharbor/harbor-portal:v2.15.4`, `goharbor/harbor-core:v2.15.4` | 8080, 80 | OCI container registry, Helm chart repo & Trivy scan |
 | 03 | `silo` | S3 Object Storage | `pgsty/silo:RELEASE.2026-10-18T00-00-00Z` | 9000 (S3 API), 9001 (Console) | S3-compatible persistent state and blob storage |
 | 04 | `cmdb` | CMDB Inventory | `python:3.11-alpine` | 8000 (REST) | Dynamic inventory API daemon for Ansible and agents |
-| 05 | `vault-zitadel` | Identity & Secrets | `hashicorp/vault:1.17.6`, `postgres:16-alpine` | 8200 (Vault), 5432 (Zitadel DB) | HashiCorp Vault secrets engine + Zitadel IAM database |
-| 06 | `doco-cd` | GitOps Delivery | `ghcr.io/kimdre/doco-cd:0.1.28` | 80 (HTTP), 9120 (Metrics) | Declarative single-node GitOps controller |
-| 07 | `pgvector` | Vector & Containers | `pgvector/pgvector:pg16` | 5432 (Postgres) | PostgreSQL 16 with pgvector extension for RAG / memory |
-| 08 | `pg-backup` | DB Backup Sandbox | `postgres:16-alpine` | 5432 (Postgres) | Automated snapshot backup and restore drill sandbox |
-| 09 | `ai-gateway` | AI Gateway | `calciumion/new-api:v0.4.10`, `ghcr.io/berriai/litellm:v1.51.0` | 3000 (New API), 4000 (LiteLLM) | Dual-tier AI routing gateway with auth & rate limits |
-| 10 | `mcp-gateway` | MCP Tool Gateway | `alpine:3.20` | 8080 (HTTP) | Model Context Protocol gateway exposing infra tools |
+| 05 | `observability-stack` | Observability Server | `victoriametrics/victoria-metrics:v1.101.0`, `victoria-logs:v1.52.0`, `victoria-traces:v0.1.0`, `grafana:11.3.0` | 3000 (Grafana), 8428 (VM), 9428 (VL), 10428 (VT) | Full-stack metrics, logs, traces storage & dashboards |
+| 05 | `observability-agent` | Observability Agent | `prom/node-exporter:v1.8.2`, `timberio/vector:0.41.1-alpine` | 9100 (Node), 8686 (Vector) | Host metrics and system journald log pipeline agent |
+| 06 | `vault-zitadel` | Identity & Secrets | `hashicorp/vault:1.17.6`, `postgres:16-alpine` | 8200 (Vault), 5432 (Zitadel DB) | HashiCorp Vault secrets engine + Zitadel IAM database |
+| 07 | `doco-cd` | GitOps Delivery | `ghcr.io/kimdre/doco-cd:0.1.28` | 80 (HTTP), 9120 (Metrics) | Declarative single-node GitOps controller |
+| 08 | `pgvector` | Vector & Containers | `pgvector/pgvector:pg16` | 5432 (Postgres) | PostgreSQL 16 with pgvector extension for RAG / memory |
+| 09 | `pg-backup` | DB Backup Sandbox | `postgres:16-alpine` | 5432 (Postgres) | Automated snapshot backup and restore drill sandbox |
+| 10 | `ai-gateway` | AI Gateway | `calciumion/new-api:v0.4.10`, `ghcr.io/berriai/litellm:v1.51.0` | 3000 (New API), 4000 (LiteLLM) | Dual-tier AI routing gateway with auth & rate limits |
+| 11 | `mcp-gateway` | MCP Tool Gateway | `alpine:3.20` | 8080 (HTTP) | Model Context Protocol gateway exposing infra tools |
 
 ## Quickstart
 
 ```bash
-# Lint the entire umbrella chart and all 10 subcharts
+# Lint the entire umbrella chart and all 12 subcharts
 helm lint ./open-platform
 
 # Render templates
@@ -487,6 +517,8 @@ core:
     tag: "v2.15.4"
     pullPolicy: IfNotPresent
 
+domain: "open-platform.local"
+
 service:
   type: ClusterIP
   port: 8080
@@ -623,6 +655,7 @@ image:
   tag: "RELEASE.2026-10-18T00-00-00Z"
   pullPolicy: IfNotPresent
 
+domain: "open-platform.local"
 rootUser: "silo_admin"
 rootPassword: "SiloAdminPassword2026!"
 
@@ -771,6 +804,8 @@ image:
   tag: "3.11-alpine"
   pullPolicy: IfNotPresent
 
+domain: "open-platform.local"
+
 service:
   type: ClusterIP
   port: 8000
@@ -899,7 +934,487 @@ spec:
 """)
 
 # ==============================================================================
-# Subchart 05: vault-zitadel
+# Subchart 05A: observability-stack (Central Metrics, Logs, Traces & Dashboards)
+# ==============================================================================
+obs_dir = BASE_DIR / "charts" / "observability-stack"
+write(obs_dir / "Chart.yaml", """
+apiVersion: v2
+name: observability-stack
+description: Full-Stack Observability Central Service (VictoriaMetrics + VictoriaLogs + VictoriaTraces + Otel Collector + Grafana)
+type: application
+version: 1.0.0
+appVersion: "1.101.0"
+""")
+
+write(obs_dir / "values.yaml", """
+replicaCount: 1
+
+domain: "open-platform.local"
+
+victoriaMetrics:
+  image:
+    repository: victoriametrics/victoria-metrics
+    tag: "v1.101.0"
+    pullPolicy: IfNotPresent
+  port: 8428
+  retentionPeriod: "30d"
+
+victoriaLogs:
+  image:
+    repository: victoriametrics/victoria-logs
+    tag: "v1.52.0"
+    pullPolicy: IfNotPresent
+  port: 9428
+  retentionPeriod: "1y"
+
+victoriaTraces:
+  image:
+    repository: victoriametrics/victoria-traces
+    tag: "v0.1.0"
+    pullPolicy: IfNotPresent
+  port: 10428
+  otlpHttpPort: 4318
+  otlpGrpcPort: 4317
+
+otelCollector:
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.114.0"
+    pullPolicy: IfNotPresent
+  port: 4319
+
+grafana:
+  image:
+    repository: grafana/grafana
+    tag: "11.3.0"
+    pullPolicy: IfNotPresent
+  port: 3000
+  adminPassword: "admin"
+
+service:
+  type: ClusterIP
+  grafanaPort: 3000
+  metricsPort: 8428
+  logsPort: 9428
+  tracesPort: 10428
+  otlpHttpPort: 4318
+  otlpGrpcPort: 4317
+  otelCollectorPort: 4319
+
+persistence:
+  enabled: true
+  size: 20Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2048Mi
+  requests:
+    cpu: 200m
+    memory: 512Mi
+""")
+
+write_subchart_helpers(obs_dir, "observability-stack")
+
+write(obs_dir / "templates" / "configmap.yaml", """
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability-stack.fullname" . }}-config
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      - job_name: 'victoriametrics'
+        static_configs:
+          - targets: ['127.0.0.1:8428']
+  otel-collector.yml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:8889
+      debug:
+        verbosity: basic
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          exporters: [debug]
+        metrics:
+          receivers: [otlp]
+          exporters: [prometheus]
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: VictoriaMetrics
+        type: prometheus
+        access: proxy
+        url: http://127.0.0.1:8428
+        isDefault: true
+      - name: VictoriaLogs
+        type: victoriametrics-logs-datasource
+        access: proxy
+        url: http://127.0.0.1:9428
+""")
+
+write(obs_dir / "templates" / "pvc.yaml", """
+{{- if .Values.persistence.enabled -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "observability-stack.fullname" . }}-data
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+{{- end }}
+""")
+
+write(obs_dir / "templates" / "deployment.yaml", """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability-stack.fullname" . }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "observability-stack.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability-stack.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: victoria-metrics
+          image: "{{ .Values.victoriaMetrics.image.repository }}:{{ .Values.victoriaMetrics.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaMetrics.image.pullPolicy }}
+          command:
+            - "/victoria-metrics-prod"
+            - "-storageDataPath=/vmetrics_data"
+            - "-retentionPeriod={{ .Values.victoriaMetrics.retentionPeriod }}"
+            - "-promscrape.config=/etc/prometheus/prometheus.yml"
+          ports:
+            - name: metrics
+              containerPort: 8428
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /vmetrics_data
+              subPath: vmetrics
+            - name: config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+
+        - name: victoria-logs
+          image: "{{ .Values.victoriaLogs.image.repository }}:{{ .Values.victoriaLogs.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaLogs.image.pullPolicy }}
+          command:
+            - "/victoria-logs-prod"
+            - "-storageDataPath=/vlogs_data"
+            - "-retentionPeriod={{ .Values.victoriaLogs.retentionPeriod }}"
+          ports:
+            - name: logs
+              containerPort: 9428
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: logs
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /vlogs_data
+              subPath: vlogs
+
+        - name: victoria-traces
+          image: "{{ .Values.victoriaTraces.image.repository }}:{{ .Values.victoriaTraces.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaTraces.image.pullPolicy }}
+          command:
+            - "/victoria-traces-prod"
+            - "-storageDataPath=/vtraces_data"
+          ports:
+            - name: traces
+              containerPort: 10428
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: traces
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /vtraces_data
+              subPath: vtraces
+
+        - name: otel-collector
+          image: "{{ .Values.otelCollector.image.repository }}:{{ .Values.otelCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.otelCollector.image.pullPolicy }}
+          command: ["/otelcol-contrib", "--config=/etc/otelcol-contrib/config.yaml"]
+          ports:
+            - name: otel-in
+              containerPort: 4318
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol-contrib/config.yaml
+              subPath: otel-collector.yml
+
+        - name: grafana
+          image: "{{ .Values.grafana.image.repository }}:{{ .Values.grafana.image.tag }}"
+          imagePullPolicy: {{ .Values.grafana.image.pullPolicy }}
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: {{ .Values.grafana.adminPassword | quote }}
+            - name: GF_SERVER_ROOT_URL
+              value: "http://grafana.{{ (and .Values.global .Values.global.domain) | default .Values.domain | default \"open-platform.local\" }}:3000/"
+          ports:
+            - name: grafana
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: grafana
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+              subPath: grafana
+            - name: config
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+              subPath: datasources.yaml
+
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "observability-stack.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: config
+          configMap:
+            name: {{ include "observability-stack.fullname" . }}-config
+""")
+
+write(obs_dir / "templates" / "service.yaml", """
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability-stack.fullname" . }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: grafana
+      port: {{ .Values.service.grafanaPort }}
+      targetPort: grafana
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+    - name: logs
+      port: {{ .Values.service.logsPort }}
+      targetPort: logs
+      protocol: TCP
+    - name: traces
+      port: {{ .Values.service.tracesPort }}
+      targetPort: traces
+      protocol: TCP
+    - name: otlp-http
+      port: {{ .Values.service.otlpHttpPort }}
+      targetPort: otlp-http
+      protocol: TCP
+    - name: otlp-grpc
+      port: {{ .Values.service.otlpGrpcPort }}
+      targetPort: otlp-grpc
+      protocol: TCP
+  selector:
+    {{- include "observability-stack.selectorLabels" . | nindent 4 }}
+""")
+
+# ==============================================================================
+# Subchart 05B: observability-agent (Host and Node Telemetry Agent)
+# ==============================================================================
+agent_dir = BASE_DIR / "charts" / "observability-agent"
+write(agent_dir / "Chart.yaml", """
+apiVersion: v2
+name: observability-agent
+description: Host and Node Telemetry Agent Subchart (Node Exporter + Vector)
+type: application
+version: 1.0.0
+appVersion: "0.41.1"
+""")
+
+write(agent_dir / "values.yaml", """
+domain: "open-platform.local"
+
+nodeExporter:
+  image:
+    repository: prom/node-exporter
+    tag: "v1.8.2"
+    pullPolicy: IfNotPresent
+  port: 9100
+
+vector:
+  image:
+    repository: timberio/vector
+    tag: "0.41.1-alpine"
+    pullPolicy: IfNotPresent
+  apiPort: 8686
+
+service:
+  type: ClusterIP
+  nodeExporterPort: 9100
+  vectorPort: 8686
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+""")
+
+write_subchart_helpers(agent_dir, "observability-agent")
+
+write(agent_dir / "templates" / "configmap.yaml", """
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability-agent.fullname" . }}-vector-config
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+data:
+  vector.toml: |
+    [sources.node_metrics]
+    type = "prometheus_scrape"
+    endpoints = ["http://127.0.0.1:9100/metrics"]
+    scrape_interval_secs = 15
+
+    [sinks.console]
+    type = "console"
+    inputs = ["node_metrics"]
+    encoding.codec = "json"
+""")
+
+write(agent_dir / "templates" / "daemonset.yaml", """
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "observability-agent.fullname" . }}
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "observability-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability-agent.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: node-exporter
+          image: "{{ .Values.nodeExporter.image.repository }}:{{ .Values.nodeExporter.image.tag }}"
+          imagePullPolicy: {{ .Values.nodeExporter.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+        - name: vector
+          image: "{{ .Values.vector.image.repository }}:{{ .Values.vector.image.tag }}"
+          imagePullPolicy: {{ .Values.vector.image.pullPolicy }}
+          command: ["vector", "--config", "/etc/vector/vector.toml"]
+          ports:
+            - name: vector-api
+              containerPort: 8686
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector/vector.toml
+              subPath: vector.toml
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability-agent.fullname" . }}-vector-config
+""")
+
+write(agent_dir / "templates" / "service.yaml", """
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability-agent.fullname" . }}
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: metrics
+      port: {{ .Values.service.nodeExporterPort }}
+      targetPort: metrics
+      protocol: TCP
+    - name: vector-api
+      port: {{ .Values.service.vectorPort }}
+      targetPort: vector-api
+      protocol: TCP
+  selector:
+    {{- include "observability-agent.selectorLabels" . | nindent 4 }}
+""")
+
+# ==============================================================================
+# Subchart 06: vault-zitadel
 # ==============================================================================
 vault_dir = BASE_DIR / "charts" / "vault-zitadel"
 write(vault_dir / "Chart.yaml", """
@@ -912,6 +1427,8 @@ appVersion: "1.17.6"
 """)
 
 write(vault_dir / "values.yaml", """
+domain: "open-platform.local"
+
 vault:
   image:
     repository: hashicorp/vault
@@ -1097,7 +1614,7 @@ spec:
 """)
 
 # ==============================================================================
-# Subchart 06: doco-cd
+# Subchart 07: doco-cd
 # ==============================================================================
 doco_dir = BASE_DIR / "charts" / "doco-cd"
 write(doco_dir / "Chart.yaml", """
@@ -1115,6 +1632,8 @@ image:
   repository: ghcr.io/kimdre/doco-cd
   tag: "0.1.28"
   pullPolicy: IfNotPresent
+
+domain: "open-platform.local"
 
 service:
   type: ClusterIP
@@ -1220,7 +1739,7 @@ spec:
 """)
 
 # ==============================================================================
-# Subchart 07: pgvector
+# Subchart 08: pgvector
 # ==============================================================================
 pgv_dir = BASE_DIR / "charts" / "pgvector"
 write(pgv_dir / "Chart.yaml", """
@@ -1238,6 +1757,8 @@ image:
   repository: pgvector/pgvector
   tag: "pg16"
   pullPolicy: IfNotPresent
+
+domain: "open-platform.local"
 
 postgres:
   db: "k3s_vector"
@@ -1347,7 +1868,7 @@ spec:
 """)
 
 # ==============================================================================
-# Subchart 08: pg-backup
+# Subchart 09: pg-backup
 # ==============================================================================
 pgb_dir = BASE_DIR / "charts" / "pg-backup"
 write(pgb_dir / "Chart.yaml", """
@@ -1365,6 +1886,8 @@ image:
   repository: postgres
   tag: "16-alpine"
   pullPolicy: IfNotPresent
+
+domain: "open-platform.local"
 
 postgres:
   db: "test_backup_db"
@@ -1474,7 +1997,7 @@ spec:
 """)
 
 # ==============================================================================
-# Subchart 09: ai-gateway
+# Subchart 10: ai-gateway
 # ==============================================================================
 aigw_dir = BASE_DIR / "charts" / "ai-gateway"
 write(aigw_dir / "Chart.yaml", """
@@ -1487,6 +2010,8 @@ appVersion: "v0.4.10"
 """)
 
 write(aigw_dir / "values.yaml", """
+domain: "open-platform.local"
+
 newApi:
   image:
     repository: calciumion/new-api
@@ -1622,7 +2147,7 @@ spec:
 """)
 
 # ==============================================================================
-# Subchart 10: mcp-gateway
+# Subchart 11: mcp-gateway
 # ==============================================================================
 mcpgw_dir = BASE_DIR / "charts" / "mcp-gateway"
 write(mcpgw_dir / "Chart.yaml", """
@@ -1640,6 +2165,8 @@ image:
   repository: alpine
   tag: "3.20"
   pullPolicy: IfNotPresent
+
+domain: "open-platform.local"
 
 service:
   type: ClusterIP
@@ -1725,4 +2252,4 @@ spec:
     {{- include "mcp-gateway.selectorLabels" . | nindent 4 }}
 """)
 
-print("open-platform Umbrella Helm Chart with all 10 subcharts scaffolded successfully!")
+print("open-platform Umbrella Helm Chart with all 11 core categories (12 subcharts) scaffolded successfully!")

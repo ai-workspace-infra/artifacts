@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability-stack.fullname" . }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "observability-stack.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability-stack.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: victoria-metrics
+          image: "{{ .Values.victoriaMetrics.image.repository }}:{{ .Values.victoriaMetrics.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaMetrics.image.pullPolicy }}
+          command:
+            - "/victoria-metrics-prod"
+            - "-storageDataPath=/vmetrics_data"
+            - "-retentionPeriod={{ .Values.victoriaMetrics.retentionPeriod }}"
+            - "-promscrape.config=/etc/prometheus/prometheus.yml"
+          ports:
+            - name: metrics
+              containerPort: 8428
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /vmetrics_data
+              subPath: vmetrics
+            - name: config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+
+        - name: victoria-logs
+          image: "{{ .Values.victoriaLogs.image.repository }}:{{ .Values.victoriaLogs.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaLogs.image.pullPolicy }}
+          command:
+            - "/victoria-logs-prod"
+            - "-storageDataPath=/vlogs_data"
+            - "-retentionPeriod={{ .Values.victoriaLogs.retentionPeriod }}"
+          ports:
+            - name: logs
+              containerPort: 9428
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: logs
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /vlogs_data
+              subPath: vlogs
+
+        - name: victoria-traces
+          image: "{{ .Values.victoriaTraces.image.repository }}:{{ .Values.victoriaTraces.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaTraces.image.pullPolicy }}
+          command:
+            - "/victoria-traces-prod"
+            - "-storageDataPath=/vtraces_data"
+          ports:
+            - name: traces
+              containerPort: 10428
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: traces
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /vtraces_data
+              subPath: vtraces
+
+        - name: otel-collector
+          image: "{{ .Values.otelCollector.image.repository }}:{{ .Values.otelCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.otelCollector.image.pullPolicy }}
+          command: ["/otelcol-contrib", "--config=/etc/otelcol-contrib/config.yaml"]
+          ports:
+            - name: otel-in
+              containerPort: 4318
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol-contrib/config.yaml
+              subPath: otel-collector.yml
+
+        - name: grafana
+          image: "{{ .Values.grafana.image.repository }}:{{ .Values.grafana.image.tag }}"
+          imagePullPolicy: {{ .Values.grafana.image.pullPolicy }}
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: {{ .Values.grafana.adminPassword | quote }}
+            - name: GF_SERVER_ROOT_URL
+              value: "http://grafana.{{ (and .Values.global .Values.global.domain) | default .Values.domain | default "open-platform.local" }}:3000/"
+          ports:
+            - name: grafana
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: grafana
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+              subPath: grafana
+            - name: config
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+              subPath: datasources.yaml
+
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "observability-stack.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: config
+          configMap:
+            name: {{ include "observability-stack.fullname" . }}-config

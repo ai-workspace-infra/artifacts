@@ -10,6 +10,8 @@ core:
     tag: "v2.15.4"
     pullPolicy: IfNotPresent
 
+domain: "open-platform.local"
+
 service:
   type: ClusterIP
   port: 8080

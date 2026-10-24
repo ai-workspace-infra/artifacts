@@ -4,6 +4,7 @@ image:
   tag: "RELEASE.2026-10-18T00-00-00Z"
   pullPolicy: IfNotPresent
 
+domain: "open-platform.local"
 rootUser: "silo_admin"
 rootPassword: "SiloAdminPassword2026!"
 

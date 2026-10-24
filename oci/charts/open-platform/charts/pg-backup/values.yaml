@@ -4,6 +4,8 @@ image:
   tag: "16-alpine"
   pullPolicy: IfNotPresent
 
+domain: "open-platform.local"
+
 postgres:
   db: "test_backup_db"
   user: "postgres"

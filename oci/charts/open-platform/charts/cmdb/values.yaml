@@ -4,6 +4,8 @@ image:
   tag: "3.11-alpine"
   pullPolicy: IfNotPresent
 
+domain: "open-platform.local"
+
 service:
   type: ClusterIP
   port: 8000
