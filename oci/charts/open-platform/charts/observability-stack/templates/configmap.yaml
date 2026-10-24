@@ -35,6 +35,16 @@ data:
         insecure_skip_verify: false
         metric_groups: [node, pod, container, volume]
     {{- end }}
+    {{- if .Values.telemetry.spanMetrics }}
+    connectors:
+      spanmetrics:
+        metrics_flush_interval: 15s
+        dimensions:
+          - name: http.method
+          - name: http.route
+          - name: http.status_code
+        resource_metrics_key_attributes: [service.name, cluster, environment]
+    {{- end }}
     processors:
       resource/cluster:
         attributes:
@@ -59,9 +69,9 @@ data:
         traces:
           receivers: [otlp]
           processors: [resource/cluster, batch]
-          exporters: [otlphttp/traces]
+          exporters: [otlphttp/traces{{ if .Values.telemetry.spanMetrics }}, spanmetrics{{ end }}]
         metrics:
-          receivers: [otlp{{ if .Values.telemetry.kubernetes.enabled }}, kubeletstats{{ end }}]
+          receivers: [otlp{{ if .Values.telemetry.spanMetrics }}, spanmetrics{{ end }}{{ if .Values.telemetry.kubernetes.enabled }}, kubeletstats{{ end }}]
           processors: [resource/cluster, batch]
           exporters: [prometheus]
         logs:
@@ -84,3 +94,18 @@ data:
         type: jaeger
         access: proxy
         url: http://127.0.0.1:10428/select/jaeger
+
+  {{- if .Values.grafana.dashboardsConfigMap }}
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: platform
+        orgId: 1
+        folder: Platform
+        type: file
+        disableDeletion: false
+        allowUiUpdates: false
+        updateIntervalSeconds: 15
+        options:
+          path: /etc/grafana/platform-dashboards
+  {{- end }}

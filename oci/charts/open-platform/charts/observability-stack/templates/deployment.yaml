@@ -6,6 +6,10 @@ metadata:
     {{- include "observability-stack.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- if .Values.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "observability-stack.selectorLabels" . | nindent 6 }}
@@ -145,7 +149,21 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
               subPath: datasources.yaml
 
+            {{- if .Values.grafana.dashboardsConfigMap }}
+            - name: config
+              mountPath: /etc/grafana/provisioning/dashboards/platform.yaml
+              subPath: dashboards.yaml
+            - name: dashboards
+              mountPath: /etc/grafana/platform-dashboards
+              readOnly: true
+            {{- end }}
+
       volumes:
+        {{- if .Values.grafana.dashboardsConfigMap }}
+        - name: dashboards
+          configMap:
+            name: {{ .Values.grafana.dashboardsConfigMap }}
+        {{- end }}
         - name: data
           {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:

@@ -45,6 +45,7 @@ grafana:
   adminPasswordKey: password
   rootUrl: ""
   plugins: []
+  dashboardsConfigMap: ""
 
 service:
   type: ClusterIP
@@ -71,6 +72,7 @@ resources:
     memory: 512Mi
 
 telemetry:
+  spanMetrics: false
   cluster: ""
   environment: unspecified
   extraScrapeConfigs: []
