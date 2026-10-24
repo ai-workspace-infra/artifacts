@@ -2,7 +2,7 @@ apiVersion: v2
 name: open-platform
 description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating 11 core infrastructure services
 type: application
-version: 1.1.2
+version: 1.1.3
 appVersion: "2026.10"
 keywords:
   - platform-engineering
@@ -44,7 +44,7 @@ dependencies:
     repository: "file://./charts/cmdb"
     condition: cmdb.enabled
   - name: observability-stack
-    version: 1.0.2
+    version: 1.0.3
     repository: "file://./charts/observability-stack"
     condition: observability-stack.enabled
   - name: observability-agent
