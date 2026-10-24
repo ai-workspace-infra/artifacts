@@ -1,0 +1,9 @@
+{{- if .Values.grafana.pluginArchives }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability-stack.fullname" . }}-plugin-installer
+data:
+  install-plugins.py: |
+{{ .Files.Get "files/install-plugins.py" | indent 4 }}
+{{- end }}

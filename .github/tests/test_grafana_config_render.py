@@ -1,4 +1,5 @@
-import pathlib, subprocess, tempfile, unittest, yaml
+import pathlib, subprocess, tempfile, unittest, yaml, importlib.util, io, zipfile, json, hashlib
+from unittest.mock import patch
 CHART=pathlib.Path(__file__).resolve().parents[2]/'oci/charts/open-platform/charts/observability-stack'
 class Provisioning(unittest.TestCase):
  def render(self,values):
@@ -19,4 +20,20 @@ class Provisioning(unittest.TestCase):
  def test_unsafe_paths_and_unpinned_plugins_rejected(self):
   for v in [{'plugins':['latest']},{'unsignedPlugins':['*']},{'dashboardProviders':[{'path':'../escape','configMaps':['x']}]}]:
    self.assertNotEqual(self.render({'grafana':v}).returncode,0)
+class VerifiedArchives(unittest.TestCase):
+ def test_checksum_identity_and_path_traversal(self):
+  spec=importlib.util.spec_from_file_location('installer',CHART/'files/install-plugins.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  def archive(unsafe=False):
+   b=io.BytesIO()
+   with zipfile.ZipFile(b,'w') as z:
+    z.writestr('fixture/plugin.json',json.dumps({'id':'fixture','info':{'version':'1.0.0'}}))
+    z.writestr('fixture/../escape' if unsafe else 'fixture/module.js','fixture')
+   return b.getvalue()
+  for unsafe,bad_hash in [(False,False),(False,True),(True,False)]:
+   data=archive(unsafe);item={'id':'fixture','version':'1.0.0','url':'https://example.test/archive.zip','sha256':'0'*64 if bad_hash else hashlib.sha256(data).hexdigest()}
+   with tempfile.TemporaryDirectory() as directory,patch.object(m.urllib.request,'urlopen',return_value=io.BytesIO(data)):
+    if unsafe or bad_hash:
+     with self.assertRaises(AssertionError):m.install([item],directory)
+    else:
+     m.install([item],directory);self.assertTrue((pathlib.Path(directory)/'fixture/module.js').exists())
 if __name__=='__main__':unittest.main()

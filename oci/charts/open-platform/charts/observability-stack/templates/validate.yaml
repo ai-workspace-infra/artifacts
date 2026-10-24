@@ -1,6 +1,6 @@
 {{- range .Values.grafana.plugins }}
 {{- if not (regexMatch "^[a-zA-Z0-9_-]+@[0-9]+[.][0-9]+[.][0-9]+$" .) }}
-{{- fail "grafana.plugins must pin signed catalog plugins as id@version; custom archives require a verified image" }}
+{{- fail "grafana.plugins must pin signed catalog plugins as id@version; custom archives use pluginArchives" }}
 {{- end }}
 {{- end }}
 {{- range .Values.grafana.unsignedPlugins }}
@@ -14,5 +14,14 @@
 {{- end }}
 {{- if not .configMaps }}
 {{- fail "grafana.dashboardProviders requires configMaps" }}
+{{- end }}
+{{- end }}
+
+{{- if and .Values.grafana.pluginArchives (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.grafana.pluginInstallerImage)) }}
+{{- fail "grafana.pluginInstallerImage requires an immutable digest" }}
+{{- end }}
+{{- range .Values.grafana.pluginArchives }}
+{{- if or (not (regexMatch "^[a-zA-Z0-9_-]+$" .id)) (not (regexMatch "^[a-f0-9]{64}$" .sha256)) (not (hasPrefix "https://" .url)) }}
+{{- fail "grafana.pluginArchives requires exact id, HTTPS URL and SHA256" }}
 {{- end }}
 {{- end }}
