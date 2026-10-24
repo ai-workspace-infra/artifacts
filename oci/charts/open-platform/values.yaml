@@ -1,0 +1,45 @@
+# Global configurations shared across all subcharts
+global:
+  domain: "open-platform.local"
+  storageClass: ""
+  imagePullPolicy: "IfNotPresent"
+
+# 01 Git & CI/CD Engine
+gitea:
+  enabled: true
+
+# 02 Cloud-Native Artifact Registry
+harbor:
+  enabled: true
+
+# 03 S3-Compatible Object Storage
+silo:
+  enabled: true
+
+# 04 Dynamic Inventory & CMDB Service
+cmdb:
+  enabled: true
+
+# 05 Secret Engine & IAM Backend
+vault-zitadel:
+  enabled: true
+
+# 06 Declarative GitOps Controller
+doco-cd:
+  enabled: true
+
+# 07 Cloud-Neutral Container & Vector DB
+pgvector:
+  enabled: true
+
+# 08 Database Backup & Restore Sandbox
+pg-backup:
+  enabled: true
+
+# 09 Dual-Tier AI Gateway (New API + LiteLLM)
+ai-gateway:
+  enabled: true
+
+# 10 Infrastructure MCP Tool Gateway
+mcp-gateway:
+  enabled: true

@@ -1,0 +1,26 @@
+replicaCount: 1
+image:
+  repository: gitea/gitea
+  tag: "1.22.6"
+  pullPolicy: IfNotPresent
+
+domain: "open-platform.local"
+
+service:
+  type: ClusterIP
+  httpPort: 3000
+  sshPort: 22
+
+persistence:
+  enabled: true
+  size: 10Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi

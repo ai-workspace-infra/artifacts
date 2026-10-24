@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ai-gateway
+description: Dual-Tier AI Gateway Subchart (New API + LiteLLM)
+type: application
+version: 1.0.0
+appVersion: "v0.4.10"

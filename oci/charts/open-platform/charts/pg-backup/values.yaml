@@ -1,0 +1,21 @@
+replicaCount: 1
+image:
+  repository: postgres
+  tag: "16-alpine"
+  pullPolicy: IfNotPresent
+
+postgres:
+  db: "test_backup_db"
+  user: "postgres"
+  password: "PostgresBackupPassword2026!"
+  port: 5432
+
+service:
+  type: ClusterIP
+  port: 5432
+
+persistence:
+  enabled: true
+  size: 10Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""

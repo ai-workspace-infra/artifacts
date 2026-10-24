@@ -1,0 +1,17 @@
+newApi:
+  image:
+    repository: calciumion/new-api
+    tag: "v0.4.10"
+    pullPolicy: IfNotPresent
+  port: 3000
+
+litellm:
+  image:
+    repository: ghcr.io/berriai/litellm
+    tag: "v1.51.0"
+    pullPolicy: IfNotPresent
+  port: 4000
+  masterKey: "sk-litellm-master-key-2026"
+
+service:
+  type: ClusterIP

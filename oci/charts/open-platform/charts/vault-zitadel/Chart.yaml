@@ -1,0 +1,6 @@
+apiVersion: v2
+name: vault-zitadel
+description: HashiCorp Vault Secrets Engine & Zitadel IAM Backend Subchart
+type: application
+version: 1.0.0
+appVersion: "1.17.6"

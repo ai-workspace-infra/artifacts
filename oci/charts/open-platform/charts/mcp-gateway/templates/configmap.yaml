@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-entrypoint
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+data:
+  entrypoint.sh: |
+    #!/bin/sh
+    echo "Starting Infrastructure MCP Server Gateway on port 8080..."
+    while true; do
+      echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"ok\",\"service\":\"infrastructure-mcp-server\",\"version\":\"0.1.0\"}" | nc -l -p 8080 -q 1 || sleep 1
+    done
