@@ -20,6 +20,34 @@ class Provisioning(unittest.TestCase):
  def test_unsafe_paths_and_unpinned_plugins_rejected(self):
   for v in [{'plugins':['latest']},{'unsignedPlugins':['*']},{'dashboardProviders':[{'path':'../escape','configMaps':['x']}]}]:
    self.assertNotEqual(self.render({'grafana':v}).returncode,0)
+class KubeletMetricGroups(unittest.TestCase):
+ def render_config(self, kubernetes):
+  with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml') as f:
+   yaml.safe_dump({'telemetry': {'kubernetes': kubernetes}}, f); f.flush()
+   return subprocess.run(['helm', 'template', 'groups', str(CHART), '-f', f.name], capture_output=True, text=True)
+ def otel_config(self, result):
+  self.assertEqual(result.returncode, 0, result.stderr)
+  cm=next(x for x in yaml.safe_load_all(result.stdout) if x and x['kind']=='ConfigMap')
+  return yaml.safe_load(cm['data']['otel-collector.yml'])
+ def test_default_groups_remain_compatible(self):
+  cfg=self.otel_config(self.render_config({'enabled': True}))
+  self.assertEqual(cfg['receivers']['kubeletstats']['metric_groups'], ['node','pod','container','volume'])
+  self.assertIn('kubeletstats', cfg['service']['pipelines']['metrics']['receivers'])
+ def test_raw_cadvisor_profile_preserves_node_overview_source(self):
+  cfg=self.otel_config(self.render_config({'enabled': True, 'metricGroups': ['node','pod','volume']}))
+  self.assertEqual(cfg['receivers']['kubeletstats']['metric_groups'], ['node','pod','volume'])
+  self.assertNotIn('container', cfg['receivers']['kubeletstats']['metric_groups'])
+  self.assertIn('node', cfg['receivers']['kubeletstats']['metric_groups'])
+  self.assertIn('kubeletstats', cfg['service']['pipelines']['metrics']['receivers'])
+  self.assertIn('otlp', cfg['service']['pipelines']['metrics']['receivers'])
+ def test_invalid_empty_and_duplicate_groups_are_rejected(self):
+  for groups in ([], ['wrong'], ['node','node']):
+   self.assertNotEqual(self.render_config({'enabled': True, 'metricGroups': groups}).returncode, 0)
+ def test_disabled_receiver_does_not_affect_otlp(self):
+  cfg=self.otel_config(self.render_config({'enabled': False, 'metricGroups': []}))
+  self.assertNotIn('kubeletstats', cfg['receivers'])
+  self.assertEqual(cfg['service']['pipelines']['metrics']['receivers'], ['otlp'])
+
 class VerifiedArchives(unittest.TestCase):
  def test_checksum_identity_and_path_traversal(self):
   spec=importlib.util.spec_from_file_location('installer',CHART/'files/install-plugins.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
