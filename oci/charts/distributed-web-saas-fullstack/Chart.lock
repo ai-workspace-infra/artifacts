@@ -19,12 +19,12 @@ dependencies:
   version: 0.1.1
 - name: web-saas-caddy
   repository: file://subcharts/caddy
-  version: 0.1.3
+  version: 0.1.4
 - name: web-saas-stunnel-client
   repository: file://subcharts/stunnel-client
   version: 0.1.1
 - name: web-saas-stunnel-server
   repository: file://subcharts/stunnel-server
   version: 0.1.1
-digest: sha256:af9eeea10214b0942c10d3ef39a60b79dc929394ceb46a03e2e24b951afb98b2
-generated: "2026-10-25T01:41:37.553897+08:00"
+digest: sha256:75ed54a788887254703bf9354ac0203a607d129e45a133fceafdb464cdd62c47
+generated: "2026-10-25T10:39:00.641308+08:00"

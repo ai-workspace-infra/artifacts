@@ -147,10 +147,20 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": ["serviceRole"],
+            "properties": {
+              "serviceRole": {"const": "console"}
+            }
+          },
+          {
+            "required": ["upstream"]
+          }
+        ],
         "required": [
           "name",
           "host",
-          "upstream",
           "tlsSecret"
         ],
         "properties": {
@@ -165,6 +175,11 @@
           "upstream": {
             "type": "string",
             "pattern": "^https?://[a-z0-9.-]+:[0-9]+$"
+          },
+          "serviceRole": {
+            "enum": [
+              "console"
+            ]
           },
           "aliases": {
             "type": "array",
