@@ -1,5 +1,7 @@
 """Install only checksum-verified archives into an ephemeral plugin volume."""
 import hashlib, io, json, os, pathlib, re, stat, urllib.request, zipfile
+MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+
 def install(items, root):
     ROOT=pathlib.Path(root)
     for item in items:
@@ -7,8 +9,9 @@ def install(items, root):
         assert re.fullmatch(r'[a-zA-Z0-9_-]+',plugin_id)
         assert item['url'].startswith('https://') and re.fullmatch('[a-f0-9]{64}',item['sha256'])
         with urllib.request.urlopen(item['url'],timeout=60) as r:
-            data=r.read(50_000_001)
-        assert len(data)<=50_000_000 and hashlib.sha256(data).hexdigest()==item['sha256'],'Archive checksum mismatch'
+            data=r.read(MAX_ARCHIVE_BYTES + 1)
+        assert len(data)<=MAX_ARCHIVE_BYTES,'Archive size limit exceeded'
+        assert hashlib.sha256(data).hexdigest()==item['sha256'],'Archive checksum mismatch'
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             infos=z.infolist();assert sum(i.file_size for i in infos)<200_000_000,'Unpacked archive too large'
             manifests=[i for i in infos if pathlib.PurePosixPath(i.filename).name=='plugin.json' and len(pathlib.PurePosixPath(i.filename).parts)==2]

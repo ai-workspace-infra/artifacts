@@ -64,4 +64,30 @@ class VerifiedArchives(unittest.TestCase):
      with self.assertRaises(AssertionError):m.install([item],directory)
     else:
      m.install([item],directory);self.assertTrue((pathlib.Path(directory)/'fixture/module.js').exists())
+class VerifiedArchiveBounds(unittest.TestCase):
+ def installer(self):
+  spec=importlib.util.spec_from_file_location('bounded_installer',CHART/'files/install-plugins.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
+ def test_verified_archive_above_old_50mb_limit_is_installed(self):
+  m=self.installer();buffer=io.BytesIO()
+  with zipfile.ZipFile(buffer,'w') as z:
+   z.writestr('fixture/plugin.json',json.dumps({'id':'fixture','info':{'version':'1.0.0'}}))
+   z.writestr('fixture/module.js',b'x' * 50_000_100)
+  data=buffer.getvalue();self.assertGreater(len(data),50_000_000);self.assertLess(len(data),m.MAX_ARCHIVE_BYTES)
+  item={'id':'fixture','version':'1.0.0','url':'https://example.test/archive.zip','sha256':hashlib.sha256(data).hexdigest()}
+  with tempfile.TemporaryDirectory() as directory,patch.object(m.urllib.request,'urlopen',return_value=io.BytesIO(data)):
+   m.install([item],directory)
+   self.assertEqual((pathlib.Path(directory)/'fixture/module.js').stat().st_size,50_000_100)
+ def test_archive_above_fixed_64mib_limit_fails_before_hash_or_unzip(self):
+  m=self.installer();self.assertEqual(m.MAX_ARCHIVE_BYTES,64*1024*1024)
+  data=b'x' * (m.MAX_ARCHIVE_BYTES+1)
+  item={'id':'fixture','version':'1.0.0','url':'https://example.test/archive.zip','sha256':hashlib.sha256(data).hexdigest()}
+  with tempfile.TemporaryDirectory() as directory,patch.object(m.urllib.request,'urlopen',return_value=io.BytesIO(data)):
+   with self.assertRaisesRegex(AssertionError,'Archive size limit exceeded'):m.install([item],directory)
+   self.assertFalse(any(pathlib.Path(directory).iterdir()))
+ def test_checksum_failure_remains_distinct_from_size_failure(self):
+  m=self.installer();data=b'not-a-valid-zip'
+  item={'id':'fixture','version':'1.0.0','url':'https://example.test/archive.zip','sha256':'0'*64}
+  with tempfile.TemporaryDirectory() as directory,patch.object(m.urllib.request,'urlopen',return_value=io.BytesIO(data)):
+   with self.assertRaisesRegex(AssertionError,'Archive checksum mismatch'):m.install([item],directory)
+
 if __name__=='__main__':unittest.main()
