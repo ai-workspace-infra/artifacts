@@ -24,9 +24,11 @@ jobs:
     steps:
       - name: Checkout reviewed source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 2
       - name: Install YAML parser
         run: python3 -m pip install 'PyYAML==6.0.3'
       - name: Verify no-false-green declaration checks
         run: python3 .github/tests/test_observability_chart_preflight.py
       - name: Validate diff formatting
-        run: git diff --check
+        run: git diff --check HEAD^ HEAD
