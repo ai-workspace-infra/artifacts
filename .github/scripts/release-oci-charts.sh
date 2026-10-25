@@ -3,10 +3,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 package_dir="${RUNNER_TEMP:-$repo_root/dist}/oci-charts-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
-legacy_charts=(oci/charts/open-platform oci/charts/open-platform/charts/observability-stack oci/charts/apps/app-service oci/charts/observability)
+legacy_charts=(oci/charts/open-platform/charts/observability-agent oci/charts/open-platform oci/charts/open-platform/charts/observability-stack oci/charts/apps/app-service oci/charts/observability)
 case "${1:-}" in
   validate)
     for chart in "${legacy_charts[@]}"; do helm lint "$chart"; done
+    python3 .github/tests/test_observability_agent_chart.py
     .github/scripts/check-web-saas-charts.sh
     ;;
   package)

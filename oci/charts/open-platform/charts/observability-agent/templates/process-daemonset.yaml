@@ -1,0 +1,83 @@
+{{- if .Values.processExporter.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "process-exporter.fullname" . }}
+  labels:
+    {{- include "process-exporter.selectorLabels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "process-exporter.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "process-exporter.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ toYaml .Values.processExporter.processNames | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: {{ include "process-exporter.serviceAccountName" . }}
+      hostPID: false
+      hostIPC: false
+      hostNetwork: false
+      securityContext:
+        {{- toYaml .Values.processExporter.podSecurityContext | nindent 8 }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      containers:
+        - name: process-exporter
+          image: "{{ .Values.processExporter.image.repository }}:{{ .Values.processExporter.image.tag }}@{{ .Values.processExporter.image.digest }}"
+          imagePullPolicy: {{ .Values.processExporter.image.pullPolicy }}
+          args:
+            - --procfs=/host/proc
+            - --config.path=/etc/process-exporter/config.yaml
+            - --web.listen-address=:{{ .Values.processExporter.service.port }}
+            - --children=false
+            - --threads=false
+            - --gather-smaps=false
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.processExporter.service.port }}
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+          resources:
+            {{- toYaml .Values.processExporter.resources | nindent 12 }}
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: config
+              mountPath: /etc/process-exporter
+              readOnly: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: proc
+          hostPath:
+            path: {{ .Values.processExporter.hostProcPath | quote }}
+            type: Directory
+        - name: config
+          configMap:
+            name: {{ include "process-exporter.fullname" . }}
+
+{{- end }}

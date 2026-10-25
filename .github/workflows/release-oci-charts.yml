@@ -12,6 +12,7 @@ on:
       - "oci/charts/distributed-web-saas-fullstack/**"
       - ".github/scripts/*web-saas-*.sh"
       - ".github/scripts/release-oci-charts.sh"
+      - ".github/tests/test_observability_agent_chart.py"
       - ".github/tests/test_web_saas_charts.py"
       - ".github/tests/requirements-charts.txt"
       - ".github/workflows/release-oci-charts.yml"

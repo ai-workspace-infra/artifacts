@@ -1,3 +1,4 @@
+{{- if .Values.nodeExporter.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -10,10 +11,6 @@ spec:
     - name: metrics
       port: {{ .Values.service.nodeExporterPort }}
       targetPort: metrics
-      protocol: TCP
-    - name: vector-api
-      port: {{ .Values.service.vectorPort }}
-      targetPort: vector-api
-      protocol: TCP
   selector:
     {{- include "observability-agent.selectorLabels" . | nindent 4 }}
+{{- end }}

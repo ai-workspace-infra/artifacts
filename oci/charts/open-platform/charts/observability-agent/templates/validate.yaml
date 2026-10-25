@@ -1,0 +1,76 @@
+{{- if .Values.processExporter.enabled }}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" .Values.processExporter.image.digest) }}
+{{- fail "image.digest must pin a verified sha256 image digest" }}
+{{- end }}
+{{- if or (not .Values.processExporter.podSecurityContext.runAsNonRoot) (eq (int .Values.processExporter.podSecurityContext.runAsUser) 0) }}
+{{- fail "process-exporter must run as a non-root user" }}
+{{- end }}
+{{- range .Values.processExporter.processNames }}
+{{- if or (contains ".Cmdline" .name) (contains ".Matches" .name) }}
+{{- fail "process group names must not expose argv or command-line capture groups" }}
+{{- end }}
+{{- end }}
+
+{{- end }}
+
+{{- if .Values.kubeStateMetrics.enabled }}
+{{- range .Values.kubeStateMetrics.collectors }}
+{{- if not (has . (list "nodes" "namespaces" "pods" "deployments" "daemonsets" "statefulsets" "replicasets" "services" "persistentvolumeclaims" "persistentvolumes")) }}
+{{- fail "kubeStateMetrics.collectors contains a resource outside the reviewed read-only allowlist" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if and .Values.vector.enabled (not (has .Values.vector.mode (list "console" "relay"))) }}
+{{- fail "vector.mode must be console or relay" }}
+{{- end }}
+{{- if and .Values.vector.enabled (eq .Values.vector.mode "console") (not .Values.nodeExporter.enabled) }}
+{{- fail "console Vector requires the local nodeExporter source" }}
+{{- end }}
+{{- if and .Values.vector.enabled (eq .Values.vector.mode "relay") }}
+{{- $relay := .Values.vector.relay }}
+{{- if or (empty $relay.sourceBaseUrl) (empty $relay.sourceCluster) (empty $relay.sourceEnvironment) (empty $relay.remoteWriteUrl) (empty $relay.auth.existingSecret) }}
+{{- fail "relay requires explicit source URL, cluster, environment, remote URL and authentication Secret" }}
+{{- end }}
+{{- if not $relay.distinctBackendAcknowledged }}
+{{- fail "relay requires independent verification that remote backend differs from source" }}
+{{- end }}
+{{- if not (hasPrefix "https://" $relay.remoteWriteUrl) }}
+{{- fail "remote write must use verified HTTPS" }}
+{{- end }}
+{{- $sourceHost := (urlParse $relay.sourceBaseUrl).host }}
+{{- $remoteHost := (urlParse $relay.remoteWriteUrl).host }}
+{{- if or (eq $sourceHost $remoteHost) (has $remoteHost $relay.sourceBackendAliases) }}
+{{- fail "relay must not write into its source backend or a declared source alias" }}
+{{- end }}
+{{- if or (not (empty (urlParse $relay.remoteWriteUrl).userinfo)) (not (empty (urlParse $relay.sourceBaseUrl).userinfo)) }}
+{{- fail "relay URLs must not contain credentials" }}
+{{- end }}
+{{- if not (has $relay.auth.strategy (list "bearer" "basic")) }}
+{{- fail "relay auth strategy must be bearer or basic" }}
+{{- end }}
+{{- if or (lt (int $relay.scrapeIntervalSeconds) 15) (gt (int $relay.maxSampleAgeSeconds) 180) (lt (int $relay.maxSampleAgeSeconds) (int $relay.scrapeIntervalSeconds)) }}
+{{- fail "relay scrape must be >=15s; sample age must cover one scrape and be <=180s" }}
+{{- end }}
+{{- end }}
+
+{{- if and .Values.nodeExporter.enabled .Values.nodeExporter.listenOnNodeIP (not .Values.nodeExporter.hostNetwork) }}
+{{- fail "binding Node Exporter to hostIP requires explicit hostNetwork" }}
+{{- end }}
+
+{{- if and .Values.kubeStateMetrics.enabled (empty .Values.kubeStateMetrics.collectors) }}
+{{- fail "kube-state-metrics collectors must be explicit and non-empty" }}
+{{- end }}
+{{- if and .Values.kubeStateMetrics.enabled (not (contains "@sha256:" .Values.kubeStateMetrics.image)) }}
+{{- fail "kube-state-metrics image must use an immutable digest" }}
+{{- end }}
+{{- if and .Values.processExporter.enabled (not .Values.processExporter.serviceAccount.create) (empty .Values.processExporter.serviceAccount.name) }}
+{{- fail "existing process exporter ServiceAccount requires an explicit name" }}
+{{- end }}
+
+{{- if and .Values.nodeExporter.enabled (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.nodeExporter.image.tag)) }}
+{{- fail "node exporter image tag must pin an immutable digest" }}
+{{- end }}
+{{- if and .Values.vector.enabled (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.vector.image.tag)) }}
+{{- fail "Vector image tag must pin an immutable digest" }}
+{{- end }}

@@ -1,3 +1,4 @@
+{{- if or .Values.nodeExporter.enabled (and .Values.vector.enabled (eq .Values.vector.mode "console")) }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -12,40 +13,97 @@ spec:
     metadata:
       labels:
         {{- include "observability-agent.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
+      automountServiceAccountToken: false
+      hostPID: false
+      hostIPC: false
+      hostNetwork: {{ .Values.nodeExporter.hostNetwork }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
       containers:
+        {{- if .Values.nodeExporter.enabled }}
         - name: node-exporter
           image: "{{ .Values.nodeExporter.image.repository }}:{{ .Values.nodeExporter.image.tag }}"
           imagePullPolicy: {{ .Values.nodeExporter.image.pullPolicy }}
+          args:
+            - "--web.listen-address={{ if .Values.nodeExporter.listenOnNodeIP }}[$(HOST_IP)]{{ else }}{{ .Values.nodeExporter.listenAddress }}{{ end }}:{{ .Values.nodeExporter.port }}"
+            {{- if .Values.nodeExporter.hostMetrics }}
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            {{- end }}
+          env:
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
           ports:
             - name: metrics
-              containerPort: 9100
-              protocol: TCP
+              containerPort: {{ .Values.nodeExporter.port }}
           livenessProbe:
-            httpGet:
-              path: /
-              port: metrics
+            httpGet: {path: /metrics, port: metrics}
             initialDelaySeconds: 5
             periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /metrics, port: metrics}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-
+          {{- if .Values.nodeExporter.hostMetrics }}
+          volumeMounts:
+            - {name: proc, mountPath: /host/proc, readOnly: true}
+            - {name: sys, mountPath: /host/sys, readOnly: true}
+            - {name: root, mountPath: /host/root, readOnly: true, mountPropagation: HostToContainer}
+          {{- end }}
+        {{- end }}
+        {{- if and .Values.vector.enabled (eq .Values.vector.mode "console") }}
         - name: vector
           image: "{{ .Values.vector.image.repository }}:{{ .Values.vector.image.tag }}"
           imagePullPolicy: {{ .Values.vector.image.pullPolicy }}
           command: ["vector", "--config", "/etc/vector/vector.toml"]
-          ports:
-            - name: vector-api
-              containerPort: 8686
-              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
           volumeMounts:
-            - name: config
-              mountPath: /etc/vector/vector.toml
-              subPath: vector.toml
+            - {name: config, mountPath: /etc/vector/vector.toml, subPath: vector.toml, readOnly: true}
+            - {name: vector-data, mountPath: /var/lib/vector}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-
+        {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.nodeExporter.hostMetrics (and .Values.vector.enabled (eq .Values.vector.mode "console")) }}
       volumes:
+        {{- if .Values.nodeExporter.hostMetrics }}
+        - name: proc
+          hostPath: {path: /proc, type: Directory}
+        - name: sys
+          hostPath: {path: /sys, type: Directory}
+        - name: root
+          hostPath: {path: /, type: Directory}
+        {{- end }}
+        {{- if and .Values.vector.enabled (eq .Values.vector.mode "console") }}
         - name: config
           configMap:
             name: {{ include "observability-agent.fullname" . }}-vector-config
+        - name: vector-data
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
+{{- end }}

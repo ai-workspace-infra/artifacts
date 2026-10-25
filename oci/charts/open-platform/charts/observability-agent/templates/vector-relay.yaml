@@ -1,0 +1,79 @@
+{{- if and .Values.vector.enabled (eq .Values.vector.mode "relay") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability-agent.fullname" . }}-relay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vector-relay
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vector-relay
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vector
+          image: "{{ .Values.vector.image.repository }}:{{ .Values.vector.image.tag }}"
+          command: [vector, --config, /etc/vector/vector.toml]
+          env:
+            {{- if eq .Values.vector.relay.auth.strategy "bearer" }}
+            - name: VECTOR_REMOTE_WRITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.vector.relay.auth.existingSecret }}
+                  key: {{ .Values.vector.relay.auth.tokenKey }}
+            {{- else }}
+            - name: VECTOR_REMOTE_WRITE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.vector.relay.auth.existingSecret }}
+                  key: {{ .Values.vector.relay.auth.usernameKey }}
+            - name: VECTOR_REMOTE_WRITE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.vector.relay.auth.existingSecret }}
+                  key: {{ .Values.vector.relay.auth.passwordKey }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/vector/vector.toml, subPath: vector.toml, readOnly: true}
+            - {name: data, mountPath: /var/lib/vector}
+            {{- if .Values.vector.relay.tls.caSecret }}
+            - {name: remote-ca, mountPath: /etc/vector/remote-ca, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability-agent.fullname" . }}-vector-config
+        - name: data
+          emptyDir: {}
+        {{- if .Values.vector.relay.tls.caSecret }}
+        - name: remote-ca
+          secret:
+            secretName: {{ .Values.vector.relay.tls.caSecret }}
+            items:
+              - {key: {{ .Values.vector.relay.tls.caKey }}, path: ca.crt}
+        {{- end }}
+{{- end }}

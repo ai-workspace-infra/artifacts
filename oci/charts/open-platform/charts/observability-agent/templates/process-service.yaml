@@ -1,0 +1,17 @@
+{{- if .Values.processExporter.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "process-exporter.fullname" . }}
+  labels:
+    {{- include "process-exporter.selectorLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ .Values.processExporter.service.port }}
+      targetPort: metrics
+  selector:
+    {{- include "process-exporter.selectorLabels" . | nindent 4 }}
+
+{{- end }}

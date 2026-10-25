@@ -5,6 +5,7 @@ on:
       - 'oci/charts/distributed-web-saas-fullstack/**'
       - 'oci/charts/open-platform/**'
       - '.github/scripts/*web-saas-*.sh'
+      - '.github/tests/test_observability_agent_chart.py'
       - '.github/tests/test_web_saas_charts.py'
       - '.github/tests/test_otel_spanmetrics_runtime.py'
       - '.github/tests/test_grafana_config_render.py'
@@ -27,6 +28,8 @@ jobs:
           version: v3.15.4
       - name: Validate profiles, rejection cases and packaged dependencies
         run: .github/scripts/check-web-saas-charts.sh
+      - name: Validate standalone observability agent security and producers
+        run: OBS_AGENT_RUNTIME_TESTS=1 python3 .github/tests/test_observability_agent_chart.py
       - name: Validate rendered Kubernetes API schemas
         run: .github/scripts/check-web-saas-schemas.sh
       - name: Validate observability chart and secret references
