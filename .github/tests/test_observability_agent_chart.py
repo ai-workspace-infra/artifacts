@@ -64,6 +64,75 @@ class ObservabilityAgentChartTest(unittest.TestCase):
         config = next(d for d in docs if d["kind"] == "ConfigMap" and "config.yaml" in d["data"])
         self.assertEqual(yaml.safe_load(config["data"]["config.yaml"])["process_names"][0]["name"], "{{.Comm}}")
 
+    def test_process_health_is_lightweight_with_startup_budget(self):
+        docs = objects(ALL)
+        process = next(d for d in docs if d["kind"] == "DaemonSet" and d["metadata"]["name"].endswith("-process"))
+        c = process["spec"]["template"]["spec"]["containers"][0]
+        for name in ("startupProbe", "readinessProbe", "livenessProbe"):
+            self.assertEqual(c[name]["httpGet"], {"path": "/", "port": "metrics"})
+            self.assertGreaterEqual(c[name]["timeoutSeconds"], 2)
+        self.assertEqual(c["startupProbe"]["periodSeconds"] * c["startupProbe"]["failureThreshold"], 300)
+        values = copy.deepcopy(ALL)
+        values["processExporter"]["probes"] = {name: {"mode": "tcp"} for name in ("startup", "readiness", "liveness")}
+        docs = objects(values)
+        process = next(d for d in docs if d["kind"] == "DaemonSet" and d["metadata"]["name"].endswith("-process"))
+        c = process["spec"]["template"]["spec"]["containers"][0]
+        for name in ("startupProbe", "readinessProbe", "livenessProbe"):
+            self.assertEqual(c[name]["tcpSocket"], {"port": "metrics"})
+            self.assertNotIn("httpGet", c[name])
+
+    def test_expensive_or_invalid_health_probes_are_rejected(self):
+        for patch in ({"path": "/metrics"}, {"mode": "exec"}, {"timeoutSeconds": 0}, {"periodSeconds": 0}, {"failureThreshold": 0}):
+            values = copy.deepcopy(ALL)
+            values["processExporter"]["probes"] = {"liveness": patch}
+            self.assertNotEqual(render(values).returncode, 0, patch)
+
+    @unittest.skipUnless(os.environ.get("OBS_AGENT_RUNTIME_TESTS") == "1", "explicit local/CI Docker runtime check")
+    def test_pinned_process_image_landing_and_tcp_are_not_metrics_collection(self):
+        import json
+        import socket
+        import time
+        import urllib.request
+        image = yaml.safe_load((CHART / "values.yaml").read_text())["processExporter"]["image"]
+        ref = image["repository"] + ":" + image["tag"] + "@" + image["digest"]
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "config.yaml"
+            cfg.write_text(yaml.safe_dump({"process_names": [{"name": "{{.Comm}}", "cmdline": [".+"]}]}))
+            command = ["docker", "run", "-d", "--user", "65534:65534", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--cpus", "0.2", "--memory", "256m", "-p", "127.0.0.1::9256", "-v", "/proc:/host/proc:ro", "-v", f"{cfg}:/etc/process-exporter/config.yaml:ro", ref, "--procfs=/host/proc", "--config.path=/etc/process-exporter/config.yaml", "--children=false", "--threads=false", "--gather-smaps=false"]
+            container = subprocess.check_output(command, text=True).strip()
+            try:
+                info = json.loads(subprocess.check_output(["docker", "inspect", container], text=True))[0]
+                port = int(info["NetworkSettings"]["Ports"]["9256/tcp"][0]["HostPort"])
+                url = f"http://127.0.0.1:{port}"
+                deadline = time.monotonic() + 30
+                while True:
+                    try:
+                        with urllib.request.urlopen(url + "/", timeout=2) as response:
+                            body = response.read().decode()
+                        break
+                    except Exception:
+                        if time.monotonic() > deadline:
+                            raise
+                        time.sleep(0.2)
+                self.assertIn("Named Process Exporter", body)
+                self.assertNotIn("# HELP", body)
+                durations = []
+                for _ in range(10):
+                    start = time.monotonic()
+                    with urllib.request.urlopen(url + "/", timeout=2) as response:
+                        self.assertEqual(response.status, 200)
+                        self.assertIn(b"Named Process Exporter", response.read())
+                    durations.append(time.monotonic() - start)
+                with socket.create_connection(("127.0.0.1", port), timeout=2):
+                    pass
+                start = time.monotonic()
+                with urllib.request.urlopen(url + "/metrics", timeout=45) as response:
+                    metric_body = response.read().decode()
+                self.assertIn("namedprocess_scrape_errors", metric_body)
+                print(json.dumps({"process_probe_runtime": "local Docker, UID65534, 0.2CPU", "landing_max_seconds": round(max(durations), 4), "metrics_seconds": round(time.monotonic() - start, 4), "landing_requests": 11}))
+            finally:
+                subprocess.run(["docker", "rm", "-f", container], capture_output=True, check=True)
+
     def test_global_scheduling_applies_to_all_producers_and_relay(self):
         selector = {"kubernetes.io/os": "linux", "workload": "monitoring"}
         tolerations = [{"key": "dedicated", "operator": "Equal", "value": "monitoring", "effect": "NoSchedule"}]

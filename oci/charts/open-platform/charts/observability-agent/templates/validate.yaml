@@ -74,3 +74,21 @@
 {{- if and .Values.vector.enabled (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.vector.image.tag)) }}
 {{- fail "Vector image tag must pin an immutable digest" }}
 {{- end }}
+
+{{- if .Values.processExporter.enabled }}
+{{- range $name := list "startup" "readiness" "liveness" }}
+{{- $probe := index $.Values.processExporter.probes $name }}
+{{- if empty $probe }}
+{{- fail "process exporter requires startup, readiness and liveness probe configuration" }}
+{{- end }}
+{{- if not (has $probe.mode (list "http" "tcp")) }}
+{{- fail "process exporter health probe mode must be http or tcp" }}
+{{- end }}
+{{- if and (eq $probe.mode "http") (ne $probe.path "/") }}
+{{- fail "process exporter HTTP health probes must use lightweight landing /, never /metrics" }}
+{{- end }}
+{{- if or (lt (int $probe.periodSeconds) 1) (lt (int $probe.timeoutSeconds) 1) (lt (int $probe.failureThreshold) 1) (lt (int $probe.initialDelaySeconds) 0) }}
+{{- fail "process exporter health probe intervals/timeouts/failure thresholds must be positive" }}
+{{- end }}
+{{- end }}
+{{- end }}
