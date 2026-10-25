@@ -28,6 +28,10 @@ spec:
               value: "0.0.0.0:8200"
             - name: VAULT_ADDR
               value: "http://127.0.0.1:8200"
+            {{- if .Values.vault.apiAddr }}
+            - name: VAULT_API_ADDR
+              value: {{ .Values.vault.apiAddr | quote }}
+            {{- end }}
           ports:
             - name: vault-http
               containerPort: 8200

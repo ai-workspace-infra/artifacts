@@ -2,7 +2,7 @@ apiVersion: v2
 name: open-platform
 description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating 11 core infrastructure services
 type: application
-version: 1.2.1
+version: 1.2.2
 appVersion: "2026.10"
 keywords:
   - platform-engineering
@@ -52,7 +52,7 @@ dependencies:
     repository: "file://./charts/observability-agent"
     condition: observability-agent.enabled
   - name: vault-zitadel
-    version: 1.0.0
+    version: 1.0.1
     repository: "file://./charts/vault-zitadel"
     condition: vault-zitadel.enabled
   - name: doco-cd

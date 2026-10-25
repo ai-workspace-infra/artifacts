@@ -1,4 +1,4 @@
-# Distributed Web SaaS Fullstack — 0.2.0
+# Distributed Web SaaS Fullstack — 0.2.4
 
 Composable Helm charts for Kubernetes 1.32+ with Caddy as the public HTTPS
 ingress entry point. The implemented ingress mode uses a Caddy Deployment and
@@ -118,6 +118,14 @@ Billing host preserves direct Billing ingress; Gateway core owns any Billing
 API dispatch through Accounts/Console paths. Set `caddy.frontendService: console`
 for the single-container profile, otherwise `frontend-router`.
 `caddy.gatewayEnabled` must match `edgeGateway.enabled`.
+
+Each public service route accepts one primary host and a separate aliases list:
+`caddy.routes.consoleHost` / `consoleAliases`, `accountsHost` / `accountsAliases`,
+and `billingHost` / `billingAliases`. Aliases render the same service-specific
+handlers and share that service's TLS Secret. `caddy.additionalHosts` supports
+`aliases` for Vault and Grafana upstreams. DNS CNAMEs do not rewrite HTTP Host;
+each desired alias therefore must appear in these values. This chart only
+renders routes and never changes DNS.
 
 ## Data and access
 

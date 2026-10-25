@@ -23,6 +23,9 @@ cmdb:
 # 05 Full-Stack Observability & Telemetry Central Stack
 observability-stack:
   enabled: true
+  domain: "open-platform.local"
+  grafana:
+    rootUrl: ""
 
 # 05 Host & Node Telemetry Agent
 observability-agent:
@@ -31,6 +34,8 @@ observability-agent:
 # 06 Secret Engine & IAM Backend
 vault-zitadel:
   enabled: true
+  vault:
+    apiAddr: ""
 
 # 07 Declarative GitOps Controller
 doco-cd:

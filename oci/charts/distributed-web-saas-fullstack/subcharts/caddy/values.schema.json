@@ -82,13 +82,37 @@
           "type": "string",
           "pattern": "^$|^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
         },
+        "consoleAliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+          },
+          "uniqueItems": true
+        },
         "accountsHost": {
           "type": "string",
           "pattern": "^$|^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
         },
+        "accountsAliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+          },
+          "uniqueItems": true
+        },
         "billingHost": {
           "type": "string",
           "pattern": "^$|^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+        },
+        "billingAliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+          },
+          "uniqueItems": true
         }
       },
       "required": [
@@ -141,6 +165,14 @@
           "upstream": {
             "type": "string",
             "pattern": "^https?://[a-z0-9.-]+:[0-9]+$"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+            },
+            "uniqueItems": true
           },
           "tlsSecret": {
             "type": "string",

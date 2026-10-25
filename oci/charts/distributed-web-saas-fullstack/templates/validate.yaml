@@ -12,5 +12,5 @@
 {{- if ne .Values.caddy.frontendService $expected }}{{ fail (printf "caddy.frontendService must be %s for the selected console profile" $expected) }}{{ end }}
 {{- if ne .Values.caddy.gatewayEnabled .Values.edgeGateway.enabled }}{{ fail "caddy.gatewayEnabled must match edgeGateway.enabled" }}{{ end }}
 {{- if not .Values.accounts.enabled }}{{ fail "Caddy API routing requires accounts.enabled" }}{{ end }}
-{{- if and .Values.caddy.routes.billingHost (not .Values.billing.enabled) }}{{ fail "billing host requires billing.enabled" }}{{ end }}
+{{- if and (or .Values.caddy.routes.billingHost .Values.caddy.routes.billingAliases) (not .Values.billing.enabled) }}{{ fail "billing host or aliases require billing.enabled" }}{{ end }}
 {{- end }}
