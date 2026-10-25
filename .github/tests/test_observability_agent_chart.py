@@ -64,6 +64,18 @@ class ObservabilityAgentChartTest(unittest.TestCase):
         config = next(d for d in docs if d["kind"] == "ConfigMap" and "config.yaml" in d["data"])
         self.assertEqual(yaml.safe_load(config["data"]["config.yaml"])["process_names"][0]["name"], "{{.Comm}}")
 
+    def test_global_scheduling_applies_to_all_producers_and_relay(self):
+        selector = {"kubernetes.io/os": "linux", "workload": "monitoring"}
+        tolerations = [{"key": "dedicated", "operator": "Equal", "value": "monitoring", "effect": "NoSchedule"}]
+        for profile in (ALL, RELAY):
+            values = copy.deepcopy(profile)
+            values.update(nodeSelector=selector, tolerations=tolerations)
+            for d in objects(values):
+                if d["kind"] in ("DaemonSet", "Deployment"):
+                    pod = d["spec"]["template"]["spec"]
+                    self.assertEqual(pod["nodeSelector"], selector)
+                    self.assertEqual(pod["tolerations"], tolerations)
+
     def test_secret_collectors_root_and_argv_names_are_rejected(self):
         for values in ({"kubeStateMetrics": {"enabled": True, "collectors": ["secrets"]}}, {"kubeStateMetrics": {"enabled": True, "collectors": ["configmaps"]}}, {"processExporter": {"enabled": True, "podSecurityContext": {"runAsUser": 0}}}, {"processExporter": {"enabled": True, "image": {"digest": ""}}}, {"processExporter": {"enabled": True, "processNames": [{"name": "{{.Cmdline}}", "cmdline": [".+"]}]}}):
             with self.subTest(values=values):
