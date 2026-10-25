@@ -90,6 +90,8 @@ telemetry:
   extraScrapeConfigs: []
   kubernetes:
     enabled: false
+    # Exclude container when a canonical raw cAdvisor scrape owns container_* series.
+    metricGroups: [node, pod, container, volume]
     kubeletInsecureSkipVerify: false
     clusterReceiver: true
     logs:

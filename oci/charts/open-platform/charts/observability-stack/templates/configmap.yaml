@@ -33,7 +33,7 @@ data:
         auth_type: serviceAccount
         endpoint: https://${env:K8S_NODE_IP}:10250
         insecure_skip_verify: false
-        metric_groups: [node, pod, container, volume]
+        metric_groups: {{ .Values.telemetry.kubernetes.metricGroups | toJson }}
     {{- end }}
     {{- if .Values.telemetry.spanMetrics }}
     connectors:

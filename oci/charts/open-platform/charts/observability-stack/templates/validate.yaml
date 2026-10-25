@@ -25,3 +25,18 @@
 {{- fail "grafana.pluginArchives requires exact id, HTTPS URL and SHA256" }}
 {{- end }}
 {{- end }}
+
+{{- if .Values.telemetry.kubernetes.enabled }}
+{{- $groups := .Values.telemetry.kubernetes.metricGroups }}
+{{- if empty $groups }}
+{{- fail "telemetry.kubernetes.metricGroups must be non-empty when Kubernetes collection is enabled" }}
+{{- end }}
+{{- range $groups }}
+{{- if not (has . (list "node" "pod" "container" "volume")) }}
+{{- fail "telemetry.kubernetes.metricGroups only supports node, pod, container, volume" }}
+{{- end }}
+{{- end }}
+{{- if ne (len $groups) (len (uniq $groups)) }}
+{{- fail "telemetry.kubernetes.metricGroups must not contain duplicate groups" }}
+{{- end }}
+{{- end }}
