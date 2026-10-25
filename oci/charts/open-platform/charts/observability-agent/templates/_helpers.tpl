@@ -54,3 +54,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "process-exporter.serviceAccountName" -}}
 {{- default (include "process-exporter.fullname" .) .Values.processExporter.serviceAccount.name -}}
 {{- end -}}
+
+{{/* Lightweight process-exporter HTTP landing page or TCP listener probe. */}}
+{{- define "observability-agent.processProbe" -}}
+{{- if eq .mode "http" }}
+httpGet:
+  path: {{ .path | quote }}
+  port: metrics
+{{- else }}
+tcpSocket:
+  port: metrics
+{{- end }}
+initialDelaySeconds: {{ .initialDelaySeconds }}
+periodSeconds: {{ .periodSeconds }}
+timeoutSeconds: {{ .timeoutSeconds }}
+failureThreshold: {{ .failureThreshold }}
+{{- end }}

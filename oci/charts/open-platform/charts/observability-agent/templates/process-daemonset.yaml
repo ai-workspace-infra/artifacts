@@ -50,14 +50,12 @@ spec:
           ports:
             - name: metrics
               containerPort: {{ .Values.processExporter.service.port }}
+          startupProbe:
+            {{- include "observability-agent.processProbe" .Values.processExporter.probes.startup | nindent 12 }}
           readinessProbe:
-            httpGet:
-              path: /metrics
-              port: metrics
+            {{- include "observability-agent.processProbe" .Values.processExporter.probes.readiness | nindent 12 }}
           livenessProbe:
-            httpGet:
-              path: /metrics
-              port: metrics
+            {{- include "observability-agent.processProbe" .Values.processExporter.probes.liveness | nindent 12 }}
           resources:
             {{- toYaml .Values.processExporter.resources | nindent 12 }}
           volumeMounts:

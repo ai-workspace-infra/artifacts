@@ -52,3 +52,12 @@ The explicit runtime option uses the pinned Vector 0.41.1 image in an isolated n
 Upgrade/recovery: publish a reviewed new chart version, verify package/source and registry digest, pin the standalone HelmRelease, activate the expected scope, then verify source/data/denial and continuity. Roll back that release and its scrape config to previous immutable refs; keep backend data. Do not delete volumes, change DNS, transfer writers or rebuild the cluster.
 
 Upstream references: [kube-state-metrics](https://github.com/kubernetes/kube-state-metrics), [Node Exporter](https://github.com/prometheus/node_exporter), [process-exporter v0.8.7 permissions](https://github.com/ncabatoff/process-exporter/blob/v0.8.7/README.md), [Vector 0.41.1 Prometheus parser](https://github.com/vectordotdev/vector/blob/v0.41.1/src/sources/prometheus/parser.rs), [Vector scrape](https://vector.dev/docs/reference/configuration/sources/prometheus_scrape/), [VictoriaMetrics federation](https://docs.victoriametrics.com/victoriametrics/#federation).
+
+
+## Process health probe convergence (agent 1.1.1)
+
+The pinned process-exporter 0.8.7 serves a fixed HTML landing page at `/`; `/metrics` invokes synchronous host-process collection. Probing `/metrics` with Kubernetes' implicit one-second timeout can restart an otherwise working low-CPU/non-root exporter. Production status-only evidence showed landing `/` at 0.002775 seconds and `/metrics` at 1.045892 seconds on the same Pod, matching that failure mechanism. An occasional Ready state is not stable recovery evidence.
+
+`processExporter.probes.{startup,readiness,liveness}` select `mode: http` (documented landing `/`) or `mode: tcp`, with explicit initial delay, period, timeout and failure threshold. HTTP collection paths are rejected. Startup defaults to a 300-second budget (60 attempts, 5-second period, 3-second timeout), readiness uses 10 seconds/2-second timeout and liveness uses 20 seconds/3-second timeout/5 failures. This removes repeated health-triggered collection and permits startup convergence without changing CPU, host permissions, runtime identity or exporter image.
+
+Landing/TCP health only proves that the process serves requests/listens; it does **not** prove metrics correctness or full host visibility. Independently measure real scrape duration, error counters, sample coverage/freshness and restart stability before activating server collection. Do not infer that a passing lightweight probe has repaired missing process metrics. No default scrape timeout is changed without target measurement.
