@@ -1,0 +1,34 @@
+name: Observability chart migration preflight
+
+on:
+  pull_request:
+    paths:
+      - .github/scripts/observability-chart-preflight.py
+      - .github/tests/test_observability_chart_preflight.py
+      - .github/workflows/observability-chart-preflight.yml
+      - docs/observability-chart-convergence.md
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/observability-chart-preflight.py
+      - .github/tests/test_observability_chart_preflight.py
+      - .github/workflows/observability-chart-preflight.yml
+      - docs/observability-chart-convergence.md
+
+permissions:
+  contents: read
+
+jobs:
+  declaration-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 2
+      - name: Install YAML parser
+        run: python3 -m pip install 'PyYAML==6.0.3'
+      - name: Verify no-false-green declaration checks
+        run: python3 .github/tests/test_observability_chart_preflight.py
+      - name: Validate diff formatting
+        run: git diff --check HEAD^ HEAD
