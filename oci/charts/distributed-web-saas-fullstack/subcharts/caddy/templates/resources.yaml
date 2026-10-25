@@ -74,6 +74,12 @@ handle @api {
 {{- $_ := set $seen $host true }}
 https://{{ $host }}:8443 {
   tls /tls/extra-{{ $additional.name }}/tls.crt /tls/extra-{{ $additional.name }}/tls.key
+  {{- if eq ($additional.serviceRole | default "") "console" }}
+  {{- include "websaas.caddy.api" $ | nindent 2 }}
+  handle {
+    reverse_proxy {{ $.Release.Name }}-{{ $.Values.frontendService }}:80
+  }
+  {{- else if $additional.upstream }}
   reverse_proxy {{ $additional.upstream }} {
     {{- if $additional.upstreamCAConfigMap }}
     transport http {
@@ -81,6 +87,9 @@ https://{{ $host }}:8443 {
     }
     {{- end }}
   }
+  {{- else }}
+  {{- fail (printf "Caddy additional host %q requires serviceRole or upstream" $additional.name) }}
+  {{- end }}
 }
 {{- end }}
 {{- end }}

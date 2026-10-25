@@ -123,7 +123,10 @@ Each public service route accepts one primary host and a separate aliases list:
 `caddy.routes.consoleHost` / `consoleAliases`, `accountsHost` / `accountsAliases`,
 and `billingHost` / `billingAliases`. Aliases render the same service-specific
 handlers and share that service's TLS Secret. `caddy.additionalHosts` supports
-`aliases` for Vault and Grafana upstreams. DNS CNAMEs do not rewrite HTTP Host;
+`aliases` for Vault and Grafana upstreams. Use `serviceRole: console` for an
+additional Console hostname with its own TLS Secret; it receives the same API
+and frontend handlers as the Console route. Generic additional hosts require an
+`upstream`. DNS CNAMEs do not rewrite HTTP Host;
 each desired alias therefore must appear in these values. This chart only
 renders routes and never changes DNS.
 
