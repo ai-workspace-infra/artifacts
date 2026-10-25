@@ -44,7 +44,7 @@ dependencies:
     repository: "file://./charts/cmdb"
     condition: cmdb.enabled
   - name: observability-stack
-    version: 1.1.1
+    version: 1.1.2
     repository: "file://./charts/observability-stack"
     condition: observability-stack.enabled
   - name: observability-agent
