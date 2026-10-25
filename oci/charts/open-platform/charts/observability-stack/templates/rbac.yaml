@@ -1,0 +1,67 @@
+{{- if and .Values.serviceAccount .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.serviceAccountName | default (printf "%s-collector" (include "observability-stack.fullname" .)) | quote }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+---
+{{- end }}
+{{- if and .Values.telemetry.kubernetes.enabled (or (not .Values.rbac) (ne .Values.rbac.create false)) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "observability-stack.fullname" . }}-collector
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/stats
+      - nodes/metrics
+      - nodes/proxy
+      - pods
+      - namespaces
+      - services
+      - endpoints
+      - events
+      - replicationcontrollers
+      - resourcequotas
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - daemonsets
+      - replicasets
+      - statefulsets
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs:
+      - /metrics
+      - /metrics/cadvisor
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "observability-stack.fullname" . }}-collector
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "observability-stack.fullname" . }}-collector
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccountName | default "default" | quote }}
+    namespace: {{ .Release.Namespace | quote }}
+{{- end }}

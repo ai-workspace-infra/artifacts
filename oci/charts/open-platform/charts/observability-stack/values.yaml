@@ -1,5 +1,9 @@
 replicaCount: 1
 serviceAccountName: default
+serviceAccount:
+  create: false
+rbac:
+  create: true
 
 domain: "open-platform.local"
 
@@ -86,3 +90,14 @@ telemetry:
   extraScrapeConfigs: []
   kubernetes:
     enabled: false
+    kubeletInsecureSkipVerify: false
+    clusterReceiver: true
+    logs:
+      enabled: true
+      podsLogPath: /var/log/pods
+    journald:
+      enabled: false
+      directory: /var/log/journal
+      units:
+        - k3s.service
+        - k3s-agent.service
