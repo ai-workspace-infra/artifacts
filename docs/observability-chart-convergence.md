@@ -82,6 +82,14 @@ Before removal run it for every supported cluster entrypoint, not just V5. Also 
 5. Let Flux reconcile the selected ref. A manual reconcile is an optional authorized operational action, not a substitute for source promotion. Do not use `helm upgrade` or `kubectl apply` as a competing delivery path.
 6. Verify the live result as below. Until this evidence exists, report “implementation/declaration ready; deployment and data acceptance NOT_RUN.”
 
+### Candidate agent activation checklist
+
+The companion agent implementation proposes Chart `1.1.0` (umbrella `1.2.4`), GitOps OCIRepository `observability-agent-chart` and HelmRelease `platform-observability-agent`, with values in `services/platform-observability/prod/agent-values.yaml`. These are candidate references, not evidence of published artifacts or an installed release. Both the candidate source and release are suspended until publication and digest verification.
+
+The companion `agent-scrape-values.yaml` is an inactive activation patch. The activation PR must merge its reviewed scrape jobs into the canonical stack values, or deliberately add a dedicated ConfigMap and `valuesFrom` reference. Merely unsuspending the agent does not connect its exporters to storage. Verify the rendered stack includes the actual KSM/Node/process/kubelet scrape jobs, then remove both suspensions in the same reviewed activation scope after the published digest is pinned. Promote the selected immutable GitOps source as described above.
+
+The Node Exporter target explicitly requests read-only host proc/sys/root mounts and host networking for real host metrics. Check host-IP binding, existing port 9100 usage and host-level exposure; a namespace NetworkPolicy may not protect host-network traffic. The process exporter requires a read-only host proc mount and verifiable non-root process visibility, not hostPID or a service-account token. KSM reads only the selected resource kinds; no Secret/ConfigMap inventory permission is required.
+
 ## Read-only live verification
 
 Set an explicit context for the target; never rely on the current context. This session's local context inventory contained only OrbStack, which is not V5. Use a separately scoped audit identity; do not copy a management kubeconfig into the agent or call an administrator's read-only command proof of audit isolation.
