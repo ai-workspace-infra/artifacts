@@ -40,3 +40,17 @@ app.kubernetes.io/name: {{ include "observability-agent.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: observability-agent
 {{- end }}
+
+{{- define "process-exporter.name" -}}
+{{- default "process-exporter" .Values.processExporter.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "process-exporter.fullname" -}}
+{{- default (printf "%s-process" (include "observability-agent.fullname" .)) .Values.processExporter.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "process-exporter.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "process-exporter.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+{{- define "process-exporter.serviceAccountName" -}}
+{{- default (include "process-exporter.fullname" .) .Values.processExporter.serviceAccount.name -}}
+{{- end -}}

@@ -1,0 +1,107 @@
+{{- if .Values.kubeStateMetrics.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "observability-agent.fullname" . }}-state
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "observability-agent.fullname" . }}-state-{{ .Release.Namespace }}
+rules:
+  {{- $core := list }}
+  {{- $apps := list }}
+  {{- range .Values.kubeStateMetrics.collectors }}
+  {{- if has . (list "nodes" "namespaces" "pods" "services" "persistentvolumeclaims" "persistentvolumes") }}
+  {{- $core = append $core . }}
+  {{- else if has . (list "deployments" "daemonsets" "statefulsets" "replicasets") }}
+  {{- $apps = append $apps . }}
+  {{- end }}
+  {{- end }}
+  {{- if $core }}
+  - apiGroups: [""]
+    resources: {{ $core | toJson }}
+    verbs: [list, watch]
+  {{- end }}
+  {{- if $apps }}
+  - apiGroups: [apps]
+    resources: {{ $apps | toJson }}
+    verbs: [list, watch]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "observability-agent.fullname" . }}-state-{{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "observability-agent.fullname" . }}-state-{{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "observability-agent.fullname" . }}-state
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability-agent.fullname" . }}-state
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-state-metrics
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ include "observability-agent.fullname" . }}-state
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: kube-state-metrics
+          image: {{ .Values.kubeStateMetrics.image | quote }}
+          args:
+            - --port={{ .Values.kubeStateMetrics.port }}
+            - --telemetry-port=8081
+            - --resources={{ join "," .Values.kubeStateMetrics.collectors }}
+          ports:
+            - {name: metrics, containerPort: {{ .Values.kubeStateMetrics.port }}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            {{- toYaml .Values.kubeStateMetrics.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8081}
+          livenessProbe:
+            httpGet: {path: /livez, port: metrics}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability-agent.fullname" . }}-state
+spec:
+  type: ClusterIP
+  ports:
+    - {name: metrics, port: {{ .Values.kubeStateMetrics.port }}, targetPort: metrics}
+  selector:
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

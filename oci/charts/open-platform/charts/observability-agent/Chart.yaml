@@ -1,6 +1,6 @@
 apiVersion: v2
 name: observability-agent
-description: Host and Node Telemetry Agent Subchart (Node Exporter + Vector)
+description: Reusable Kubernetes telemetry agent (Node Exporter, kube-state-metrics, process exporter and optional Vector)
 type: application
-version: 1.0.0
+version: 1.1.0
 appVersion: "0.41.1"

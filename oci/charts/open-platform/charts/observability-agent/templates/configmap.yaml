@@ -1,3 +1,4 @@
+{{- if .Values.vector.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,12 +7,59 @@ metadata:
     {{- include "observability-agent.labels" . | nindent 4 }}
 data:
   vector.toml: |
+    data_dir = "/var/lib/vector"
+
+    {{- if eq .Values.vector.mode "console" }}
     [sources.node_metrics]
     type = "prometheus_scrape"
-    endpoints = ["http://127.0.0.1:9100/metrics"]
+    endpoints = ["http://127.0.0.1:{{ .Values.nodeExporter.port }}/metrics"]
     scrape_interval_secs = 15
 
     [sinks.console]
     type = "console"
     inputs = ["node_metrics"]
     encoding.codec = "json"
+
+    {{- else }}
+    [sources.federation]
+    type = "prometheus_scrape"
+    endpoints = [{{ printf "%s/federate" (trimSuffix "/" .Values.vector.relay.sourceBaseUrl) | quote }}]
+    honor_labels = true
+    scrape_interval_secs = {{ .Values.vector.relay.scrapeIntervalSeconds }}
+    scrape_timeout_secs = 10
+    [sources.federation.query]
+    "match[]" = [{{ printf "{cluster=%q,environment=%q,__name__=~%q}" .Values.vector.relay.sourceCluster .Values.vector.relay.sourceEnvironment .Values.vector.relay.metricNameRegex | quote }}]
+    max_lookback = [{{ printf "%ds" (int .Values.vector.relay.maxSampleAgeSeconds) | quote }}]
+
+    [transforms.fresh_source]
+    type = "filter"
+    inputs = ["federation"]
+    condition = '''
+    age = to_unix_timestamp(now()) - to_unix_timestamp!(.timestamp)
+    age >= 0 && age <= {{ .Values.vector.relay.maxSampleAgeSeconds }} && .tags.cluster == {{ .Values.vector.relay.sourceCluster | quote }} && .tags.environment == {{ .Values.vector.relay.sourceEnvironment | quote }}
+    '''
+
+    [sinks.remote]
+    type = "prometheus_remote_write"
+    inputs = ["fresh_source"]
+    endpoint = {{ .Values.vector.relay.remoteWriteUrl | quote }}
+    [sinks.remote.auth]
+    strategy = {{ .Values.vector.relay.auth.strategy | quote }}
+    {{- if eq .Values.vector.relay.auth.strategy "bearer" }}
+    token = "${VECTOR_REMOTE_WRITE_TOKEN}"
+    {{- else }}
+    user = "${VECTOR_REMOTE_WRITE_USERNAME}"
+    password = "${VECTOR_REMOTE_WRITE_PASSWORD}"
+    {{- end }}
+    [sinks.remote.tls]
+    verify_certificate = true
+    verify_hostname = true
+    {{- if .Values.vector.relay.tls.caSecret }}
+    ca_file = "/etc/vector/remote-ca/ca.crt"
+    {{- end }}
+    [sinks.remote.buffer]
+    type = "memory"
+    max_events = 10000
+    when_full = "block"
+    {{- end }}
+{{- end }}

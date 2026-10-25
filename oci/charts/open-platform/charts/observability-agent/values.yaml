@@ -1,16 +1,43 @@
 domain: "open-platform.local"
 
 nodeExporter:
+  enabled: true
+  hostMetrics: false
+  hostNetwork: false
+  listenOnNodeIP: false
+  listenAddress: "0.0.0.0"
   image:
     repository: prom/node-exporter
-    tag: "v1.8.2"
+    tag: "v1.8.2@sha256:4032c6d5bfd752342c3e631c2f1de93ba6b86c41db6b167b9a35372c139e7706"
     pullPolicy: IfNotPresent
   port: 9100
 
 vector:
+  enabled: true
+  mode: console
+  relay:
+    sourceBaseUrl: ""
+    sourceCluster: ""
+    sourceEnvironment: ""
+    metricNameRegex: "(kube_.*|kubelet_.*|container_.*|node_.*|namedprocess_.*|up)"
+    scrapeIntervalSeconds: 30
+    maxSampleAgeSeconds: 60
+    remoteWriteUrl: ""
+    # Operator must verify remote aliases do not resolve to the source backend.
+    distinctBackendAcknowledged: false
+    sourceBackendAliases: []
+    auth:
+      strategy: bearer
+      existingSecret: ""
+      tokenKey: token
+      usernameKey: username
+      passwordKey: password
+    tls:
+      caSecret: ""
+      caKey: ca.crt
   image:
     repository: timberio/vector
-    tag: "0.41.1-alpine"
+    tag: "0.41.1-alpine@sha256:501e5403e19238c9073c116fb3cbb750a9201d0271b09dae88f044534803c670"
     pullPolicy: IfNotPresent
   apiPort: 8686
 
@@ -26,3 +53,45 @@ resources:
   requests:
     cpu: 50m
     memory: 128Mi
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - operator: Exists
+kubeStateMetrics:
+  enabled: false
+  image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b
+  port: 8080
+  collectors: [nodes, namespaces, pods, deployments, daemonsets, statefulsets, replicasets, services, persistentvolumeclaims, persistentvolumes]
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}
+processExporter:
+  enabled: false
+  nameOverride: ""
+  fullnameOverride: ""
+  image:
+    repository: ncabatoff/process-exporter
+    tag: "0.8.7"
+    digest: sha256:bc2363ff7e05ada1b2a694f06c43dc824dc26cd6e487b5d36b66b1a40df4e842
+    pullPolicy: IfNotPresent
+  service: {port: 9256}
+  serviceAccount: {create: true, name: ""}
+  hostProcPath: /proc
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    seccompProfile: {type: RuntimeDefault}
+  processNames:
+    - name: "{{.Comm}}"
+      cmdline: ['.+']
+  networkPolicy:
+    enabled: true
+    podSelector: {}
