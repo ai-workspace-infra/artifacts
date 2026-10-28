@@ -2,7 +2,7 @@ apiVersion: v2
 name: open-platform
 description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating 11 core infrastructure services
 type: application
-version: 1.2.7
+version: 1.2.8
 appVersion: "2026.10"
 keywords:
   - platform-engineering
