@@ -34,7 +34,7 @@ env:
 jobs:
   caddy:
     name: Build caddy image with cloudflare dns
-    runs-on: ${{ inputs.runner || 'self-runner' }}
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || inputs.runner || 'self-runner' }}
     steps:
       - uses: actions/checkout@v7
 
