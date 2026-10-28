@@ -39,6 +39,34 @@ otelCollector:
     pullPolicy: IfNotPresent
   port: 4319
 
+blackboxExporter:
+  enabled: false
+  image:
+    repository: quay.io/prometheus/blackbox-exporter
+    tag: v0.25.0
+    pullPolicy: IfNotPresent
+  port: 9115
+  modules:
+    http_2xx:
+      prober: http
+      timeout: 5s
+      http:
+        preferred_ip_protocol: ip4
+        follow_redirects: true
+    tcp_tls:
+      prober: tcp
+      timeout: 5s
+      tcp:
+        tls: true
+        preferred_ip_protocol: ip4
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
 grafana:
   image:
     repository: grafana/grafana
