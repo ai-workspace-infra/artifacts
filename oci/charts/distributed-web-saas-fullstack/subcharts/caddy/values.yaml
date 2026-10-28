@@ -11,6 +11,9 @@ volumes: []
 networkPolicy:
   enabled: true
 image: ''
+metrics:
+  prometheus:
+    enabled: false
 frontendService: frontend-router
 gatewayEnabled: false
 httpOnly: false

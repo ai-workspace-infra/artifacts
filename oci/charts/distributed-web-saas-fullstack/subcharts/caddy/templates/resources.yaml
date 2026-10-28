@@ -25,6 +25,9 @@ handle @api {
   auto_https off
   http_port 8080
   https_port 8443
+  {{- if .Values.metrics.prometheus.enabled }}
+  metrics
+  {{- end }}
 }
 :8080 {
   handle /healthz {
@@ -35,6 +38,11 @@ handle @api {
     respond "not found" 404
   }
 }
+{{- if .Values.metrics.prometheus.enabled }}
+:9180 {
+  metrics
+}
+{{- end }}
 {{- $seen := dict -}}
 {{- $routeHosts := dict
   "console" (concat (list .Values.routes.consoleHost) .Values.routes.consoleAliases)
@@ -116,8 +124,18 @@ https://{{ $host }}:8443 {
 {{- $_ := set .Values "volumes" $volumes }}
 {{- $_ := set .Values "networkPolicy" (dict "enabled" false) }}
 {{- $_ := set .Values "podSecurityContext" (dict "runAsNonRoot" true "runAsUser" 1000 "runAsGroup" 1000 "fsGroup" 1000) }}
+{{- if .Values.metrics.prometheus.enabled }}
+{{- $_ := set .Values.podAnnotations "prometheus.io/scrape" "true" }}
+{{- $_ := set .Values.podAnnotations "prometheus.io/port" "9180" }}
+{{- $_ := set .Values.podAnnotations "prometheus.io/path" "/metrics" }}
+{{- $_ := set .Values.podAnnotations "prometheus.io/scheme" "http" }}
+{{- end }}
 {{- $_ := set .Values.podAnnotations "checksum/caddyfile" (include "websaas.caddy.config" . | sha256sum) }}
-{{- $workload := dict "image" .Values.image "port" 8080 "replicas" .Values.replicas "securityContext" (dict "capabilities" (dict "drop" (list "ALL") "add" (list "NET_BIND_SERVICE"))) "resources" .Values.resources "volumeMounts" $mounts "extraPorts" (list (dict "name" "https" "containerPort" 8443)) "command" (list "caddy") "args" (list "run" "--config" "/etc/caddy/Caddyfile" "--adapter" "caddyfile") "probes" (dict "readinessProbe" (dict "httpGet" (dict "path" "/healthz" "port" 8080)) "livenessProbe" (dict "httpGet" (dict "path" "/healthz" "port" 8080))) }}
+{{- $ports := list (dict "name" "https" "containerPort" 8443) }}
+{{- if .Values.metrics.prometheus.enabled }}
+{{- $ports = append $ports (dict "name" "metrics" "containerPort" 9180) }}
+{{- end }}
+{{- $workload := dict "image" .Values.image "port" 8080 "replicas" .Values.replicas "env" (dict) "securityContext" (dict "capabilities" (dict "drop" (list "ALL") "add" (list "NET_BIND_SERVICE"))) "resources" .Values.resources "volumeMounts" $mounts "extraPorts" $ports "command" (list "caddy") "args" (list "run" "--config" "/etc/caddy/Caddyfile" "--adapter" "caddyfile") "probes" (dict "readinessProbe" (dict "httpGet" (dict "path" "/healthz" "port" 8080)) "livenessProbe" (dict "httpGet" (dict "path" "/healthz" "port" 8080))) }}
 {{ include "websaas.fleet" (dict "root" . "items" (dict "caddy" $workload) "profile" "independent" "groups" (dict)) }}
 ---
 apiVersion: v1
@@ -141,6 +159,27 @@ spec:
     - name: {{ ternary "http" "https" .Values.httpOnly }}
       port: {{ ternary 80 443 .Values.httpOnly }}
       targetPort: {{ ternary 8080 8443 .Values.httpOnly }}
+{{- if .Values.metrics.prometheus.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-caddy-metrics
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9180"
+    prometheus.io/path: "/metrics"
+    prometheus.io/scheme: "http"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    websaas.io/workload: caddy
+  ports:
+    - name: metrics
+      port: 9180
+      targetPort: 9180
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

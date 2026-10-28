@@ -18,6 +18,9 @@ postgresql:
   enabled: false
 caddy:
   enabled: false
+  metrics:
+    prometheus:
+      enabled: false
 stunnelClient:
   enabled: false
 stunnelServer:
