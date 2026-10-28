@@ -54,9 +54,13 @@ spec:
       tolerations: {{ toJson . }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.metrics.securityContext | nindent 8 }}
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres-exporter
+          securityContext:
+            {{- toYaml .Values.metrics.securityContext | nindent 12 }}
           image: {{ include "websaas.image" .Values.metrics.image | quote }}
           ports:
             - name: metrics
