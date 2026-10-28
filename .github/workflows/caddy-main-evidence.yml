@@ -1,0 +1,57 @@
+name: Caddy Main build evidence
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/caddy-main-evidence.yml'
+      - '.github/scripts/caddy-main-evidence.py'
+      - '.github/tests/test_caddy_main_evidence.py'
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful Main Caddy build run ID
+        required: true
+        type: string
+      build_run_attempt:
+        description: Exact build attempt
+        required: true
+        type: string
+        default: '1'
+permissions:
+  contents: read
+  actions: read
+  packages: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: python3 .github/tests/test_caddy_main_evidence.py
+  verify:
+    needs: contract
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Main evidence owner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Verify build and immutable registry manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          BUILD_RUN_ATTEMPT: ${{ inputs.build_run_attempt }}
+          EVIDENCE_PATH: ${{ runner.temp }}/caddy-main-evidence.json
+        run: python3 .github/scripts/caddy-main-evidence.py
+      - name: Retain run-bound evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: caddy-main-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/caddy-main-evidence.json
+          if-no-files-found: error
+          retention-days: 30
