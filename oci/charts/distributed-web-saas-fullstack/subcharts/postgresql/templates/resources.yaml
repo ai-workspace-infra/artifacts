@@ -145,7 +145,7 @@ spec:
             matchExpressions:
               - key: app.kubernetes.io/component
                 operator: In
-                values: [accounts, billing, content, stunnel-server]
+                values: [accounts, billing, content, stunnel-server, postgres-exporter]
       ports:
         - protocol: TCP
           port: 5432

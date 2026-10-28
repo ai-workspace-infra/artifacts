@@ -92,6 +92,38 @@
     "resources": {
       "type": "object"
     },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "pattern": "^([^ @]+@sha256:[a-f0-9]{64})?$"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "resources": {
+          "type": "object"
+        },
+        "securityContext": {
+          "type": "object"
+        },
+        "service": {
+          "type": "object",
+          "properties": {
+            "port": { "type": "integer" },
+            "annotations": { "type": "object" }
+          }
+        },
+        "env": {
+          "type": "array"
+        }
+      }
+    },
     "web-saas-common": {
       "type": "object"
     }
