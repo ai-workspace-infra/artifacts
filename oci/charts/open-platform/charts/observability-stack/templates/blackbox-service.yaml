@@ -1,0 +1,19 @@
+{{- if .Values.blackboxExporter.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability-stack.fullname" . }}-blackbox
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/name: blackbox-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.blackboxExporter.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: blackbox-exporter
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

@@ -1,0 +1,12 @@
+{{- if .Values.blackboxExporter.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability-stack.fullname" . }}-blackbox
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+data:
+  blackbox.yml: |
+    modules:
+{{ toYaml .Values.blackboxExporter.modules | indent 6 }}
+{{- end }}
