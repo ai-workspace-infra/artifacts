@@ -48,9 +48,12 @@ jobs:
       - name: Build image
         run: |
           short_sha="$(git rev-parse --short HEAD)"
+          full_sha="$(git rev-parse HEAD)"
           echo "SHORT_SHA=${short_sha}" >> "$GITHUB_ENV"
+          echo "FULL_SHA=${full_sha}" >> "$GITHUB_ENV"
           docker build \
             -t "${IMAGE_NAME}:${short_sha}" \
+            -t "${IMAGE_NAME}:sha-${full_sha}" \
             -t "${IMAGE_NAME}:latest" \
             oci/base/caddy
 
@@ -68,5 +71,8 @@ jobs:
       - name: Push image
         if: github.event_name != 'pull_request'
         run: |
-          docker push "${IMAGE_NAME}:${SHORT_SHA}"
-          docker push "${IMAGE_NAME}:latest"
+          docker push "${IMAGE_NAME}:sha-${FULL_SHA}"
+          if [[ "${{ github.event_name }}" == 'push' ]]; then
+            docker push "${IMAGE_NAME}:${SHORT_SHA}"
+            docker push "${IMAGE_NAME}:latest"
+          fi
