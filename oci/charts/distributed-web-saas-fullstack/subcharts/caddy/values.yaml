@@ -16,6 +16,11 @@ metrics:
     enabled: false
 frontendService: frontend-router
 gatewayEnabled: false
+externalBackends:
+  enabled: false
+  accounts: ''
+  billing: ''
+  frontend: ''
 httpOnly: false
 replicas: 1
 service:

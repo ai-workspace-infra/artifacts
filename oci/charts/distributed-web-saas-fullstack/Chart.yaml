@@ -3,8 +3,8 @@ name: distributed-web-saas-fullstack
 description: Composable Web SaaS services with a Caddy HTTPS ingress
 type: application
 kubeVersion: '>=1.32.0-0'
-version: 0.2.9
-appVersion: 0.2.9
+version: 0.2.10
+appVersion: 0.2.10
 dependencies:
 - name: web-saas-console
   alias: console
@@ -38,7 +38,7 @@ dependencies:
   condition: postgresql.enabled
 - name: web-saas-caddy
   alias: caddy
-  version: 0.1.5
+  version: 0.1.6
   repository: file://subcharts/caddy
   condition: caddy.enabled
 - name: web-saas-stunnel-client

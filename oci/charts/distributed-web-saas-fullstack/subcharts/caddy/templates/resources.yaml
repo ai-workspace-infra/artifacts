@@ -1,5 +1,10 @@
 {{- define "websaas.caddy.api" -}}
-{{- if .Values.gatewayEnabled }}
+{{- if .Values.externalBackends.enabled }}
+@api path /api /api/*
+handle @api {
+  reverse_proxy {{ .Values.externalBackends.accounts }}
+}
+{{- else if .Values.gatewayEnabled }}
 @auth path /api/auth /api/auth/* /api/v1/auth /api/v1/auth/*
 handle @auth {
   reverse_proxy {{ .Release.Name }}-gateway-auth:80
@@ -59,11 +64,11 @@ handle @api {
   tls /tls/{{ $role }}/tls.crt /tls/{{ $role }}/tls.key
   {{- end }}
   {{- if eq $role "billing" }}
-  reverse_proxy {{ $.Release.Name }}-billing:80
+  reverse_proxy {{ if $.Values.externalBackends.enabled }}{{ $.Values.externalBackends.billing }}{{ else }}{{ $.Release.Name }}-billing:80{{ end }}
   {{- else }}
   {{- include "websaas.caddy.api" $ | nindent 2 }}
   handle {
-    reverse_proxy {{ $.Release.Name }}-{{ ternary $.Values.frontendService "accounts" (eq $role "console") }}:80
+    reverse_proxy {{ if $.Values.externalBackends.enabled }}{{ ternary $.Values.externalBackends.frontend $.Values.externalBackends.accounts (eq $role "console") }}{{ else }}{{ $.Release.Name }}-{{ ternary $.Values.frontendService "accounts" (eq $role "console") }}:80{{ end }}
   }
   {{- end }}
 }
@@ -85,7 +90,7 @@ https://{{ $host }}:8443 {
   {{- if eq ($additional.serviceRole | default "") "console" }}
   {{- include "websaas.caddy.api" $ | nindent 2 }}
   handle {
-    reverse_proxy {{ $.Release.Name }}-{{ $.Values.frontendService }}:80
+    reverse_proxy {{ if $.Values.externalBackends.enabled }}{{ $.Values.externalBackends.frontend }}{{ else }}{{ $.Release.Name }}-{{ $.Values.frontendService }}:80{{ end }}
   }
   {{- else if $additional.upstream }}
   reverse_proxy {{ $additional.upstream }} {

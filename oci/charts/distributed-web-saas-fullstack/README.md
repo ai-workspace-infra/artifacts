@@ -1,4 +1,17 @@
-# Distributed Web SaaS Fullstack — 0.2.4
+# Distributed Web SaaS Fullstack — 0.2.10
+
+The same chart package can be installed as three independent Helm releases: enable
+only PostgreSQL for a database release; only Caddy for an ingress release; and only
+the selected applications for an application release. Each release keeps its own
+namespace, values, immutable artifact pin and lifecycle.
+
+For Caddy-only releases set `caddy.externalBackends.enabled: true` and provide explicit
+`accounts` and `frontend` targets as service DNS names with ports; provide `billing`
+when billing hosts are configured. Local application/database components must remain
+disabled. The default `false` retains the existing combined-release validation and
+local upstream names. This is a Caddy reverse proxy, not an Ingress API controller.
+Cross-namespace network access, TLS Secret delivery and resource budgets are deployment
+contracts owned by the consumer. No production topology or secret values are defaults.
 
 Composable Helm charts for Kubernetes 1.32+ with Caddy as the public HTTPS
 ingress entry point. The implemented ingress mode uses a Caddy Deployment and
