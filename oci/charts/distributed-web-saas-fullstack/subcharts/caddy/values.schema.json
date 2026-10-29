@@ -58,6 +58,33 @@
       },
       "required": ["prometheus"]
     },
+    "externalBackends": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "accounts": {
+          "type": "string",
+          "pattern": "^([A-Za-z0-9.-]+:[0-9]{1,5})?$"
+        },
+        "billing": {
+          "type": "string",
+          "pattern": "^([A-Za-z0-9.-]+:[0-9]{1,5})?$"
+        },
+        "frontend": {
+          "type": "string",
+          "pattern": "^([A-Za-z0-9.-]+:[0-9]{1,5})?$"
+        }
+      },
+      "required": [
+        "enabled",
+        "accounts",
+        "billing",
+        "frontend"
+      ]
+    },
     "frontendService": {
       "enum": [
         "frontend-router",

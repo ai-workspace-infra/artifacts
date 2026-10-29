@@ -7,10 +7,17 @@
 {{- end }}
 {{- end }}
 {{- if .Values.caddy.enabled }}
+{{- if .Values.caddy.externalBackends.enabled }}
+{{- if or .Values.console.enabled .Values.accounts.enabled .Values.billing.enabled .Values.content.enabled .Values.edgeGateway.enabled .Values.postgresql.enabled }}{{ fail "standalone Caddy externalBackends must not enable application or database components" }}{{ end }}
+{{- if or (not .Values.caddy.externalBackends.accounts) (not .Values.caddy.externalBackends.frontend) }}{{ fail "standalone Caddy requires explicit accounts and frontend backends" }}{{ end }}
+{{- if and (or .Values.caddy.routes.billingHost .Values.caddy.routes.billingAliases) (not .Values.caddy.externalBackends.billing) }}{{ fail "standalone Caddy billing routes require an explicit billing backend" }}{{ end }}
+{{- if .Values.caddy.gatewayEnabled }}{{ fail "standalone Caddy externalBackends does not support implicit local gateways" }}{{ end }}
+{{- else }}
 {{- if not .Values.console.enabled }}{{ fail "Caddy requires console.enabled" }}{{ end }}
 {{- $expected := ternary "console" "frontend-router" (eq .Values.console.deploymentProfile "single-container") }}
 {{- if ne .Values.caddy.frontendService $expected }}{{ fail (printf "caddy.frontendService must be %s for the selected console profile" $expected) }}{{ end }}
 {{- if ne .Values.caddy.gatewayEnabled .Values.edgeGateway.enabled }}{{ fail "caddy.gatewayEnabled must match edgeGateway.enabled" }}{{ end }}
 {{- if not .Values.accounts.enabled }}{{ fail "Caddy API routing requires accounts.enabled" }}{{ end }}
 {{- if and (or .Values.caddy.routes.billingHost .Values.caddy.routes.billingAliases) (not .Values.billing.enabled) }}{{ fail "billing host or aliases require billing.enabled" }}{{ end }}
+{{- end }}
 {{- end }}
