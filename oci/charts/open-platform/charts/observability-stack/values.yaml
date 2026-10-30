@@ -14,6 +14,13 @@ victoriaMetrics:
     pullPolicy: IfNotPresent
   port: 8428
   retentionPeriod: "30d"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
 
 victoriaLogs:
   image:
@@ -22,6 +29,13 @@ victoriaLogs:
     pullPolicy: IfNotPresent
   port: 9428
   retentionPeriod: "1y"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
 
 victoriaTraces:
   image:
@@ -31,6 +45,13 @@ victoriaTraces:
   port: 10428
   otlpHttpPort: 4318
   otlpGrpcPort: 4317
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 150m
+      memory: 128Mi
 
 otelCollector:
   image:
@@ -38,6 +59,13 @@ otelCollector:
     tag: "0.114.0"
     pullPolicy: IfNotPresent
   port: 4319
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi
 
 blackboxExporter:
   enabled: false
@@ -86,6 +114,20 @@ grafana:
   unsignedPlugins: []
   pluginArchives: []
   pluginInstallerImage: python:3.14.0-alpine3.22@sha256:8373231e1e906ddfb457748bfc032c4c06ada8c759b7b62d9c73ec2a3c56e710
+  pluginInstallerResources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 service:
   type: ClusterIP
@@ -102,14 +144,6 @@ persistence:
   size: 20Gi
   accessMode: ReadWriteOnce
   storageClass: ""
-
-resources:
-  limits:
-    cpu: 2000m
-    memory: 2048Mi
-  requests:
-    cpu: 200m
-    memory: 512Mi
 
 telemetry:
   spanMetrics: false
