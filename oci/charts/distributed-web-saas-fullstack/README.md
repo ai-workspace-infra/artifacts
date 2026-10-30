@@ -94,6 +94,11 @@ Cloudflare service bindings work unchanged.
 Non-sensitive `env` values may contain `RELEASE_NAME`, replaced with the current
 release name. Secret values belong in `secretRefs`, existing Secret mounts, Vault
 CSI or External Secrets, never inline environment values or these examples.
+Accounts, Billing and Content default to consume the same existing
+`web-saas-secrets` Kubernetes Secret through `envFrom`. GitOps/ESO owns the
+Vault field mapping. Keep this shared Secret limited to the shared token; do not
+put PostgreSQL role credentials or service-specific OAuth/payment credentials
+in it, because every consumer can read every key in the Secret.
 
 ## Local rendering and installation
 

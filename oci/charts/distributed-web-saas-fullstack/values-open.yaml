@@ -8,16 +8,10 @@ console:
   deploymentProfile: independent
 accounts:
   enabled: true
-  workload:
-    secretRefs: [example-runtime]
 billing:
   enabled: true
-  workload:
-    secretRefs: [example-runtime]
 content:
   enabled: true
-  workload:
-    secretRefs: [example-runtime]
 edgeGateway:
   enabled: true
   boundaries:
