@@ -1,0 +1,195 @@
+{{- if and .Values.enabled .Values.identityAccounts.enabled }}
+{{- $name := include "websaas.name" (dict "root" . "name" "postgresql") }}
+{{- $rootUser := required "postgresql.identityAccounts.root.username is required" .Values.identityAccounts.root.username }}
+{{- $rootSecret := required "postgresql.identityAccounts.root.existingSecret is required" .Values.identityAccounts.root.existingSecret }}
+{{- $rootKey := required "postgresql.identityAccounts.root.secretKey is required" .Values.identityAccounts.root.secretKey }}
+{{- $operator := .Values.identityAccounts.operator }}
+{{- $auditor := .Values.identityAccounts.auditor }}
+{{- $operatorUser := required "postgresql.identityAccounts.operator.username is required" $operator.username }}
+{{- $operatorSecret := required "postgresql.identityAccounts.operator.existingSecret is required" $operator.existingSecret }}
+{{- $operatorKey := required "postgresql.identityAccounts.operator.secretKey is required" $operator.secretKey }}
+{{- $auditorUser := required "postgresql.identityAccounts.auditor.username is required" $auditor.username }}
+{{- $auditorSecret := required "postgresql.identityAccounts.auditor.existingSecret is required" $auditor.existingSecret }}
+{{- $auditorKey := required "postgresql.identityAccounts.auditor.secretKey is required" $auditor.secretKey }}
+{{- if or (eq $rootUser $operatorUser) (eq $rootUser $auditorUser) (eq $operatorUser $auditorUser) }}{{ fail "PostgreSQL root, operator, and auditor database role names must be distinct" }}{{ end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-identity-accounts
+  labels:
+    {{- include "websaas.labels" (dict "root" . "name" "postgresql-identity-accounts") | nindent 4 }}
+data:
+  provision.sql: |-
+    \set ON_ERROR_STOP on
+    SET log_statement = 'none';
+    SET log_min_duration_statement = -1;
+    SET log_duration = off;
+    BEGIN;
+    \getenv operator_username DB_OPERATOR_USERNAME
+    \getenv operator_password DB_OPERATOR_PASSWORD
+    SELECT (NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'operator_username') OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'operator_username' AND shobj_description(oid, 'pg_authid') = 'managed by web-saas-postgresql identityAccounts.operator')) AS operator_managed \gset
+    \if :operator_managed
+    SELECT format('CREATE ROLE %I WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L', :'operator_username', :'operator_password') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'operator_username') \gexec
+    SELECT format('ALTER ROLE %I WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L', :'operator_username', :'operator_password') \gexec
+    COMMENT ON ROLE {{ $operatorUser }} IS 'managed by web-saas-postgresql identityAccounts.operator';
+    \else
+    \echo Refusing to manage an existing PostgreSQL operator role without the chart ownership marker.
+    \quit 21
+    \endif
+    SELECT NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = :'operator_username') OR roleid = (SELECT oid FROM pg_roles WHERE rolname = :'operator_username')) AS operator_has_no_memberships \gset
+    \if :operator_has_no_memberships
+    SELECT NOT EXISTS (SELECT 1 FROM pg_shdepend WHERE refclassid = 'pg_authid'::regclass AND refobjid = (SELECT oid FROM pg_roles WHERE rolname = :'operator_username') AND deptype = 'o') AS operator_owns_no_objects \gset
+    \if :operator_owns_no_objects
+    SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM %I', current_database(), :'operator_username') \gexec
+    SELECT format('REVOKE ALL PRIVILEGES ON SCHEMA %I FROM %I', nspname, :'operator_username') FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' \gexec
+    SELECT format('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I FROM %I', nspname, :'operator_username') FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' \gexec
+    SELECT format('REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA %I FROM %I', nspname, :'operator_username') FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' \gexec
+    SELECT format('REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA %I FROM %I', nspname, :'operator_username') FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' \gexec
+    SELECT format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'operator_username') \gexec
+    {{- range $item := $operator.tables }}
+    SELECT format('GRANT USAGE ON SCHEMA %I TO %I', '{{ $item.schema }}', :'operator_username') \gexec
+    SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO %I', '{{ $item.schema }}', '{{ $item.name }}', :'operator_username') \gexec
+    {{- end }}
+    {{- range $item := $operator.sequences }}
+    SELECT format('GRANT USAGE ON SCHEMA %I TO %I', '{{ $item.schema }}', :'operator_username') \gexec
+    SELECT format('GRANT USAGE, SELECT, UPDATE ON SEQUENCE %I.%I TO %I', '{{ $item.schema }}', '{{ $item.name }}', :'operator_username') \gexec
+    {{- end }}
+    \else
+    \echo Refusing operator role that owns database objects; transfer ownership in a separately reviewed migration.
+    \quit 25
+    \endif
+    \else
+    \echo Refusing operator role with existing role memberships; review and remove them separately.
+    \quit 22
+    \endif
+    \getenv auditor_username DB_AUDITOR_USERNAME
+    \getenv auditor_password DB_AUDITOR_PASSWORD
+    SELECT (NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'auditor_username') OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'auditor_username' AND shobj_description(oid, 'pg_authid') = 'managed by web-saas-postgresql identityAccounts.auditor')) AS auditor_managed \gset
+    \if :auditor_managed
+    SELECT format('CREATE ROLE %I WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L', :'auditor_username', :'auditor_password') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'auditor_username') \gexec
+    SELECT format('ALTER ROLE %I WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L', :'auditor_username', :'auditor_password') \gexec
+    SELECT format('ALTER ROLE %I SET default_transaction_read_only = on', :'auditor_username') \gexec
+    SELECT format('ALTER ROLE %I SET statement_timeout = %L', :'auditor_username', '15s') \gexec
+    COMMENT ON ROLE {{ $auditorUser }} IS 'managed by web-saas-postgresql identityAccounts.auditor';
+    \else
+    \echo Refusing to manage an existing PostgreSQL auditor role without the chart ownership marker.
+    \quit 23
+    \endif
+    SELECT NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = :'auditor_username') OR roleid = (SELECT oid FROM pg_roles WHERE rolname = :'auditor_username')) AS auditor_has_no_memberships \gset
+    \if :auditor_has_no_memberships
+    SELECT NOT EXISTS (SELECT 1 FROM pg_shdepend WHERE refclassid = 'pg_authid'::regclass AND refobjid = (SELECT oid FROM pg_roles WHERE rolname = :'auditor_username') AND deptype = 'o') AS auditor_owns_no_objects \gset
+    \if :auditor_owns_no_objects
+    SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM %I', current_database(), :'auditor_username') \gexec
+    SELECT format('REVOKE ALL PRIVILEGES ON SCHEMA %I FROM %I', nspname, :'auditor_username') FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' \gexec
+    SELECT format('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I FROM %I', nspname, :'auditor_username') FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' \gexec
+    SELECT format('REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA %I FROM %I', nspname, :'auditor_username') FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' \gexec
+    SELECT format('REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA %I FROM %I', nspname, :'auditor_username') FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' \gexec
+    SELECT format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'auditor_username') \gexec
+    {{- range $item := $auditor.views }}
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = '{{ $item.schema }}' AND c.relname = '{{ $item.name }}' AND c.relkind IN ('v', 'm')) AS auditor_target_is_view \gset
+    \if :auditor_target_is_view
+    SELECT format('GRANT USAGE ON SCHEMA %I TO %I', '{{ $item.schema }}', :'auditor_username') \gexec
+    SELECT format('GRANT SELECT ON TABLE %I.%I TO %I', '{{ $item.schema }}', '{{ $item.name }}', :'auditor_username') \gexec
+    \else
+    \echo Refusing auditor target that is not a view or materialized view.
+    \quit 27
+    \endif
+    {{- end }}
+    \else
+    \echo Refusing auditor role that owns database objects; transfer ownership in a separately reviewed migration.
+    \quit 26
+    \endif
+    \else
+    \echo Refusing auditor role with existing role memberships; review and remove them separately.
+    \quit 24
+    \endif
+    COMMIT;
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-identity-accounts
+  labels:
+    {{- include "websaas.labels" (dict "root" . "name" "postgresql-identity-accounts") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: postgresql-identity-provisioner
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: provision-identities
+          image: {{ include "websaas.image" .Values.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-ec"]
+          args:
+            - |
+              attempts=0
+              until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE"; do
+                attempts=$((attempts + 1))
+                if [ "$attempts" -ge 120 ]; then exit 1; fi
+                sleep 5
+              done
+              exec psql -X -v ON_ERROR_STOP=1 -f /etc/db-init/provision.sql
+          env:
+            - name: PGHOST
+              value: {{ $name | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: {{ .Values.database | quote }}
+            - name: PGUSER
+              value: {{ $rootUser | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $rootSecret }}
+                  key: {{ $rootKey }}
+            - name: DB_OPERATOR_USERNAME
+              value: {{ $operatorUser | quote }}
+            - name: DB_OPERATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $operatorSecret }}
+                  key: {{ $operatorKey }}
+            - name: DB_AUDITOR_USERNAME
+              value: {{ $auditorUser | quote }}
+            - name: DB_AUDITOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $auditorSecret }}
+                  key: {{ $auditorKey }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: sql
+              mountPath: /etc/db-init
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: sql
+          configMap:
+            name: {{ $name }}-identity-accounts
+        - name: tmp
+          emptyDir: {}
+{{- end }}

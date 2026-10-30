@@ -1,5 +1,13 @@
 {{- if .Values.enabled }}
 {{- $name := include "websaas.name" (dict "root" . "name" "postgresql") }}
+{{- $rootUser := .Values.username }}
+{{- $rootSecret := .Values.existingSecret }}
+{{- $rootKey := .Values.secretKey }}
+{{- if .Values.identityAccounts.enabled }}
+{{- $rootUser = required "postgresql.identityAccounts.root.username is required when identityAccounts is enabled" .Values.identityAccounts.root.username }}
+{{- $rootSecret = required "postgresql.identityAccounts.root.existingSecret is required when identityAccounts is enabled" .Values.identityAccounts.root.existingSecret }}
+{{- $rootKey = required "postgresql.identityAccounts.root.secretKey is required when identityAccounts is enabled" .Values.identityAccounts.root.secretKey }}
+{{- end }}
 {{- if and (not .Values.storage.existingClaim) (not .Values.storage.className) }}{{ fail "postgresql.storage.className or existingClaim is required" }}{{ end }}
 apiVersion: v1
 kind: Service
@@ -79,7 +87,7 @@ spec:
             allowPrivilegeEscalation: false
           env:
             - name: POSTGRES_USER
-              value: {{ .Values.username | quote }}
+              value: {{ $rootUser | quote }}
             - name: POSTGRES_DB
               value: {{ .Values.database | quote }}
             - name: PGDATA
@@ -87,8 +95,8 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "postgresql.existingSecret is required" .Values.existingSecret }}
-                  key: {{ .Values.secretKey }}
+                  name: {{ required "postgresql.existingSecret is required" $rootSecret }}
+                  key: {{ $rootKey }}
           startupProbe:
             exec:
               command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
@@ -145,7 +153,7 @@ spec:
             matchExpressions:
               - key: app.kubernetes.io/component
                 operator: In
-                values: [accounts, billing, content, stunnel-server, postgres-exporter]
+                values: [accounts, billing, content, stunnel-server, postgres-exporter, postgresql-identity-provisioner]
       ports:
         - protocol: TCP
           port: 5432
