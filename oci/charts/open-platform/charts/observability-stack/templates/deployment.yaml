@@ -37,6 +37,8 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          resources:
+{{ toYaml .Values.grafana.pluginInstallerResources | nindent 12 }}
           volumeMounts:
             - name: grafana-plugins
               mountPath: /plugins
@@ -63,6 +65,8 @@ spec:
               port: metrics
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+{{ toYaml .Values.victoriaMetrics.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: /vmetrics_data
@@ -88,6 +92,8 @@ spec:
               port: logs
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+{{ toYaml .Values.victoriaLogs.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: /vlogs_data
@@ -109,6 +115,8 @@ spec:
               port: traces
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+{{ toYaml .Values.victoriaTraces.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: /vtraces_data
@@ -134,6 +142,8 @@ spec:
             - name: otlp-grpc
               containerPort: 4317
               protocol: TCP
+          resources:
+{{ toYaml .Values.otelCollector.resources | nindent 12 }}
           volumeMounts:
             - name: config
               mountPath: /etc/otelcol-contrib/config.yaml
@@ -177,6 +187,8 @@ spec:
               port: grafana
             initialDelaySeconds: 10
             periodSeconds: 10
+          resources:
+{{ toYaml .Values.grafana.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: /var/lib/grafana

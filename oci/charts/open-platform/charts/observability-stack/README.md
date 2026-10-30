@@ -4,6 +4,10 @@ This chart deploys the metrics, logs, traces, collector, and Grafana services. I
 
 The umbrella `open-platform` chart keeps this subchart independently configurable through `observability-stack.grafana.rootUrl` and `observability-stack.domain`. The Web SaaS Caddy ingress is managed by the independent `distributed-web-saas-fullstack` chart.
 
+## Container resource budgets
+
+The Deployment assigns explicit Kubernetes requests and limits to VictoriaMetrics, VictoriaLogs, VictoriaTraces, the OpenTelemetry Collector, and Grafana. Each component can be tuned independently with `<component>.resources`; the optional plugin installer uses `grafana.pluginInstallerResources`. Review the sum of these per-container values against node allocatable capacity and co-located workloads before rollout.
+
 
 ## Canonical kubelet/cAdvisor ownership
 
