@@ -96,9 +96,11 @@ release name. Secret values belong in `secretRefs`, existing Secret mounts, Vaul
 CSI or External Secrets, never inline environment values or these examples.
 Accounts, Billing and Content default to consume the same existing
 `web-saas-secrets` Kubernetes Secret through `envFrom`. GitOps/ESO owns the
-Vault field mapping. Keep this shared Secret limited to the shared token; do not
-put PostgreSQL role credentials or service-specific OAuth/payment credentials
-in it, because every consumer can read every key in the Secret.
+Vault field mapping. The V6 runtime record consolidates these services' runtime
+and OAuth configuration, including the shared token. Every consumer can read
+every key delivered in this shared Secret, so this is an explicit shared trust
+boundary; do not put PostgreSQL credentials or values outside the three
+services' approved runtime contract in it.
 
 ## Local rendering and installation
 
