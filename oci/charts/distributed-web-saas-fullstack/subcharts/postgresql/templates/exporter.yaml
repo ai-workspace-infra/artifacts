@@ -1,5 +1,13 @@
 {{- if and .Values.enabled .Values.metrics.enabled }}
 {{- $name := include "websaas.name" (dict "root" . "name" "postgresql") }}
+{{- $metricsUser := .Values.username }}
+{{- $metricsSecret := .Values.existingSecret }}
+{{- $metricsKey := .Values.secretKey }}
+{{- if .Values.identityAccounts.enabled }}
+{{- $metricsUser = required "postgresql.metrics.username is required when identityAccounts and metrics are enabled" .Values.metrics.username }}
+{{- $metricsSecret = required "postgresql.metrics.existingSecret is required when identityAccounts and metrics are enabled; do not use the root credential" .Values.metrics.existingSecret }}
+{{- $metricsKey = required "postgresql.metrics.secretKey is required when identityAccounts and metrics are enabled" .Values.metrics.secretKey }}
+{{- end }}
 {{- $exporterName := printf "%s-exporter" $name }}
 apiVersion: v1
 kind: Service
@@ -70,12 +78,12 @@ spec:
             - name: DATA_SOURCE_URI
               value: "{{ $name }}:5432/{{ .Values.database }}?sslmode=disable"
             - name: DATA_SOURCE_USER
-              value: {{ .Values.username | quote }}
+              value: {{ $metricsUser | quote }}
             - name: DATA_SOURCE_PASS
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "postgresql.existingSecret is required" .Values.existingSecret }}
-                  key: {{ .Values.secretKey }}
+                  name: {{ required "postgresql metrics credentials are required" $metricsSecret }}
+                  key: {{ $metricsKey }}
             {{- with .Values.metrics.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
