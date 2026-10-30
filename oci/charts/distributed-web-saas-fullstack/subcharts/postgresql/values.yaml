@@ -20,18 +20,18 @@ identityAccounts:
   # This chart only consumes Kubernetes Secrets; it never authenticates to Vault.
   enabled: false
   root:
-    username: ''
-    existingSecret: ''
+    username: root
+    existingSecret: postgresql-admin
     secretKey: password
   operator:
     username: operator
-    existingSecret: ''
+    existingSecret: postgresql-operator
     secretKey: password
     tables: []
     sequences: []
   auditor:
     username: auditor
-    existingSecret: ''
+    existingSecret: postgresql-auditor
     secretKey: password
     views: []
 storage:

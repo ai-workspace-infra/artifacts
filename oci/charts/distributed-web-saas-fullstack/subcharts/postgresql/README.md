@@ -10,9 +10,9 @@ Build local dependencies with `helm dependency build .`; validate with `helm lin
 
 | Identity key | Vault record alias | Chart role | Allowed scope |
 |---|---|---|---|
-| `root` | `admin` | Bootstrap PostgreSQL administrator. It initializes the server and the identity reconciliation Job; never mount this Secret in application/exporter workloads. | Administrative DB access. The Linux/Kubernetes `root` identity is independently authenticated and authorized. |
-| `operator` | `operator` | Non-superuser database operator. | DML only on explicitly listed tables and sequences; no role/DB creation or DDL. |
-| `auditor` | `auditor` | Non-superuser, non-inheriting read identity. | `SELECT` only on explicitly listed views; default transaction read-only and statement timeout are additional safeguards. |
+| `root` | `admin` | Kubernetes Secret `postgresql-admin`; bootstrap PostgreSQL administrator. It initializes the server and identity reconciliation Job; never mount this Secret in application/exporter workloads. | Administrative DB access. The Linux/Kubernetes `root` identity is independently authenticated and authorized. |
+| `operator` | `operator` | Kubernetes Secret `postgresql-operator`; non-superuser database operator. | DML only on explicitly listed tables and sequences; no role/DB creation or DDL. |
+| `auditor` | `auditor` | Kubernetes Secret `postgresql-auditor`; non-superuser, non-inheriting read identity. | `SELECT` only on explicitly listed views; default transaction read-only and statement timeout are additional safeguards. |
 
 The Secret records are synchronized by the environment's External Secrets declarations. This chart consumes only Kubernetes Secret names and keys; it does not call Vault or receive a Vault token. The `admin` record's password backs the chart's PostgreSQL bootstrap login (`identityAccounts.root.username`). The other two records back the corresponding DB roles and are consumed by a post-install/post-upgrade Job. Identity creation/rotation and Secret synchronization must complete before installing this mode.
 
