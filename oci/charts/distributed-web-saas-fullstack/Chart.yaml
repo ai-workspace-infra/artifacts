@@ -3,7 +3,7 @@ name: distributed-web-saas-fullstack
 description: Composable Web SaaS services with a Caddy HTTPS ingress
 type: application
 kubeVersion: '>=1.32.0-0'
-version: 0.2.12
+version: 0.2.13
 appVersion: 0.2.12
 dependencies:
 - name: web-saas-console
@@ -13,17 +13,17 @@ dependencies:
   condition: console.enabled
 - name: web-saas-accounts
   alias: accounts
-  version: 0.1.2
+  version: 0.1.3
   repository: file://subcharts/accounts
   condition: accounts.enabled
 - name: web-saas-billing
   alias: billing
-  version: 0.1.2
+  version: 0.1.3
   repository: file://subcharts/billing
   condition: billing.enabled
 - name: web-saas-content
   alias: content
-  version: 0.1.2
+  version: 0.1.3
   repository: file://subcharts/content
   condition: content.enabled
 - name: web-saas-edge-gateway
