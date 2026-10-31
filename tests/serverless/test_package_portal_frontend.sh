@@ -63,3 +63,22 @@ echo x >> "$t/out/portal-static.tar.gz"
 bash "$ver" "$t/out" "$sha" >/dev/null 2>&1 && fail "verify accepted tampered artifact"
 bash "$ver" "$t/out2" "v9.9.9" >/dev/null 2>&1 && fail "verify accepted wrong ref"
 echo "test_package_portal_frontend: OK"
+
+# --- artifact meta: inputs via env only, malicious TARGET_ENV rejected ---
+meta="$root/scripts/serverless/emit-artifact-meta.sh"
+go="$t/gh-out"; : > "$go"
+OUT_DIR="$t/out2" TARGET_ENV=uat GITHUB_OUTPUT="$go" bash "$meta" || fail "meta rejected good input"
+want_name="portal-serverless-frontend-uat-${sha:0:12}"
+want_msum="$(sha256sum "$t/out2/artifact-manifest.json" | cut -d' ' -f1)"
+[[ "$(cat "$go")" == "$(printf 'source_sha=%s\nmanifest_sha256=%s\nartifact_name=%s' "$sha" "$want_msum" "$want_name")" ]] || fail "meta outputs changed: $(cat "$go")"
+canary="$t/pwned"
+for bad in 'uat$(touch '"$canary"')' 'uat;touch '"$canary" 'uat`touch '"$canary"'`' $'uat\nartifact_name=evil' 'UAT' 'prod' ''; do
+  : > "$go"
+  OUT_DIR="$t/out2" TARGET_ENV="$bad" GITHUB_OUTPUT="$go" bash "$meta" >/dev/null 2>&1 && fail "meta accepted TARGET_ENV=$bad"
+  [[ ! -s "$go" ]] || fail "meta wrote outputs for bad TARGET_ENV=$bad"
+  [[ ! -e "$canary" ]] || fail "command executed from TARGET_ENV"
+done
+# workflow must not interpolate inputs inside run: scripts
+awk '/run: *\|/{inrun=1;next} /^ {6}- /{inrun=0} inrun && /\$\{\{ *inputs\./{print; bad=1} END{exit bad}' \
+  "$root/.github/workflows/build-serverless-portal-frontend.yml" || fail "inputs.* interpolated in run block"
+echo "test_emit_artifact_meta: OK"

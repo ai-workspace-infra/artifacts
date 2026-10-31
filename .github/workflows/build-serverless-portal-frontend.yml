@@ -70,12 +70,12 @@ jobs:
           OUT_DIR: ${{ runner.temp }}/portal-frontend
         run: bash scripts/serverless/package-portal-frontend.sh
       - id: meta
-        run: |
-          out="${RUNNER_TEMP}/portal-frontend"
-          sha="$(jq -r .source.sha "$out/artifact-manifest.json")"
-          echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "manifest_sha256=$(sha256sum "$out/artifact-manifest.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=portal-serverless-frontend-${{ inputs.target_env }}-${sha:0:12}" >> "$GITHUB_OUTPUT"
+        # inputs reach the shell only through env; emit-artifact-meta.sh
+        # re-validates TARGET_ENV and the manifest before writing outputs.
+        env:
+          OUT_DIR: ${{ runner.temp }}/portal-frontend
+          TARGET_ENV: ${{ inputs.target_env }}
+        run: bash scripts/serverless/emit-artifact-meta.sh
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.artifact_name }}
