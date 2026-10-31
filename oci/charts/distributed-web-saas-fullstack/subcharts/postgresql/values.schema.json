@@ -190,6 +190,26 @@
     {
       "if": {
         "properties": {
+          "metrics": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+        },
+        "required": ["metrics"]
+      },
+      "then": {
+        "properties": {
+          "metrics": {
+            "required": ["username", "existingSecret", "secretKey"],
+            "properties": {
+              "username": { "minLength": 1 },
+              "existingSecret": { "minLength": 1 },
+              "secretKey": { "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
           "identityAccounts": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
         },
         "required": ["identityAccounts"]

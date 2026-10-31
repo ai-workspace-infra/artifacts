@@ -1,13 +1,8 @@
 {{- if and .Values.enabled .Values.metrics.enabled }}
 {{- $name := include "websaas.name" (dict "root" . "name" "postgresql") }}
-{{- $metricsUser := .Values.username }}
-{{- $metricsSecret := .Values.existingSecret }}
-{{- $metricsKey := .Values.secretKey }}
-{{- if .Values.identityAccounts.enabled }}
-{{- $metricsUser = required "postgresql.metrics.username is required when identityAccounts and metrics are enabled" .Values.metrics.username }}
-{{- $metricsSecret = required "postgresql.metrics.existingSecret is required when identityAccounts and metrics are enabled; do not use the root credential" .Values.metrics.existingSecret }}
-{{- $metricsKey = required "postgresql.metrics.secretKey is required when identityAccounts and metrics are enabled" .Values.metrics.secretKey }}
-{{- end }}
+{{- $metricsUser := required "postgresql.metrics.username is required when metrics are enabled" .Values.metrics.username }}
+{{- $metricsSecret := required "postgresql.metrics.existingSecret is required when metrics are enabled; do not use the PostgreSQL administrator credential" .Values.metrics.existingSecret }}
+{{- $metricsKey := required "postgresql.metrics.secretKey is required when metrics are enabled" .Values.metrics.secretKey }}
 {{- $exporterName := printf "%s-exporter" $name }}
 apiVersion: v1
 kind: Service

@@ -45,6 +45,49 @@ class Releases(unittest.TestCase):
         workloads = [doc for doc in docs if doc and doc['kind'] in ('StatefulSet', 'Deployment')]
         self.assertEqual([(doc['kind'], doc['metadata']['name']) for doc in workloads], [('StatefulSet', 'release-postgresql')])
 
+    def test_postgresql_metrics_requires_and_uses_a_distinct_secret(self):
+        values = {
+            'postgresql': {
+                'enabled': True,
+                'image': IMAGE,
+                'username': 'root',
+                'database': 'account',
+                'existingSecret': 'postgresql-admin',
+                'storage': {'className': 'data'},
+                'identityAccounts': {
+                    'enabled': True,
+                    'root': {'username': 'root', 'existingSecret': 'postgresql-admin', 'secretKey': 'password'},
+                    'operator': {'username': 'operator', 'existingSecret': 'postgresql-operator', 'secretKey': 'password', 'tables': [], 'sequences': []},
+                    'auditor': {'username': 'auditor', 'existingSecret': 'postgresql-auditor', 'secretKey': 'password', 'views': []},
+                },
+                'metrics': {
+                    'enabled': True,
+                    'username': 'postgres_exporter',
+                    'existingSecret': 'postgresql-metrics',
+                    'secretKey': 'password',
+                },
+            },
+        }
+        docs = self.render(values)
+        exporter = next(doc for doc in docs if doc and doc['kind'] == 'Deployment' and doc['metadata']['name'] == 'release-postgresql-exporter')
+        env = {item['name']: item for item in exporter['spec']['template']['spec']['containers'][0]['env']}
+        self.assertEqual(env['DATA_SOURCE_USER']['value'], 'postgres_exporter')
+        self.assertEqual(env['DATA_SOURCE_PASS']['valueFrom']['secretKeyRef']['name'], 'postgresql-metrics')
+        self.assertEqual(env['DATA_SOURCE_PASS']['valueFrom']['secretKeyRef']['key'], 'password')
+        self.assertNotEqual(env['DATA_SOURCE_PASS']['valueFrom']['secretKeyRef']['name'], 'postgresql-admin')
+        self.assertNotEqual(env['DATA_SOURCE_PASS']['valueFrom']['secretKeyRef']['name'], 'postgresql-auditor')
+
+    def test_postgresql_metrics_rejects_missing_dedicated_credential(self):
+        values = {'postgresql': {
+            'enabled': True,
+            'image': IMAGE,
+            'username': 'root',
+            'existingSecret': 'postgresql-admin',
+            'storage': {'className': 'data'},
+            'metrics': {'enabled': True},
+        }}
+        self.assertIn('metrics', self.render(values, False).lower())
+
     def test_caddy_only_uses_external_namespaced_backends(self):
         docs = self.render(self.ingress())
         workloads = [doc for doc in docs if doc and doc['kind'] in ('Deployment', 'StatefulSet')]
