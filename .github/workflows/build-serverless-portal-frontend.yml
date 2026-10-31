@@ -1,0 +1,84 @@
+name: build serverless portal frontend artifact
+
+# Owner: Artifacts. Builds the portal static export and OpenNext SSR
+# boundaries from an immutable portal ref and uploads them with a manifest and
+# SHA256SUMS. Deployment (wrangler pages/deploy), Pages project lifecycle and
+# DNS stay with IaC; Orchestrator selects the artifact and verifies receipts.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/serverless/**'
+      - 'tests/serverless/**'
+      - '.github/workflows/build-serverless-portal-frontend.yml'
+  workflow_call:
+    inputs:
+      portal_ref: {type: string, required: true}
+      target_env: {type: string, required: true}
+      ssr_boundaries: {type: string, required: false, default: ''}
+      static_cdn_url: {type: string, required: false, default: ''}
+      account_service_url: {type: string, required: false, default: ''}
+    outputs:
+      artifact_name: {value: '${{ jobs.build.outputs.artifact_name }}'}
+      source_sha: {value: '${{ jobs.build.outputs.source_sha }}'}
+      manifest_sha256: {value: '${{ jobs.build.outputs.manifest_sha256 }}'}
+  workflow_dispatch:
+    inputs:
+      portal_ref: {description: 'Immutable portal tag or 40-char SHA', required: true, type: string}
+      target_env: {description: 'Environment label (e.g. uat)', required: true, type: string}
+      ssr_boundaries: {description: 'Space separated SSR boundaries', required: false, type: string, default: ''}
+      static_cdn_url: {required: false, type: string, default: ''}
+      account_service_url: {required: false, type: string, default: ''}
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/serverless/test_package_portal_frontend.sh
+
+  build:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+      source_sha: ${{ steps.meta.outputs.source_sha }}
+      manifest_sha256: ${{ steps.meta.outputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-services/portal
+          ref: ${{ inputs.portal_ref }}
+          path: portal
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Package (no runtime credentials in env)
+        env:
+          PORTAL_DIR: ${{ github.workspace }}/portal
+          PORTAL_REF: ${{ inputs.portal_ref }}
+          TARGET_ENV: ${{ inputs.target_env }}
+          SSR_BOUNDARIES: ${{ inputs.ssr_boundaries }}
+          STATIC_CDN_URL: ${{ inputs.static_cdn_url }}
+          ACCOUNT_SERVICE_URL: ${{ inputs.account_service_url }}
+          OUT_DIR: ${{ runner.temp }}/portal-frontend
+        run: bash scripts/serverless/package-portal-frontend.sh
+      - id: meta
+        run: |
+          out="${RUNNER_TEMP}/portal-frontend"
+          sha="$(jq -r .source.sha "$out/artifact-manifest.json")"
+          echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "manifest_sha256=$(sha256sum "$out/artifact-manifest.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=portal-serverless-frontend-${{ inputs.target_env }}-${sha:0:12}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: ${{ runner.temp }}/portal-frontend/
+          if-no-files-found: error
+          retention-days: 30
