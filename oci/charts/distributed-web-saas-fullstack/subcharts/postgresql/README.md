@@ -45,7 +45,7 @@ Operator table/sequence and auditor view lists are exact allowlists. Empty lists
 
 The Job receives passwords through Secret-backed environment variables; passwords are not placed in chart values or process arguments. `psql` submits role-password statements over its database connection, so the Job disables PostgreSQL statement/duration logging for that session. Review server extensions/audit settings as well; external audit extensions can still capture role changes. The hook runs only on Helm install/upgrade. A Secret rotation therefore needs an explicit reviewed HelmRelease upgrade/reconcile to update PostgreSQL role passwords.
 
-When `identityAccounts.enabled` and metrics are both enabled, configure a separate metrics login/Secret. The exporter must not reuse the root Secret or the auditor identity; monitoring privilege design is independent from migration/audit access.
+When metrics are enabled, configure `metrics.username`, `metrics.existingSecret`, and `metrics.secretKey`. The exporter always consumes this separate Secret and never falls back to the PostgreSQL bootstrap administrator or the `auditor` identity. Grant the metrics login only the PostgreSQL monitoring privileges needed by the enabled exporter collectors; do not grant application table access or write privileges. If the target database has not provisioned this login and Secret yet, leave metrics disabled rather than reusing another role.
 
 ## Mapping contract with host and cluster identities
 

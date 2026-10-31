@@ -16,7 +16,7 @@ dependencies:
   version: 0.1.1
 - name: web-saas-postgresql
   repository: file://subcharts/postgresql
-  version: 0.1.6
+  version: 0.1.7
 - name: web-saas-caddy
   repository: file://subcharts/caddy
   version: 0.1.6
@@ -26,5 +26,5 @@ dependencies:
 - name: web-saas-stunnel-server
   repository: file://subcharts/stunnel-server
   version: 0.1.1
-digest: sha256:cb85ee70ef686dd811a9db127e380428165d9625809b6c0a45d02eabb5294f0d
-generated: "2026-10-30T16:20:19.819374+08:00"
+digest: sha256:c4e2758b9bbb34c3d329a5b8dfe2ee119b263bf0eabf9444b0a43885afb4798c
+generated: "2026-10-31T17:18:58.251335+08:00"
