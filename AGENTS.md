@@ -26,6 +26,7 @@ Follow the [execution ownership standard](https://github.com/ai-workspace-lab/xw
 - Publish artifact version/digest, source commit, architecture and checksums. Never put credentials, private kubeconfigs, runtime CMDB or provider facts in public artifacts or receipts.
 - Registry provisioning and cloud IAM belong to IaC; artifact upload/signing belong here; live installation and health checks belong to Playbooks/cluster execution. Packaging a script does not make its production execution an Artifacts responsibility.
 - Keep schemas/templates/defaults generic and preserve declared field types. Environment fixtures are valid examples and must not be loaded as runtime configuration.
+- Cross-repository candidate publication may expose a reusable Action that creates an immutable candidate tag, associates the exact component-owner build run, and verifies the declared artifact. The component matrix and environment policy remain GitOps declarations; the caller retains approval, DAG, and final gate responsibility.
 - For migrated code, complete owner implementation, caller cutover and verification before deleting the old entrypoint. Do not add generation-specific compatibility adapters or silent fallback paths.
 
 Detailed contract: [declaration-and-handoff](https://github.com/ai-workspace-lab/xworkspace-core-skills/blob/main/skills/engineering-standards/execution-ownership-migration/references/declaration-and-handoff.md)。
