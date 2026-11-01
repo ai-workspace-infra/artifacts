@@ -16,11 +16,8 @@ inputs:
   owner-sha:
     description: Full SHA of the checked-out Artifacts owner action.
     required: true
-  github-app-client-id:
-    description: Runtime GitHub App client ID used to mint a repository-scoped token.
-    required: true
-  github-app-private-key:
-    description: Runtime GitHub App private key; never persisted or emitted.
+  github-token:
+    description: Repository-scoped token minted by the caller.
     required: true
   registry-username:
     description: Runtime GHCR read identity used only for OCI verification.
@@ -61,10 +58,9 @@ runs:
         CANDIDATE_ID: ${{ inputs.candidate-id }}
         SOURCE_REF: ${{ inputs.source-ref }}
         ARTIFACTS_OWNER_SHA: ${{ inputs.owner-sha }}
-        GITHUB_APP_CLIENT_ID: ${{ inputs.github-app-client-id }}
-        GITHUB_APP_PRIVATE_KEY: ${{ inputs.github-app-private-key }}
+        GITHUB_TOKEN_INPUT: ${{ inputs.github-token }}
         REGISTRY_USERNAME: ${{ inputs.registry-username }}
         REGISTRY_TOKEN: ${{ inputs.registry-token }}
         OWNER_RUN_TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
-      run: node "$GITHUB_ACTION_PATH/index.mjs"
+      run: python3 "$GITHUB_ACTION_PATH/component_candidate.py"
 
