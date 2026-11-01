@@ -1,0 +1,22 @@
+name: Validate component candidate Action
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/component-candidate/**
+      - .github/workflows/validate-component-candidate-action.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Validate Action metadata
+        run: ruby -e 'require "yaml"; YAML.load_file(".github/actions/component-candidate/action.yml")'
+      - name: Validate JavaScript and contract tests
+        run: |
+          node --check .github/actions/component-candidate/index.mjs
+          node --test .github/actions/component-candidate/index.test.mjs
