@@ -3,7 +3,7 @@ name: distributed-web-saas-fullstack
 description: Composable Web SaaS services with a Caddy HTTPS ingress
 type: application
 kubeVersion: '>=1.32.0-0'
-version: 0.2.15
+version: 0.2.16
 appVersion: 0.2.12
 dependencies:
 - name: web-saas-console
@@ -55,3 +55,7 @@ dependencies:
   version: 1.45.0
   repository: https://flagger.app
   condition: flagger.enabled
+- name: traefik
+  version: 42.3.0
+  repository: https://traefik.github.io/charts
+  condition: traefik.enabled

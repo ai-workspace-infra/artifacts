@@ -47,6 +47,9 @@
     "caddy": {
       "type": "object"
     },
+    "traefik": {
+      "type": "object"
+    },
     "stunnelClient": {
       "type": "object"
     },

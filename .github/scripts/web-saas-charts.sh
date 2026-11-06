@@ -8,6 +8,7 @@ case "${1:-}" in
       if [[ -f "$chart/Chart.lock" ]]; then helm dependency build "$chart" --skip-refresh; fi
     done
     helm repo add flagger https://flagger.app --force-update
+    helm repo add traefik https://traefik.github.io/charts --force-update
     helm dependency build "$chart_root" --skip-refresh
     ;;
   validate)
