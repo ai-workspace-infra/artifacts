@@ -110,6 +110,17 @@ class Releases(unittest.TestCase):
         values['caddy']['externalBackends']['enabled'] = False
         self.assertIn('Caddy requires console.enabled', self.render(values, False))
 
+    def test_caddy_and_traefik_are_mutually_exclusive(self):
+        values = self.ingress()
+        values['traefik'] = {'enabled': True}
+        self.assertIn('mutually exclusive ingress controllers', self.render(values, False))
+
+    def test_traefik_alone_renders_deployment(self):
+        values = {'traefik': {'enabled': True}}
+        docs = self.render(values)
+        workloads = [doc for doc in docs if doc and doc['kind'] in ('Deployment', 'DaemonSet')]
+        self.assertTrue(any('traefik' in doc['metadata']['name'] for doc in workloads))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -26,6 +26,10 @@ stunnelClient:
 stunnelServer:
   enabled: false
 
+# Traefik ingress controller (mutually exclusive with caddy when acting as cluster ingress)
+traefik:
+  enabled: false
+
 # The metrics endpoint is supplied by the environment's GitOps declaration.
 flagger:
   enabled: false

@@ -10,6 +10,9 @@
 {{- if and $config.enabled (not $config.workload.secretRefs) }}{{ fail (printf "production %s requires existing runtime Secret references" $name) }}{{ end }}
 {{- end }}
 {{- end }}
+{{- if and .Values.caddy.enabled .Values.traefik.enabled }}
+{{- fail "caddy and traefik are mutually exclusive ingress controllers; enable only one" }}
+{{- end }}
 {{- if .Values.caddy.enabled }}
 {{- if .Values.caddy.externalBackends.enabled }}
 {{- if or .Values.console.enabled .Values.accounts.enabled .Values.billing.enabled .Values.content.enabled .Values.edgeGateway.enabled .Values.postgresql.enabled }}{{ fail "standalone Caddy externalBackends must not enable application or database components" }}{{ end }}

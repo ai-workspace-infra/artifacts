@@ -29,5 +29,8 @@ dependencies:
 - name: flagger
   repository: https://flagger.app
   version: 1.45.0
-digest: sha256:0a05bbb3f4e913d00f38fbd6811a78049a61c914dcc81c0729565bc36454de46
-generated: "2026-11-06T18:38:13.029047+08:00"
+- name: traefik
+  repository: https://traefik.github.io/charts
+  version: 42.3.0
+digest: sha256:f750e92e824cc2544e078c76bf40ae9f96c8e938d00d6b4a97b615c55845b38b
+generated: "2026-11-06T19:40:53.667343+08:00"
