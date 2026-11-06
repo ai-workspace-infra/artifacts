@@ -1,3 +1,7 @@
+{{- if .Values.flagger.enabled }}
+{{- if not .Values.flagger.metricsServer }}{{ fail "flagger.metricsServer must identify the configured Prometheus-compatible query endpoint" }}{{ end }}
+{{- if .Values.flagger.prometheus.install }}{{ fail "flagger.prometheus.install must be false; use the central observability plane" }}{{ end }}
+{{- end }}
 {{- if eq .Values.global.environment "prod" }}
 {{- if or (not .Values.global.expectedNamespace) (eq .Release.Namespace "default") (ne .Release.Namespace .Values.global.expectedNamespace) }}{{ fail "production requires an explicit matching global.expectedNamespace and non-default release namespace" }}{{ end }}
 {{- if and .Values.caddy.enabled .Values.caddy.httpOnly }}{{ fail "production Caddy requires HTTPS with existing TLS Secrets" }}{{ end }}

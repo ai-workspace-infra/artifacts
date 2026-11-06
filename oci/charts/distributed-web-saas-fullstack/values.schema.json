@@ -52,6 +52,27 @@
     },
     "stunnelServer": {
       "type": "object"
+    },
+    "flagger": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "meshProvider": {
+          "type": "string"
+        },
+        "metricsServer": {
+          "type": "string"
+        },
+        "prometheus": {
+          "type": "object"
+        },
+        "crd": {
+          "type": "object"
+        }
+      }
     }
   }
 }
