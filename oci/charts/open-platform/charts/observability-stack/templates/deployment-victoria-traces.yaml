@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability-stack.fullname" . }}-victoria-traces
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: victoria-traces
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if .Values.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "observability-stack.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: victoria-traces
+  template:
+    metadata:
+      labels:
+        {{- include "observability-stack.labels" . | nindent 8 }}
+        app.kubernetes.io/component: victoria-traces
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName | quote }}
+      containers:
+        - name: victoria-traces
+          image: "{{ .Values.victoriaTraces.image.repository }}:{{ .Values.victoriaTraces.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaTraces.image.pullPolicy }}
+          command:
+            - "/victoria-traces-prod"
+            - "-storageDataPath=/vtraces_data"
+          ports:
+            - name: traces
+              containerPort: 10428
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: traces
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: traces
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+{{ toYaml .Values.victoriaTraces.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /vtraces_data
+              subPath: vtraces
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "observability-stack.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

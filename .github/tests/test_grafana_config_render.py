@@ -9,7 +9,7 @@ class Provisioning(unittest.TestCase):
  def test_external_bundle_with_existing_platform(self):
   r=self.render({'grafana':{'datasourcesConfigMap':'source-datasources','appsConfigMap':'source-apps','runtimeSecret':'runtime','bundleChecksum':'fixture','dashboardsConfigMap':'platform','plugins':['victoriametrics-logs-datasource@0.33.1'],'dashboardProviders':[{'name':'general','folder':'','folderUid':'','path':'general','configMaps':['a','b']},{'name':'alerts','folder':'Alerts','folderUid':'alerts-uid','path':'alerts','configMaps':['empty']}]}})
   self.assertEqual(r.returncode,0,r.stderr)
-  docs=list(yaml.safe_load_all(r.stdout));d=next(x for x in docs if x['kind']=='Deployment');pod=d['spec']['template']['spec'];g=next(x for x in pod['containers'] if x['name']=='grafana')
+  docs=list(yaml.safe_load_all(r.stdout));d=next(x for x in docs if x and x.get('kind')=='Deployment' and any(c['name']=='grafana' for c in x['spec']['template']['spec']['containers']));pod=d['spec']['template']['spec'];g=next(x for x in pod['containers'] if x['name']=='grafana')
   self.assertEqual(d['spec']['strategy']['type'],'Recreate')
   self.assertEqual(g['envFrom'],[{'secretRef':{'name':'runtime'}}])
   mounts={x['mountPath']:x['name'] for x in g['volumeMounts']}

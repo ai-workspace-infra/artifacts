@@ -1,9 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "observability-stack.fullname" . }}
+  name: {{ include "observability-stack.fullname" . }}-grafana
   labels:
     {{- include "observability-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
 spec:
   replicas: {{ .Values.replicaCount }}
   {{- if .Values.persistence.enabled }}
@@ -12,14 +13,17 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      {{- include "observability-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: {{ include "observability-stack.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: grafana
   template:
     metadata:
       annotations:
         checksum/grafana-bundle: {{ .Values.grafana.bundleChecksum | quote }}
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
-        {{- include "observability-stack.selectorLabels" . | nindent 8 }}
+        {{- include "observability-stack.labels" . | nindent 8 }}
+        app.kubernetes.io/component: grafana
     spec:
       serviceAccountName: {{ .Values.serviceAccountName | quote }}
       {{- if .Values.grafana.pluginArchives }}
@@ -47,108 +51,6 @@ spec:
               readOnly: true
       {{- end }}
       containers:
-        - name: victoria-metrics
-          image: "{{ .Values.victoriaMetrics.image.repository }}:{{ .Values.victoriaMetrics.image.tag }}"
-          imagePullPolicy: {{ .Values.victoriaMetrics.image.pullPolicy }}
-          command:
-            - "/victoria-metrics-prod"
-            - "-storageDataPath=/vmetrics_data"
-            - "-retentionPeriod={{ .Values.victoriaMetrics.retentionPeriod }}"
-            - "-promscrape.config=/etc/prometheus/prometheus.yml"
-          ports:
-            - name: metrics
-              containerPort: 8428
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: metrics
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          resources:
-{{ toYaml .Values.victoriaMetrics.resources | nindent 12 }}
-          volumeMounts:
-            - name: data
-              mountPath: /vmetrics_data
-              subPath: vmetrics
-            - name: config
-              mountPath: /etc/prometheus/prometheus.yml
-              subPath: prometheus.yml
-
-        - name: victoria-logs
-          image: "{{ .Values.victoriaLogs.image.repository }}:{{ .Values.victoriaLogs.image.tag }}"
-          imagePullPolicy: {{ .Values.victoriaLogs.image.pullPolicy }}
-          command:
-            - "/victoria-logs-prod"
-            - "-storageDataPath=/vlogs_data"
-            - "-retentionPeriod={{ .Values.victoriaLogs.retentionPeriod }}"
-          ports:
-            - name: logs
-              containerPort: 9428
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: logs
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          resources:
-{{ toYaml .Values.victoriaLogs.resources | nindent 12 }}
-          volumeMounts:
-            - name: data
-              mountPath: /vlogs_data
-              subPath: vlogs
-
-        - name: victoria-traces
-          image: "{{ .Values.victoriaTraces.image.repository }}:{{ .Values.victoriaTraces.image.tag }}"
-          imagePullPolicy: {{ .Values.victoriaTraces.image.pullPolicy }}
-          command:
-            - "/victoria-traces-prod"
-            - "-storageDataPath=/vtraces_data"
-          ports:
-            - name: traces
-              containerPort: 10428
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: traces
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          resources:
-{{ toYaml .Values.victoriaTraces.resources | nindent 12 }}
-          volumeMounts:
-            - name: data
-              mountPath: /vtraces_data
-              subPath: vtraces
-
-        - name: otel-collector
-          image: "{{ .Values.otelCollector.image.repository }}:{{ .Values.otelCollector.image.tag }}"
-          imagePullPolicy: {{ .Values.otelCollector.image.pullPolicy }}
-          command: ["/otelcol-contrib", "--config=/etc/otelcol-contrib/config.yaml"]
-          env:
-            - name: K8S_NODE_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.hostIP
-            - name: K8S_NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-          ports:
-            - name: otlp-http
-              containerPort: 4318
-              protocol: TCP
-            - name: otlp-grpc
-              containerPort: 4317
-              protocol: TCP
-          resources:
-{{ toYaml .Values.otelCollector.resources | nindent 12 }}
-          volumeMounts:
-            - name: config
-              mountPath: /etc/otelcol-contrib/config.yaml
-              subPath: otel-collector.yml
-
         - name: grafana
           image: "{{ .Values.grafana.image.repository }}:{{ .Values.grafana.image.tag }}"
           imagePullPolicy: {{ .Values.grafana.image.pullPolicy }}
@@ -181,11 +83,24 @@ spec:
             - name: grafana
               containerPort: 3000
               protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: grafana
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /api/health
               port: grafana
             initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: grafana
+            initialDelaySeconds: 5
             periodSeconds: 10
           resources:
 {{ toYaml .Values.grafana.resources | nindent 12 }}
