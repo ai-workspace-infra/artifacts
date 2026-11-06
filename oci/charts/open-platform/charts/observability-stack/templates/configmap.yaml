@@ -11,7 +11,7 @@ data:
     scrape_configs:
       - job_name: 'victoriametrics'
         static_configs:
-          - targets: ['127.0.0.1:8428', '127.0.0.1:9428', '127.0.0.1:10428', '127.0.0.1:8888', '127.0.0.1:8889']
+          - targets: ['127.0.0.1:8428', '{{ include "observability-stack.fullname" . }}-victoria-logs:9428', '{{ include "observability-stack.fullname" . }}-victoria-traces:10428', '{{ include "observability-stack.fullname" . }}-otel-collector:8889']
             labels:
               cluster: {{ .Values.telemetry.cluster | default .Release.Name | quote }}
               environment: {{ .Values.telemetry.environment | quote }}
@@ -70,9 +70,9 @@ data:
         resource_to_telemetry_conversion:
           enabled: true
       otlphttp/traces:
-        traces_endpoint: http://127.0.0.1:10428/insert/opentelemetry/v1/traces
+        traces_endpoint: http://{{ include "observability-stack.fullname" . }}-victoria-traces:10428/insert/opentelemetry/v1/traces
       otlphttp/logs:
-        logs_endpoint: http://127.0.0.1:9428/insert/opentelemetry/v1/logs
+        logs_endpoint: http://{{ include "observability-stack.fullname" . }}-victoria-logs:9428/insert/opentelemetry/v1/logs
     service:
       pipelines:
         traces:
@@ -93,16 +93,16 @@ data:
       - name: VictoriaMetrics
         type: prometheus
         access: proxy
-        url: http://127.0.0.1:8428
+        url: http://{{ include "observability-stack.fullname" . }}-victoria-metrics:8428
         isDefault: true
       - name: VictoriaLogs
         type: victoriametrics-logs-datasource
         access: proxy
-        url: http://127.0.0.1:9428
+        url: http://{{ include "observability-stack.fullname" . }}-victoria-logs:9428
       - name: VictoriaTraces
         type: jaeger
         access: proxy
-        url: http://127.0.0.1:10428/select/jaeger
+        url: http://{{ include "observability-stack.fullname" . }}-victoria-traces:10428/select/jaeger
 
   {{- if or .Values.grafana.dashboardsConfigMap .Values.grafana.dashboardProviders }}
   dashboards.yaml: |

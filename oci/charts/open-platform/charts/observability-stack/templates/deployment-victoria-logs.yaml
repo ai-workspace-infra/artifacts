@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability-stack.fullname" . }}-victoria-logs
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: victoria-logs
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if .Values.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "observability-stack.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: victoria-logs
+  template:
+    metadata:
+      labels:
+        {{- include "observability-stack.labels" . | nindent 8 }}
+        app.kubernetes.io/component: victoria-logs
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName | quote }}
+      containers:
+        - name: victoria-logs
+          image: "{{ .Values.victoriaLogs.image.repository }}:{{ .Values.victoriaLogs.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaLogs.image.pullPolicy }}
+          command:
+            - "/victoria-logs-prod"
+            - "-storageDataPath=/vlogs_data"
+            - "-retentionPeriod={{ .Values.victoriaLogs.retentionPeriod }}"
+          ports:
+            - name: logs
+              containerPort: 9428
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: logs
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: logs
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+{{ toYaml .Values.victoriaLogs.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /vlogs_data
+              subPath: vlogs
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "observability-stack.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
