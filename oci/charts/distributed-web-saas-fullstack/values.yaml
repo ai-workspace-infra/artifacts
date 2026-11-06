@@ -25,3 +25,13 @@ stunnelClient:
   enabled: false
 stunnelServer:
   enabled: false
+
+# The metrics endpoint is supplied by the environment's GitOps declaration.
+flagger:
+  enabled: false
+  meshProvider: traefik
+  metricsServer: ""
+  prometheus:
+    install: false
+  crd:
+    create: false
