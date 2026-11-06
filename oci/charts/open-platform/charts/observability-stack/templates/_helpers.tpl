@@ -29,7 +29,6 @@ helm.sh/chart: {{ include "observability-stack.name" . }}-{{ .Chart.Version | re
 app.kubernetes.io/name: {{ include "observability-stack.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/component: observability-stack
 {{- end }}
 
 {{/*
@@ -38,5 +37,4 @@ Selector labels
 {{- define "observability-stack.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "observability-stack.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: observability-stack
 {{- end }}
