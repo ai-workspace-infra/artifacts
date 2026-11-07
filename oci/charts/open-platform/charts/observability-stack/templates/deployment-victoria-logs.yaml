@@ -41,12 +41,14 @@ spec:
               port: logs
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /health
               port: logs
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
           resources:
 {{ toYaml .Values.victoriaLogs.resources | nindent 12 }}
           volumeMounts:
