@@ -17,6 +17,18 @@ class Provisioning(unittest.TestCase):
   self.assertIn('/etc/grafana/platform-dashboards',mounts)
   cm=next(x for x in docs if x['kind']=='ConfigMap');providers=yaml.safe_load(cm['data']['dashboards.yaml'])['providers']
   self.assertEqual([x['name'] for x in providers],['platform','general','alerts']);self.assertEqual(providers[2]['folderUid'],'alerts-uid')
+ def test_five_deployments_preserve_separate_pinned_images(self):
+  r=self.render({})
+  self.assertEqual(r.returncode,0,r.stderr)
+  docs=[x for x in yaml.safe_load_all(r.stdout) if x and x.get('kind')=='Deployment']
+  images={d['metadata']['name']:d['spec']['template']['spec']['containers'][0]['image'] for d in docs}
+  self.assertEqual(images,{
+   'migration-observability-stack-grafana':'grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f',
+   'migration-observability-stack-victoria-metrics':'victoriametrics/victoria-metrics:v1.101.0@sha256:91d0456cc064e195869175074ced2a6849d72531613b320492698e5fe935d10a',
+   'migration-observability-stack-victoria-logs':'victoriametrics/victoria-logs:v1.52.0@sha256:47b820890d64c4575a2a0a46415dcd8a4fd59a0f1fcd6a377693d7aea639442e',
+   'migration-observability-stack-victoria-traces':'victoriametrics/victoria-traces:v0.1.0@sha256:b3204fd598b023b4726f38689791c707803b9f34733822dd053f22d64721b3d2',
+   'migration-observability-stack-otel-collector':'otel/opentelemetry-collector-contrib:0.114.0@sha256:37fa87091cfaaec7234a27e4e395a40c31c2bfaea97a349a4afef6d9e9681197',
+  })
  def test_unsafe_paths_and_unpinned_plugins_rejected(self):
   for v in [{'plugins':['latest']},{'unsignedPlugins':['*']},{'dashboardProviders':[{'path':'../escape','configMaps':['x']}]}]:
    self.assertNotEqual(self.render({'grafana':v}).returncode,0)

@@ -44,12 +44,14 @@ spec:
               port: metrics
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /health
               port: metrics
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
           resources:
 {{ toYaml .Values.victoriaMetrics.resources | nindent 12 }}
           volumeMounts:
