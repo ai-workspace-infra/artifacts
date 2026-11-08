@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "panel",
+  "name": "Progressive Release Matrix",
+  "id": "progressive-release-matrix-panel",
+  "info": {
+    "description": "High-fidelity Service × Endpoint Status Matrix and Flagger progressive validation panel",
+    "author": {
+      "name": "AI Workspace Platform Team",
+      "url": "https://svc.plus"
+    },
+    "keywords": [
+      "release",
+      "matrix",
+      "blackbox",
+      "flagger",
+      "canary"
+    ],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "version": "1.0.0",
+    "updated": "2026-11-08"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=8.0.0"
+  }
+}

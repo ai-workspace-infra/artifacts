@@ -1,0 +1,14 @@
+{
+  "name": "progressive-release-matrix-panel",
+  "version": "1.0.0",
+  "description": "Progressive Release Validation Matrix and Endpoints Panel for Grafana",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "author": "AI Workspace Team",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^5.0.0"
+  }
+}
