@@ -2,16 +2,52 @@
 {{- if not (regexMatch "^sha256:[a-f0-9]{64}$" .Values.processExporter.image.digest) }}
 {{- fail "image.digest must pin a verified sha256 image digest" }}
 {{- end }}
+
 {{- if or (not .Values.processExporter.podSecurityContext.runAsNonRoot) (eq (int .Values.processExporter.podSecurityContext.runAsUser) 0) }}
 {{- fail "process-exporter must run as a non-root user" }}
 {{- end }}
+
 {{- range .Values.processExporter.processNames }}
 {{- if or (contains ".Cmdline" .name) (contains ".Matches" .name) }}
 {{- fail "process group names must not expose argv or command-line capture groups" }}
 {{- end }}
 {{- end }}
 
+
 {{- end }}
+
+{{- if .Values.blackboxExporter.enabled }}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" .Values.blackboxExporter.image.digest) }}
+{{- fail "blackboxExporter.image.digest must pin a verified sha256 image digest" }}
+{{- end }}
+{{- if empty .Values.blackboxExporter.modules }}
+{{- fail "blackboxExporter.modules must define at least one reviewed probe module" }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.vmagent.enabled }}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" .Values.vmagent.image.digest) }}
+{{- fail "vmagent.image.digest must pin a verified sha256 image digest" }}
+{{- end }}
+{{- if empty .Values.vmagent.scrapeConfigs }}
+{{- fail "vmagent.scrapeConfigs must be explicit and non-empty" }}
+{{- end }}
+{{- $scrapeConfigText := toYaml .Values.vmagent.scrapeConfigs | lower }}
+{{- if or (contains "insecure_skip_verify: true" $scrapeConfigText) (regexMatch "://[^/[:space:]]+@" $scrapeConfigText) (regexMatch "(^|[[:space:]])(password|bearer_token):" $scrapeConfigText) }}
+{{- fail "vmagent scrape config must not disable TLS verification or embed URL/inline credentials" }}
+{{- end }}
+{{- $remoteUrl := .Values.vmagent.remoteWrite.url }}
+{{- if or (not (hasPrefix "https://" $remoteUrl)) (empty .Values.vmagent.remoteWrite.secretName) (empty .Values.vmagent.remoteWrite.usernameKey) (empty .Values.vmagent.remoteWrite.passwordKey) }}
+{{- fail "vmagent requires an HTTPS remoteWrite.url and an existing Secret with explicit username/password keys" }}
+{{- end }}
+{{- if not (empty (urlParse $remoteUrl).userinfo) }}
+{{- fail "vmagent remoteWrite.url must not contain credentials" }}
+{{- end }}
+{{- if or (empty .Values.vmagent.bufferSizeLimit) (empty .Values.vmagent.remoteWrite.maxDiskUsagePerURL) }}
+{{- fail "vmagent disk buffer and per-URL usage limit must be bounded explicitly" }}
+{{- end }}
+{{- end }}
+
 
 {{- if .Values.kubeStateMetrics.enabled }}
 {{- range .Values.kubeStateMetrics.collectors }}

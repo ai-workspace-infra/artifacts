@@ -13,6 +13,15 @@ ROOT = Path(__file__).resolve().parents[2]
 CHART = ROOT / "oci/charts/open-platform/charts/observability-agent"
 ALL = {"nodeExporter": {"hostMetrics": True, "hostNetwork": True}, "kubeStateMetrics": {"enabled": True}, "processExporter": {"enabled": True}, "vector": {"enabled": False}}
 RELAY = {"nodeExporter": {"enabled": False}, "vector": {"enabled": True, "mode": "relay", "relay": {"sourceBaseUrl": "http://metrics.example.test:8428", "sourceCluster": "example", "sourceEnvironment": "uat", "remoteWriteUrl": "https://remote.example.test/api/v1/write", "distinctBackendAcknowledged": True, "auth": {"existingSecret": "remote-writer"}}}}
+PROBES = {
+    "blackboxExporter": {"enabled": True, "modules": {"http_2xx": {"prober": "http", "timeout": "5s", "http": {"preferred_ip_protocol": "ip4", "valid_status_codes": [200]}}}},
+    "vmagent": {
+        "enabled": True,
+        "externalLabels": {"cluster": "example-cluster", "environment": "sit"},
+        "scrapeConfigs": [{"job_name": "blackbox", "metrics_path": "/probe", "params": {"module": ["http_2xx"]}, "static_configs": [{"targets": ["https://example.test/healthz"]}], "relabel_configs": [{"source_labels": ["__address__"], "target_label": "__param_target"}, {"source_labels": ["__param_target"], "target_label": "instance"}, {"target_label": "__address__", "replacement": "agent-observability-agent-blackbox:9115"}]}],
+        "remoteWrite": {"url": "https://metrics.example.test/api/v1/write", "secretName": "remote-writer"},
+    },
+}
 
 
 def render(values=None):
@@ -36,6 +45,41 @@ class ObservabilityAgentChartTest(unittest.TestCase):
         pod = next(d for d in docs if d["kind"] == "DaemonSet")["spec"]["template"]["spec"]
         self.assertEqual([c["name"] for c in pod["containers"]], ["node-exporter", "vector"])
         self.assertFalse(any("hostPath" in v for v in pod.get("volumes", [])))
+
+    def test_blackbox_and_vmagent_are_optional_secure_agent_release_components(self):
+        docs = objects(PROBES)
+        deployments = {d["metadata"]["name"]: d for d in docs if d["kind"] == "Deployment"}
+        self.assertEqual(set(deployments), {"agent-observability-agent-blackbox", "agent-observability-agent-vmagent"})
+        services = {d["metadata"]["name"] for d in docs if d["kind"] == "Service"}
+        self.assertTrue({"agent-observability-agent-blackbox", "agent-observability-agent-vmagent"}.issubset(services))
+        configmaps = [d for d in docs if d["kind"] == "ConfigMap"]
+        blackbox = next(d["data"]["blackbox.yml"] for d in configmaps if "blackbox.yml" in d["data"])
+        self.assertIn("http_2xx", blackbox)
+        scrape = next(d["data"]["scrape.yml"] for d in configmaps if "scrape.yml" in d["data"])
+        self.assertIn("https://example.test/healthz", scrape)
+        self.assertIn("example-cluster", scrape)
+        vmagent = deployments["agent-observability-agent-vmagent"]["spec"]["template"]["spec"]
+        container = vmagent["containers"][0]
+        self.assertTrue(vmagent["securityContext"]["runAsNonRoot"])
+        self.assertFalse(vmagent["automountServiceAccountToken"])
+        self.assertIn("-remoteWrite.url=https://metrics.example.test/api/v1/write", container["args"])
+        self.assertIn("-remoteWrite.basicAuth.passwordFile=/etc/vmagent/auth/password", container["args"])
+        self.assertIn("-remoteWrite.maxDiskUsagePerURL=1Gi", container["args"])
+        self.assertNotIn("tlsInsecureSkipVerify", " ".join(container["args"]))
+        self.assertEqual(vmagent["volumes"][1]["secret"]["secretName"], "remote-writer")
+        self.assertTrue(all(d["kind"] != "Secret" for d in docs))
+
+    def test_probe_configuration_fails_closed(self):
+        for patch in (
+            {"vmagent": {"enabled": True}},
+            {"vmagent": {"enabled": True, "scrapeConfigs": [{"job_name": "x"}], "remoteWrite": {"url": "http://metrics.example.test/write", "secretName": "writer"}}},
+            {"vmagent": {"enabled": True, "scrapeConfigs": [{"job_name": "x"}], "remoteWrite": {"url": "https://user:pass@metrics.example.test/write", "secretName": "writer"}}},
+            {"vmagent": {"enabled": True, "scrapeConfigs": [{"job_name": "x", "static_configs": [{"targets": ["https://example.test"], "labels": {"password": "plaintext"}}]}], "remoteWrite": {"url": "https://metrics.example.test/write", "secretName": "writer"}}},
+            {"vmagent": {"enabled": True, "scrapeConfigs": [{"job_name": "x", "scheme": "https", "tls_config": {"insecure_skip_verify": True}}], "remoteWrite": {"url": "https://metrics.example.test/write", "secretName": "writer"}}},
+            {"blackboxExporter": {"enabled": True}},
+        ):
+            with self.subTest(patch=patch):
+                self.assertNotEqual(render(patch).returncode, 0)
 
     def test_enabled_producers_have_scoped_permissions(self):
         docs = objects(ALL)

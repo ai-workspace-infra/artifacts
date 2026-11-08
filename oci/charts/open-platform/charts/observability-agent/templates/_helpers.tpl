@@ -55,6 +55,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default (include "process-exporter.fullname" .) .Values.processExporter.serviceAccount.name -}}
 {{- end -}}
 
+{{- define "observability-agent.blackbox.fullname" -}}
+{{- printf "%s-blackbox" (include "observability-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "observability-agent.vmagent.fullname" -}}
+{{- printf "%s-vmagent" (include "observability-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "observability-agent.blackbox.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "observability-agent.blackbox.fullname" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: blackbox-exporter
+{{- end -}}
+{{- define "observability-agent.vmagent.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "observability-agent.vmagent.fullname" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: vmagent
+{{- end -}}
+
 {{/* Lightweight process-exporter HTTP landing page or TCP listener probe. */}}
 {{- define "observability-agent.processProbe" -}}
 {{- if eq .mode "http" }}

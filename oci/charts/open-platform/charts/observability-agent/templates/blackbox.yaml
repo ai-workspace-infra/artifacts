@@ -1,0 +1,91 @@
+{{- if .Values.blackboxExporter.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability-agent.blackbox.fullname" . }}
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+data:
+  blackbox.yml: |
+    modules:
+{{ toYaml .Values.blackboxExporter.modules | indent 6 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability-agent.blackbox.fullname" . }}
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "observability-agent.blackbox.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability-agent.blackbox.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: blackbox-exporter
+          image: "{{ .Values.blackboxExporter.image.repository }}:{{ .Values.blackboxExporter.image.tag }}@{{ .Values.blackboxExporter.image.digest }}"
+          imagePullPolicy: {{ .Values.blackboxExporter.image.pullPolicy }}
+          args:
+            - --config.file=/etc/blackbox/blackbox.yml
+            - --web.listen-address=:{{ .Values.blackboxExporter.port }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.blackboxExporter.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet: {path: /-/ready, port: metrics}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /-/healthy, port: metrics}
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.blackboxExporter.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile: {type: RuntimeDefault}
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/blackbox
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability-agent.blackbox.fullname" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability-agent.blackbox.fullname" . }}
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "observability-agent.blackbox.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.blackboxExporter.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}
