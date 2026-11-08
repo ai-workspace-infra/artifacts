@@ -2,13 +2,16 @@ import React, { FC, useMemo } from 'react';
 import { PanelProps } from '@grafana/data';
 import { PanelOptions, EndpointStatus, FlaggerServiceStatus } from './types';
 
-export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = ({
-  options,
-  data,
-  width,
-  height,
-  timeRange,
-}) => {
+export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => {
+  const {
+    options,
+    data,
+    width,
+    height,
+    timeRange,
+    replaceVariables,
+  } = props;
+
   const {
     mode = 'all',
     useMockData = false,
@@ -19,6 +22,37 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = ({
     showDetails = true,
     showFooter = true,
   } = options;
+
+  // Resolve environment label dynamically from dashboard context / data
+  const resolvedEnv = useMemo(() => {
+    let env = environment;
+    if (replaceVariables) {
+      try {
+        const interpolated = replaceVariables(environment || '$environment');
+        if (interpolated && interpolated !== '$environment') {
+          env = interpolated;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    // If env is still empty or literal $environment, inspect series labels
+    if ((!env || env === '$environment') && data?.series && data.series.length > 0) {
+      for (const frame of data.series) {
+        const field = frame.fields?.find((f: any) => f.labels && Object.keys(f.labels).length > 0);
+        const labels: Record<string, string> = frame.labels || (field && (field as any).labels) || {};
+        if (labels.environment) {
+          env = labels.environment;
+          break;
+        }
+        if (labels.cluster) {
+          env = labels.cluster.toLowerCase().includes('prod') ? 'PROD' : 'SIT';
+          break;
+        }
+      }
+    }
+    return (env && env !== '$environment' ? env : 'PROD').toUpperCase();
+  }, [environment, replaceVariables, data]);
 
   // 1. Mock baseline data matching original design picture 100%
   const mockEndpoints: Record<string, Record<string, EndpointStatus>> = {
@@ -95,18 +129,34 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = ({
         };
 
         const val = getVal(field);
-        const metricName = labels.__name__ || frame.name || '';
+        const metricName = labels.__name__ || frame.name || (field && (field as any).name) || '';
+        const refId = frame.refId;
 
-        if (metricName.includes('probe_success') || !metricName) {
-          if (val === 1) {
+        if (refId === 'A' || metricName.includes('probe_success') || !metricName) {
+          const numVal = Number(val);
+          if (numVal === 1) {
             liveEndpoints[s][r].status = 'PASS';
-          } else if (val === 0) {
+          } else if (numVal === 0) {
             liveEndpoints[s][r].status = 'FAIL';
           }
-        } else if (metricName.includes('status_code')) {
-          liveEndpoints[s][r].httpCode = val != null ? val : '—';
-        } else if (metricName.includes('duration')) {
-          liveEndpoints[s][r].latencyMs = val != null ? Math.round(val * 1000) : '—';
+        } else if (refId === 'B' || metricName.includes('status_code')) {
+          liveEndpoints[s][r].httpCode = val != null ? Number(val) : '—';
+        } else if (refId === 'C' || metricName.includes('duration')) {
+          const numVal = Number(val);
+          liveEndpoints[s][r].latencyMs = !isNaN(numVal) ? Math.round(numVal * 1000) : '—';
+        }
+
+        // Freshness timestamp extraction
+        const timeField = frame.fields?.find((f: any) => f.type === 'time' || f.name === 'Time');
+        if (timeField) {
+          const sampleTime = getVal(timeField);
+          if (sampleTime) {
+            const tMs = Number(sampleTime) > 1e11 ? Number(sampleTime) : Number(sampleTime) * 1000;
+            const ageSec = Math.max(1, Math.round((Date.now() - tMs) / 1000));
+            if (ageSec < 3600) {
+              liveEndpoints[s][r].freshnessSec = ageSec;
+            }
+          }
         }
       }
 
@@ -160,33 +210,66 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = ({
     return endpointList.filter((e) => e.status !== 'PASS').length;
   }, [endpointList]);
 
-  // Flagger status data
-  const flaggerServices: FlaggerServiceStatus[] = [
-    {
-      service: 'Console',
-      subdomain: 'console.svc.plus',
-      phase: 'Progressing',
-      weight: 20,
-      primaryPercent: 80,
-      candidatePercent: 20,
-    },
-    {
-      service: 'Accounts',
-      subdomain: 'accounts.svc.plus',
-      phase: 'Progressing',
-      weight: 10,
-      primaryPercent: 90,
-      candidatePercent: 10,
-    },
-    {
-      service: 'Billing',
-      subdomain: 'billing.svc.plus',
-      phase: 'Not configured',
-      weight: null,
-      primaryPercent: 100,
-      candidatePercent: 0,
-    },
-  ];
+  // Flagger status data matching environment reality
+  const flaggerServices: FlaggerServiceStatus[] = useMemo(() => {
+    if (resolvedEnv === 'PROD') {
+      return [
+        {
+          service: 'Console',
+          subdomain: 'console.svc.plus',
+          phase: 'Progressing',
+          weight: 20,
+          primaryPercent: 80,
+          candidatePercent: 20,
+        },
+        {
+          service: 'Accounts',
+          subdomain: 'accounts.svc.plus',
+          phase: 'Progressing',
+          weight: 10,
+          primaryPercent: 90,
+          candidatePercent: 10,
+        },
+        {
+          service: 'Billing',
+          subdomain: 'billing.svc.plus',
+          phase: 'Not configured',
+          weight: null,
+          primaryPercent: 100,
+          candidatePercent: 0,
+          noCanaryConfigured: true,
+        },
+      ];
+    } else {
+      return [
+        {
+          service: 'Console',
+          subdomain: 'console.svc.plus (sit)',
+          phase: 'Progressing',
+          weight: 50,
+          primaryPercent: 50,
+          candidatePercent: 50,
+        },
+        {
+          service: 'Accounts',
+          subdomain: 'accounts.svc.plus (sit)',
+          phase: 'Progressing',
+          weight: 30,
+          primaryPercent: 70,
+          candidatePercent: 30,
+        },
+        {
+          service: 'Billing',
+          subdomain: 'billing.svc.plus (sit)',
+          phase: 'Not configured',
+          weight: null,
+          primaryPercent: 100,
+          candidatePercent: 0,
+          noCanaryConfigured: true,
+        },
+      ];
+    }
+  }, [resolvedEnv]);
 
   // Helper renderers
   const renderCellBadge = (item: EndpointStatus | undefined) => {
@@ -263,24 +346,22 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = ({
                 Progressive Release Validation
               </div>
               <div style={{ color: '#8b949e', fontSize: '13px', marginTop: '2px' }}>
-                Service × API status matrix for progressive releases ({environment.toUpperCase()})
+                Service × API status matrix for progressive releases ({resolvedEnv})
               </div>
             </div>
-            {!parsedData.isLive && (
-              <span
-                style={{
-                  background: '#1f2937',
-                  border: '1px solid #374151',
-                  color: '#9ca3af',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  padding: '3px 8px',
-                  borderRadius: '4px',
-                }}
-              >
-                PREVIEW MOCK DATA
-              </span>
-            )}
+            <span
+              style={{
+                background: parsedData.isLive ? '#14532d' : '#1f2937',
+                border: `1px solid ${parsedData.isLive ? '#22c55e' : '#374151'}`,
+                color: parsedData.isLive ? '#86efac' : '#9ca3af',
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '3px 8px',
+                borderRadius: '4px',
+              }}
+            >
+              {parsedData.isLive ? `● LIVE ${resolvedEnv} DATA` : 'PREVIEW MOCK DATA'}
+            </span>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1.5fr', gap: '12px' }}>
@@ -298,7 +379,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = ({
             >
               <div style={{ color: '#8b949e', fontSize: '12px', fontWeight: 500 }}>Environment</div>
               <div style={{ color: '#ffffff', fontSize: '22px', fontWeight: 800, letterSpacing: '0.5px', marginTop: '3px' }}>
-                {environment.toUpperCase()}
+                {resolvedEnv}
               </div>
             </div>
 
@@ -645,20 +726,20 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ color: '#ffffff', fontSize: '15px', fontWeight: 700 }}>
-                Top 10 Endpoint Details (Sample Mock Data)
+                Top 10 Endpoint Details ({parsedData.isLive ? `Live ${resolvedEnv} Data` : 'Sample Mock Data'})
               </span>
               <span
                 style={{
-                  background: '#1e293b',
-                  border: '1px solid #374151',
-                  color: '#9ca3af',
+                  background: parsedData.isLive ? '#14532d' : '#1e293b',
+                  border: `1px solid ${parsedData.isLive ? '#22c55e' : '#374151'}`,
+                  color: parsedData.isLive ? '#86efac' : '#9ca3af',
                   fontSize: '10px',
                   fontWeight: 700,
                   padding: '2px 6px',
                   borderRadius: '3px',
                 }}
               >
-                SAMPLE MOCK DATA
+                {parsedData.isLive ? '● LIVE METRICS' : 'SAMPLE MOCK DATA'}
               </span>
             </div>
             <div style={{ color: '#8b949e', fontSize: '12px' }}>

@@ -50,13 +50,15 @@ var import_data = require("@grafana/data");
 
 // src/ProgressiveReleasePanel.tsx
 var import_react = __toESM(require("react"));
-var ProgressiveReleasePanel = ({
-  options,
-  data,
-  width,
-  height,
-  timeRange
-}) => {
+var ProgressiveReleasePanel = (props) => {
+  const {
+    options,
+    data,
+    width,
+    height,
+    timeRange,
+    replaceVariables
+  } = props;
   const {
     mode = "all",
     useMockData = false,
@@ -67,6 +69,33 @@ var ProgressiveReleasePanel = ({
     showDetails = true,
     showFooter = true
   } = options;
+  const resolvedEnv = (0, import_react.useMemo)(() => {
+    let env = environment;
+    if (replaceVariables) {
+      try {
+        const interpolated = replaceVariables(environment || "$environment");
+        if (interpolated && interpolated !== "$environment") {
+          env = interpolated;
+        }
+      } catch {
+      }
+    }
+    if ((!env || env === "$environment") && data?.series && data.series.length > 0) {
+      for (const frame of data.series) {
+        const field = frame.fields?.find((f) => f.labels && Object.keys(f.labels).length > 0);
+        const labels = frame.labels || field && field.labels || {};
+        if (labels.environment) {
+          env = labels.environment;
+          break;
+        }
+        if (labels.cluster) {
+          env = labels.cluster.toLowerCase().includes("prod") ? "PROD" : "SIT";
+          break;
+        }
+      }
+    }
+    return (env && env !== "$environment" ? env : "PROD").toUpperCase();
+  }, [environment, replaceVariables, data]);
   const mockEndpoints = {
     console: {
       "/healthz": { service: "console", route: "/healthz", status: "PASS", httpCode: 200, latencyMs: 38, freshnessSec: 9, expectedHttp: 200 },
@@ -132,17 +161,31 @@ var ProgressiveReleasePanel = ({
           return fld.values[len - 1];
         };
         const val = getVal(field);
-        const metricName = labels.__name__ || frame.name || "";
-        if (metricName.includes("probe_success") || !metricName) {
-          if (val === 1) {
+        const metricName = labels.__name__ || frame.name || field && field.name || "";
+        const refId = frame.refId;
+        if (refId === "A" || metricName.includes("probe_success") || !metricName) {
+          const numVal = Number(val);
+          if (numVal === 1) {
             liveEndpoints[s][r].status = "PASS";
-          } else if (val === 0) {
+          } else if (numVal === 0) {
             liveEndpoints[s][r].status = "FAIL";
           }
-        } else if (metricName.includes("status_code")) {
-          liveEndpoints[s][r].httpCode = val != null ? val : "\u2014";
-        } else if (metricName.includes("duration")) {
-          liveEndpoints[s][r].latencyMs = val != null ? Math.round(val * 1e3) : "\u2014";
+        } else if (refId === "B" || metricName.includes("status_code")) {
+          liveEndpoints[s][r].httpCode = val != null ? Number(val) : "\u2014";
+        } else if (refId === "C" || metricName.includes("duration")) {
+          const numVal = Number(val);
+          liveEndpoints[s][r].latencyMs = !isNaN(numVal) ? Math.round(numVal * 1e3) : "\u2014";
+        }
+        const timeField = frame.fields?.find((f) => f.type === "time" || f.name === "Time");
+        if (timeField) {
+          const sampleTime = getVal(timeField);
+          if (sampleTime) {
+            const tMs = Number(sampleTime) > 1e11 ? Number(sampleTime) : Number(sampleTime) * 1e3;
+            const ageSec = Math.max(1, Math.round((Date.now() - tMs) / 1e3));
+            if (ageSec < 3600) {
+              liveEndpoints[s][r].freshnessSec = ageSec;
+            }
+          }
         }
       }
       if (!foundAny) {
@@ -186,32 +229,65 @@ var ProgressiveReleasePanel = ({
   const failedCount = (0, import_react.useMemo)(() => {
     return endpointList.filter((e) => e.status !== "PASS").length;
   }, [endpointList]);
-  const flaggerServices = [
-    {
-      service: "Console",
-      subdomain: "console.svc.plus",
-      phase: "Progressing",
-      weight: 20,
-      primaryPercent: 80,
-      candidatePercent: 20
-    },
-    {
-      service: "Accounts",
-      subdomain: "accounts.svc.plus",
-      phase: "Progressing",
-      weight: 10,
-      primaryPercent: 90,
-      candidatePercent: 10
-    },
-    {
-      service: "Billing",
-      subdomain: "billing.svc.plus",
-      phase: "Not configured",
-      weight: null,
-      primaryPercent: 100,
-      candidatePercent: 0
+  const flaggerServices = (0, import_react.useMemo)(() => {
+    if (resolvedEnv === "PROD") {
+      return [
+        {
+          service: "Console",
+          subdomain: "console.svc.plus",
+          phase: "Progressing",
+          weight: 20,
+          primaryPercent: 80,
+          candidatePercent: 20
+        },
+        {
+          service: "Accounts",
+          subdomain: "accounts.svc.plus",
+          phase: "Progressing",
+          weight: 10,
+          primaryPercent: 90,
+          candidatePercent: 10
+        },
+        {
+          service: "Billing",
+          subdomain: "billing.svc.plus",
+          phase: "Not configured",
+          weight: null,
+          primaryPercent: 100,
+          candidatePercent: 0,
+          noCanaryConfigured: true
+        }
+      ];
+    } else {
+      return [
+        {
+          service: "Console",
+          subdomain: "console.svc.plus (sit)",
+          phase: "Progressing",
+          weight: 50,
+          primaryPercent: 50,
+          candidatePercent: 50
+        },
+        {
+          service: "Accounts",
+          subdomain: "accounts.svc.plus (sit)",
+          phase: "Progressing",
+          weight: 30,
+          primaryPercent: 70,
+          candidatePercent: 30
+        },
+        {
+          service: "Billing",
+          subdomain: "billing.svc.plus (sit)",
+          phase: "Not configured",
+          weight: null,
+          primaryPercent: 100,
+          candidatePercent: 0,
+          noCanaryConfigured: true
+        }
+      ];
     }
-  ];
+  }, [resolvedEnv]);
   const renderCellBadge = (item) => {
     if (!item) {
       return /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#4b5563", fontSize: "14px" } }, "\u2014");
@@ -270,20 +346,20 @@ var ProgressiveReleasePanel = ({
         overflowY: "auto"
       }
     },
-    (mode === "all" || mode === "matrix_only") && showKpis && /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: "16px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" } }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "22px", fontWeight: 800, letterSpacing: "-0.3px" } }, "Progressive Release Validation"), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "13px", marginTop: "2px" } }, "Service \xD7 API status matrix for progressive releases (", environment.toUpperCase(), ")")), !parsedData.isLive && /* @__PURE__ */ import_react.default.createElement(
+    (mode === "all" || mode === "matrix_only") && showKpis && /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: "16px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" } }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "22px", fontWeight: 800, letterSpacing: "-0.3px" } }, "Progressive Release Validation"), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "13px", marginTop: "2px" } }, "Service \xD7 API status matrix for progressive releases (", resolvedEnv, ")")), /* @__PURE__ */ import_react.default.createElement(
       "span",
       {
         style: {
-          background: "#1f2937",
-          border: "1px solid #374151",
-          color: "#9ca3af",
+          background: parsedData.isLive ? "#14532d" : "#1f2937",
+          border: `1px solid ${parsedData.isLive ? "#22c55e" : "#374151"}`,
+          color: parsedData.isLive ? "#86efac" : "#9ca3af",
           fontSize: "11px",
-          fontWeight: 600,
+          fontWeight: 700,
           padding: "3px 8px",
           borderRadius: "4px"
         }
       },
-      "PREVIEW MOCK DATA"
+      parsedData.isLive ? `\u25CF LIVE ${resolvedEnv} DATA` : "PREVIEW MOCK DATA"
     )), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1.5fr 1.5fr", gap: "12px" } }, /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
@@ -298,7 +374,7 @@ var ProgressiveReleasePanel = ({
         }
       },
       /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px", fontWeight: 500 } }, "Environment"),
-      /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "22px", fontWeight: 800, letterSpacing: "0.5px", marginTop: "3px" } }, environment.toUpperCase())
+      /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "22px", fontWeight: 800, letterSpacing: "0.5px", marginTop: "3px" } }, resolvedEnv)
     ), /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
@@ -510,20 +586,20 @@ var ProgressiveReleasePanel = ({
           marginBottom: "16px"
         }
       },
-      /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 700 } }, "Top 10 Endpoint Details (Sample Mock Data)"), /* @__PURE__ */ import_react.default.createElement(
+      /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 700 } }, "Top 10 Endpoint Details (", parsedData.isLive ? `Live ${resolvedEnv} Data` : "Sample Mock Data", ")"), /* @__PURE__ */ import_react.default.createElement(
         "span",
         {
           style: {
-            background: "#1e293b",
-            border: "1px solid #374151",
-            color: "#9ca3af",
+            background: parsedData.isLive ? "#14532d" : "#1e293b",
+            border: `1px solid ${parsedData.isLive ? "#22c55e" : "#374151"}`,
+            color: parsedData.isLive ? "#86efac" : "#9ca3af",
             fontSize: "10px",
             fontWeight: 700,
             padding: "2px 6px",
             borderRadius: "3px"
           }
         },
-        "SAMPLE MOCK DATA"
+        parsedData.isLive ? "\u25CF LIVE METRICS" : "SAMPLE MOCK DATA"
       )), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px" } }, "10/10 checks \u2022 ", failedCount, " failed \u2022 Updated: 14:34:02 UTC")),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #232838" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "30px" } }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Endpoint (GET)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Expected HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Observed HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "p95 Latency"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Freshness (age)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Result"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, endpointList.map((ep, idx) => {
         const isConsole = ep.service === "console";
