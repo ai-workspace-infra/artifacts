@@ -32,7 +32,7 @@ async function build() {
   const cjsCode = result.outputFiles[0].text;
 
   // Wrap in AMD define for Grafana SystemJS loader
-  const amdCode = `define(["exports", "react", "react-dom", "@grafana/data"], function (_exports, _react, _reactDom, _grafanaData) {
+  const amdCode = `define(["exports", "react", "react-dom", "@grafana/data", "@grafana/ui", "@grafana/runtime"], function (_exports, _react, _reactDom, _grafanaData, _grafanaUi, _grafanaRuntime) {
   "use strict";
   Object.defineProperty(_exports, "__esModule", { value: true });
 
@@ -41,11 +41,14 @@ async function build() {
     if (name === "react") return _react;
     if (name === "react-dom") return _reactDom;
     if (name === "@grafana/data") return _grafanaData;
+    if (name === "@grafana/ui") return _grafanaUi;
+    if (name === "@grafana/runtime") return _grafanaRuntime;
     throw new Error("Cannot find module " + name);
   }
 
   ${cjsCode}
 
+  Object.assign(_exports, module.exports);
   return _exports;
 });
 `;
