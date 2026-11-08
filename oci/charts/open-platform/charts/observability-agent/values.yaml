@@ -118,3 +118,42 @@ processExporter:
   networkPolicy:
     enabled: true
     podSelector: {}
+
+# Probe and remote-write components are independently selectable and stay off
+# unless an environment's observability-agent HelmRelease enables them.
+blackboxExporter:
+  enabled: false
+  image:
+    repository: quay.io/prometheus/blackbox-exporter
+    tag: v0.25.0
+    digest: sha256:b04a9fef4fa086a02fc7fcd8dcdbc4b7b35cc30cdee860fdc6a19dd8b208d63e
+    pullPolicy: IfNotPresent
+  port: 9115
+  modules: {}
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {cpu: 100m, memory: 128Mi}
+
+vmagent:
+  enabled: false
+  image:
+    repository: victoriametrics/vmagent
+    tag: v1.101.0
+    digest: sha256:a17f68fe4024cb93eec23bc5ba52a5c45f645f18e2dc929b7743a239b4212bcb
+    pullPolicy: IfNotPresent
+  port: 8429
+  scrapeInterval: 30s
+  scrapeTimeout: 10s
+  externalLabels: {}
+  scrapeConfigs: []
+  remoteWrite:
+    url: ""
+    secretName: ""
+    usernameKey: username
+    passwordKey: password
+    tlsServerName: ""
+    maxDiskUsagePerURL: 1Gi
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {cpu: 300m, memory: 256Mi}
+  bufferSizeLimit: 1Gi

@@ -1,0 +1,121 @@
+{{- if .Values.vmagent.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability-agent.vmagent.fullname" . }}
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+data:
+  scrape.yml: |
+    global:
+      scrape_interval: {{ .Values.vmagent.scrapeInterval }}
+      scrape_timeout: {{ .Values.vmagent.scrapeTimeout }}
+      external_labels:
+{{ toYaml .Values.vmagent.externalLabels | indent 8 }}
+    scrape_configs:
+{{ toYaml .Values.vmagent.scrapeConfigs | indent 6 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability-agent.vmagent.fullname" . }}
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "observability-agent.vmagent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability-agent.vmagent.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vmagent
+          image: "{{ .Values.vmagent.image.repository }}:{{ .Values.vmagent.image.tag }}@{{ .Values.vmagent.image.digest }}"
+          imagePullPolicy: {{ .Values.vmagent.image.pullPolicy }}
+          args:
+            - -httpListenAddr=:{{ .Values.vmagent.port }}
+            - -promscrape.config=/etc/vmagent/scrape.yml
+            - -remoteWrite.url={{ .Values.vmagent.remoteWrite.url }}
+            - -remoteWrite.basicAuth.usernameFile=/etc/vmagent/auth/{{ .Values.vmagent.remoteWrite.usernameKey }}
+            - -remoteWrite.basicAuth.passwordFile=/etc/vmagent/auth/{{ .Values.vmagent.remoteWrite.passwordKey }}
+            - -remoteWrite.tmpDataPath=/var/lib/vmagent
+            - -remoteWrite.maxDiskUsagePerURL={{ .Values.vmagent.remoteWrite.maxDiskUsagePerURL }}
+            {{- if .Values.vmagent.remoteWrite.tlsServerName }}
+            - -remoteWrite.tlsServerName={{ .Values.vmagent.remoteWrite.tlsServerName }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.vmagent.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet: {path: /health, port: metrics}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /health, port: metrics}
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.vmagent.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile: {type: RuntimeDefault}
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vmagent
+              readOnly: true
+            - name: auth
+              mountPath: /etc/vmagent/auth
+              readOnly: true
+            - name: buffer
+              mountPath: /var/lib/vmagent
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability-agent.vmagent.fullname" . }}
+        - name: auth
+          secret:
+            secretName: {{ .Values.vmagent.remoteWrite.secretName }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.vmagent.remoteWrite.usernameKey }}
+                path: {{ .Values.vmagent.remoteWrite.usernameKey }}
+              - key: {{ .Values.vmagent.remoteWrite.passwordKey }}
+                path: {{ .Values.vmagent.remoteWrite.passwordKey }}
+        - name: buffer
+          emptyDir:
+            sizeLimit: {{ .Values.vmagent.bufferSizeLimit }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability-agent.vmagent.fullname" . }}
+  labels:
+    {{- include "observability-agent.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "observability-agent.vmagent.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.vmagent.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}
