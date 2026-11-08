@@ -2,6 +2,7 @@ import React, { FC, useMemo, useState, useEffect } from 'react';
 import { PanelProps } from '@grafana/data';
 import { PanelOptions, EndpointStatus, FlaggerServiceStatus, RouteApiStatus } from './types';
 import { RAW_ROUTES_CATALOG } from './routesCatalog';
+import { mergeCatalogWithTelemetry, normalizeLiveInventory, buildTree, evaluateGate, normalizeCanary, DataSource } from './dataModel';
 
 export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => {
   const {
@@ -23,6 +24,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     showDetails = true,
     showFooter = true,
     showRoutesTable = true,
+    telemetryUrl = '',
   } = options;
 
   // Resolve environment label dynamically from dashboard context / data
@@ -81,7 +83,11 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     const fetchTelemetry = async () => {
       try {
         const targetEnv = resolvedEnv.toLowerCase().includes('sit') ? 'SIT' : 'PROD';
-        const url = `https://console.svc.plus/api/operations/progressive-release?environment=${targetEnv}`;
+        const base = replaceVariables ? replaceVariables(telemetryUrl) : telemetryUrl;
+        if (!base || base.startsWith('$')) {
+          return;
+        }
+        const url = `${base}${base.includes('?') ? '&' : '?'}environment=${targetEnv}`;
         const res = await fetch(url, {
           headers: { Accept: 'application/json' },
           mode: 'cors',
@@ -101,6 +107,13 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       }
     };
 
+    if (!telemetryUrl || useMockData) {
+      setLivePayload(null);
+      setLiveFetchStatus('idle');
+      return () => {
+        isMounted = false;
+      };
+    }
     fetchTelemetry();
     timer = setInterval(fetchTelemetry, 15000);
 
@@ -108,7 +121,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       isMounted = false;
       if (timer) clearInterval(timer);
     };
-  }, [resolvedEnv]);
+  }, [resolvedEnv, telemetryUrl, useMockData, replaceVariables]);
 
   // Formatted observation window string (UTC)
   const observationWindowStr = useMemo(() => {
@@ -166,6 +179,17 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     },
   };
 
+  const noDataEndpoints = (): Record<string, Record<string, EndpointStatus>> => {
+    const out: Record<string, Record<string, EndpointStatus>> = {};
+    for (const s of Object.keys(mockEndpoints)) {
+      out[s] = {};
+      for (const r of Object.keys(mockEndpoints[s])) {
+        out[s][r] = { service: s, route: r, status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: undefined, expectedHttp: mockEndpoints[s][r].expectedHttp };
+      }
+    }
+    return out;
+  };
+
   // 2. Extract live Prometheus metrics or live API payload if available
   const parsedData = useMemo(() => {
     try {
@@ -184,16 +208,19 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
               status: ep.result === "PASS" ? "PASS" : ep.result === "FAIL" ? "FAIL" : "NO DATA",
               httpCode: ep.observedHttp != null ? ep.observedHttp : "—",
               latencyMs: ep.p95LatencyMs != null ? ep.p95LatencyMs : "—",
-              freshnessSec: ep.freshnessSec || 8,
+              freshnessSec: ep.freshnessSec ?? undefined,
               expectedHttp: ep.expectedHttp || (ep.endpoint === "/panel/agent" ? 307 : 200),
             };
           }
         }
-        return { isLive: true, endpoints: liveEp };
+        return { isLive: true, source: 'live' as DataSource, latencyLabel: 'p95', endpoints: liveEp };
       }
 
-      if (useMockData || !data?.series || data.series.length === 0) {
-        return { isLive: false, endpoints: mockEndpoints };
+      if (useMockData) {
+        return { isLive: false, source: 'mock' as DataSource, latencyLabel: 'p95', endpoints: mockEndpoints };
+      }
+      if (!data?.series || data.series.length === 0) {
+        return { isLive: false, source: 'catalog' as DataSource, latencyLabel: 'dur', endpoints: noDataEndpoints() };
       }
 
       const liveEndpoints: Record<string, Record<string, EndpointStatus>> = {
@@ -356,22 +383,24 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       }
 
       if (!foundAny) {
-        return { isLive: false, endpoints: mockEndpoints };
+        return { isLive: false, source: 'catalog' as DataSource, latencyLabel: 'dur', endpoints: noDataEndpoints() };
       }
 
-      // Default missing endpoints to mock/healthy
-      for (const s of ['console', 'accounts', 'billing']) {
-        for (const r of Object.keys(mockEndpoints[s])) {
+      // Missing core endpoints are NO DATA, never borrowed from mock/healthy values
+      const empty = noDataEndpoints();
+      for (const s of Object.keys(empty)) {
+        for (const r of Object.keys(empty[s])) {
           if (!liveEndpoints[s][r]) {
-            liveEndpoints[s][r] = { ...mockEndpoints[s][r] };
+            liveEndpoints[s][r] = empty[s][r];
           }
         }
       }
 
-      return { isLive: true, endpoints: liveEndpoints };
+      // probe_duration_seconds is a last-sample gauge, not a p95 quantile
+      return { isLive: true, source: 'prometheus' as DataSource, latencyLabel: 'dur', endpoints: liveEndpoints };
     } catch (err) {
-      console.warn('[ProgressiveReleasePanel] Failed to parse metrics data, using design mock baseline:', err);
-      return { isLive: false, endpoints: mockEndpoints };
+      console.warn('[ProgressiveReleasePanel] Failed to parse metrics data:', err);
+      return { isLive: false, source: 'catalog' as DataSource, latencyLabel: 'dur', endpoints: noDataEndpoints() };
     }
   }, [data, useMockData, livePayload]);
 
@@ -407,52 +436,48 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
 
   // Flagger status data matching environment reality & live Prometheus metrics
   const flaggerServices: FlaggerServiceStatus[] = useMemo(() => {
-    if (!useMockData && livePayload?.flaggerServices && Array.isArray(livePayload.flaggerServices) && livePayload.flaggerServices.length > 0) {
-      return livePayload.flaggerServices.map((fs: any) => {
-        const isNotConfigured = fs.phase === "Not configured" || (fs.weight === null && fs.phase !== 'Succeeded');
-        const candidateTrafficPct = isNotConfigured ? 0 : (fs.candidateTrafficPct ?? fs.weight ?? 0);
-        const primaryTrafficPct = isNotConfigured ? 100 : (fs.primaryTrafficPct ?? (100 - candidateTrafficPct));
+    const services = [
+      { key: 'console', service: 'Console' },
+      { key: 'accounts', service: 'Accounts' },
+      { key: 'billing', service: 'Billing' },
+    ];
+    const toView = (svc: { key: string; service: string }, raw: any, msg?: string): FlaggerServiceStatus => {
+      const v = normalizeCanary(raw);
+      return {
+        service: svc.service,
+        subdomain: (raw && raw.serviceDomain) || `${svc.key}.*`,
+        phase: v.phase,
+        weight: v.weight,
+        primaryPercent: v.primaryPercent,
+        candidatePercent: v.candidatePercent,
+        message:
+          v.phase === 'Not configured'
+            ? (raw && raw.message) || 'No canary configured for this service'
+            : v.phase === 'Unknown'
+            ? msg || 'Canary telemetry missing — status unknown'
+            : undefined,
+      };
+    };
 
-        return {
-          service: fs.service,
-          subdomain: fs.serviceDomain || (fs.service === "Console" ? "console.svc.plus" : fs.service === "Accounts" ? "accounts.svc.plus" : "billing.svc.plus"),
-          phase: isNotConfigured ? "Not configured" : fs.phase,
-          weight: isNotConfigured ? null : (fs.weight ?? candidateTrafficPct),
-          primaryPercent: primaryTrafficPct,
-          candidatePercent: candidateTrafficPct,
-          message: isNotConfigured ? (fs.message || "No canary configured for this service") : undefined,
-        };
+    if (useMockData) {
+      // Design preview only: Billing keeps the documented "Not configured" state
+      const mock: Record<string, any> = {
+        console: { phase: 'Progressing', weight: 20 },
+        accounts: { phase: 'Succeeded', weight: 0 },
+        billing: { phase: 'Not configured' },
+      };
+      return services.map((s) => toView(s, mock[s.key]));
+    }
+
+    if (livePayload?.flaggerServices && Array.isArray(livePayload.flaggerServices) && livePayload.flaggerServices.length > 0) {
+      return services.map((s) => {
+        const raw = livePayload.flaggerServices.find((f: any) => String(f.service || '').toLowerCase() === s.key);
+        return toView(s, raw);
       });
     }
 
-    const baseMap: Record<string, FlaggerServiceStatus> = {
-      console: {
-        service: 'Console',
-        subdomain: resolvedEnv === 'PROD' ? 'console.svc.plus' : 'console.svc.plus (sit)',
-        phase: 'Progressing',
-        weight: 20,
-        primaryPercent: 80,
-        candidatePercent: 20,
-      },
-      accounts: {
-        service: 'Accounts',
-        subdomain: resolvedEnv === 'PROD' ? 'accounts.svc.plus' : 'accounts.svc.plus (sit)',
-        phase: 'Progressing',
-        weight: 10,
-        primaryPercent: 90,
-        candidatePercent: 10,
-      },
-      billing: {
-        service: 'Billing',
-        subdomain: resolvedEnv === 'PROD' ? 'billing.svc.plus' : 'billing.svc.plus (sit)',
-        phase: 'Progressing',
-        weight: 10,
-        primaryPercent: 90,
-        candidatePercent: 10,
-      },
-    };
-
-    // If live metrics for flagger exist in series, update phase and weights
+    // Prometheus: flagger_canary_status / flagger_canary_weight
+    const acc: Record<string, any> = {};
     if (data?.series && data.series.length > 0) {
       for (const frame of data.series) {
         const field = frame.fields?.find(
@@ -461,57 +486,24 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
         const labels: Record<string, string> = frame.labels || (field && (field as any).labels) || {};
         const metricName = labels.__name__ || frame.name || (field && (field as any).name) || '';
         const name = (labels.name || labels.workload || '').toLowerCase();
-
-        let targetKey = '';
-        if (name.includes('console')) targetKey = 'console';
-        else if (name.includes('accounts')) targetKey = 'accounts';
-        else if (name.includes('billing')) targetKey = 'billing';
-
-        if (!targetKey || !baseMap[targetKey]) continue;
-
-        const getVal = (fld: any) => {
-          if (!fld || !fld.values) return null;
-          const len = typeof fld.values.length === 'number' ? fld.values.length : 0;
-          if (len === 0) return null;
-          if (typeof fld.values.get === 'function') return fld.values.get(len - 1);
-          return fld.values[len - 1];
-        };
-
-        const val = getVal(field);
+        const target = services.find((s) => name.includes(s.key));
+        if (!target || name.includes('primary')) continue;
+        const vals: any = field && field.values;
+        const len = vals ? (typeof vals.length === 'number' ? vals.length : 0) : 0;
+        if (!len) continue;
+        const val = Number(typeof vals.get === 'function' ? vals.get(len - 1) : vals[len - 1]);
+        if (isNaN(val)) continue;
+        acc[target.key] = acc[target.key] || {};
         if (metricName.includes('flagger_canary_status')) {
-          const num = Number(val);
-          if (num === 0) {
-            baseMap[targetKey].phase = 'Progressing';
-            baseMap[targetKey].weight = baseMap[targetKey].weight ?? 10;
-            baseMap[targetKey].message = undefined;
-          } else if (num === 1) {
-            baseMap[targetKey].phase = 'Succeeded';
-            baseMap[targetKey].candidatePercent = 0;
-            baseMap[targetKey].primaryPercent = 100;
-            baseMap[targetKey].weight = 0;
-            baseMap[targetKey].message = undefined;
-          } else if (num === 2) {
-            baseMap[targetKey].phase = 'Failed';
-            baseMap[targetKey].weight = 0;
-            baseMap[targetKey].message = undefined;
-          }
+          // exporter mapping (verify against deployed Flagger version): 0 progressing, 1 succeeded, 2 failed
+          acc[target.key].phase = val === 0 ? 'Progressing' : val === 1 ? 'Succeeded' : val === 2 ? 'Failed' : 'Unknown';
         } else if (metricName.includes('flagger_canary_weight')) {
-          if (!name.includes('primary')) {
-            const w = Math.max(0, Math.min(100, Number(val)));
-            if (!isNaN(w) && w > 0) {
-              baseMap[targetKey].weight = w;
-              baseMap[targetKey].candidatePercent = w;
-              baseMap[targetKey].primaryPercent = 100 - w;
-              baseMap[targetKey].phase = 'Progressing';
-              baseMap[targetKey].message = undefined;
-            }
-          }
+          acc[target.key].weight = Math.max(0, Math.min(100, val));
         }
       }
     }
-
-    return [baseMap.console, baseMap.accounts, baseMap.billing];
-  }, [resolvedEnv, data, livePayload, useMockData]);
+    return services.map((s) => toView(s, acc[s.key]));
+  }, [data, livePayload, useMockData]);
 
   // Collapsible Full Routes & APIs Table State
   const [isRoutesCollapsed, setIsRoutesCollapsed] = useState(false);
@@ -519,84 +511,28 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
   const [routesSearchQuery, setRoutesSearchQuery] = useState('');
 
   // Assemble full items for Web Console Frontend Routes & Backend Microservice APIs
-  const fullRoutesAndApis: RouteApiStatus[] = useMemo(() => {
+  const fullRoutesAndApis = useMemo(() => {
     if (!useMockData && livePayload?.allRoutesAndApis && Array.isArray(livePayload.allRoutesAndApis) && livePayload.allRoutesAndApis.length > 0) {
-      return livePayload.allRoutesAndApis.map((item: any) => ({
-        id: item.id,
-        order: item.order,
-        type: item.type,
-        categoryKey: item.categoryKey,
-        categoryName: item.categoryName,
-        categoryEnName: item.categoryEnName,
-        service: item.service,
-        serviceDomain: item.serviceDomain,
-        path: item.path,
-        description: item.description,
-        method: item.method,
-        expectedHttp: item.expectedHttp,
-        observedHttp: item.observedHttp,
-        latencyMs: item.latencyMs,
-        freshnessSec: item.freshnessSec,
-        status: item.result === "PASS" ? "PASS" : "FAIL",
-      }));
+      return normalizeLiveInventory(livePayload.allRoutesAndApis);
     }
-
-    return RAW_ROUTES_CATALOG.map((item) => {
-      const svc = item.service.toLowerCase();
-      const epData = (endpoints as any)?.[svc]?.[item.path];
-
-      let observedHttp = item.expectedHttp;
-      let latencyMs: number | string = resolvedEnv.includes('PROD')
-        ? Math.max(10, Math.round(item.latencyMs * 0.85))
-        : item.latencyMs;
-      let freshnessSec = 8;
-      let status: 'PASS' | 'FAIL' = 'PASS';
-
-      if (epData) {
-        if (epData.httpCode !== '—' && epData.httpCode !== null && epData.httpCode !== undefined) {
-          observedHttp = Number(epData.httpCode);
-        }
-        if (epData.latencyMs !== '—' && epData.latencyMs !== null && epData.latencyMs !== undefined) {
-          latencyMs = epData.latencyMs;
-        }
-        if (epData.freshnessSec) {
-          freshnessSec = epData.freshnessSec;
-        }
-        if (epData.status === 'FAIL') {
-          status = 'FAIL';
-        }
-      }
-
-      return {
-        id: item.id,
-        order: item.order,
-        type: item.type,
-        categoryKey: item.categoryKey,
-        categoryName: item.categoryName,
-        categoryEnName: item.categoryEnName,
-        service: item.service,
-        serviceDomain: item.serviceDomain,
-        path: item.path,
-        description: item.description,
-        method: item.method,
-        expectedHttp: item.expectedHttp,
-        observedHttp,
-        latencyMs,
-        freshnessSec,
-        status,
-      };
-    });
-  }, [endpoints, resolvedEnv, livePayload, useMockData]);
+    const src: DataSource = parsedData.source;
+    return mergeCatalogWithTelemetry(
+      RAW_ROUTES_CATALOG,
+      (service, path) => (endpoints as any)?.[service.toLowerCase()]?.[path],
+      src
+    );
+  }, [endpoints, livePayload, useMockData, parsedData.source]);
 
   interface TreeCategory {
     key: string;
     name: string;
     enName: string;
     type: 'frontend' | 'api';
-    items: RouteApiStatus[];
+    items: any[];
     totalCount: number;
     passCount: number;
     failCount: number;
+    noDataCount: number;
   }
 
   interface TreeRoot {
@@ -607,6 +543,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     totalCount: number;
     passCount: number;
     failCount: number;
+    noDataCount: number;
   }
 
   const [expandedRoots, setExpandedRoots] = useState<Record<string, boolean>>({
@@ -624,85 +561,26 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
   };
 
   const treeData = useMemo<TreeRoot[]>(() => {
-    const list = fullRoutesAndApis;
-
-    const filterItem = (item: RouteApiStatus) => {
-      if (routesFilter === 'frontend' && item.type !== 'frontend') return false;
-      if (routesFilter === 'api' && item.type !== 'api') return false;
-      if (routesSearchQuery.trim()) {
-        const q = routesSearchQuery.toLowerCase().trim();
-        return (
-          item.path.toLowerCase().includes(q) ||
-          item.description.toLowerCase().includes(q) ||
-          item.service.toLowerCase().includes(q) ||
-          item.serviceDomain.toLowerCase().includes(q) ||
-          ((item.categoryName || '').toLowerCase().includes(q)) ||
-          ((item.categoryEnName || '').toLowerCase().includes(q)) ||
-          ((item.method || '').toLowerCase().includes(q))
-        );
-      }
-      return true;
-    };
-
-    const feItems = list.filter((i) => i.type === 'frontend' && filterItem(i));
-    const beItems = list.filter((i) => i.type === 'api' && filterItem(i));
-
-    const groupByCategory = (items: RouteApiStatus[], rootType: 'frontend' | 'api'): TreeCategory[] => {
-      const map = new Map<string, { key: string; name: string; enName: string; items: RouteApiStatus[] }>();
-      for (const item of items) {
-        const key = item.categoryKey || (rootType === 'frontend' ? 'fe-other' : 'be-other');
-        const name = item.categoryName || key;
-        const enName = item.categoryEnName || key;
-        if (!map.has(key)) {
-          map.set(key, { key, name, enName, items: [] });
-        }
-        map.get(key)!.items.push(item);
-      }
-
-      const groups: TreeCategory[] = [];
-      map.forEach((entry) => {
-        const passCount = entry.items.filter((i) => i.status === 'PASS').length;
-        const failCount = entry.items.filter((i) => i.status === 'FAIL').length;
-        groups.push({
-          key: entry.key,
-          name: entry.name,
-          enName: entry.enName,
-          type: rootType,
-          items: entry.items,
-          totalCount: entry.items.length,
-          passCount,
-          failCount,
-        });
-      });
-      return groups;
-    };
-
-    const roots: TreeRoot[] = [];
-    if (routesFilter === 'all' || routesFilter === 'frontend') {
-      roots.push({
-        type: 'frontend',
-        title: '前端页面路由 (Frontend Pages & Routes)',
-        enTitle: 'Frontend Web Console Pages',
-        categories: groupByCategory(feItems, 'frontend'),
-        totalCount: feItems.length,
-        passCount: feItems.filter((i) => i.status === 'PASS').length,
-        failCount: feItems.filter((i) => i.status === 'FAIL').length,
-      });
-    }
-
-    if (routesFilter === 'all' || routesFilter === 'api') {
-      roots.push({
-        type: 'api',
-        title: '后端服务与微服务 API (Backend Services & APIs)',
-        enTitle: 'Backend Microservices & Gateway Endpoints',
-        categories: groupByCategory(beItems, 'api'),
-        totalCount: beItems.length,
-        passCount: beItems.filter((i) => i.status === 'PASS').length,
-        failCount: beItems.filter((i) => i.status === 'FAIL').length,
-      });
-    }
-
-    return roots;
+    return buildTree(fullRoutesAndApis, routesFilter, routesSearchQuery).map((r) => ({
+      type: r.type,
+      title: r.type === 'frontend' ? '前端页面路由 (Frontend Pages & Routes)' : '后端服务与微服务 API (Backend Services & APIs)',
+      enTitle: r.type === 'frontend' ? 'Frontend Pages & Portal Routes' : 'Backend Microservices & Gateway Endpoints',
+      categories: r.categories.map((c) => ({
+        key: c.key,
+        name: c.name,
+        enName: c.enName,
+        type: c.type,
+        items: c.items as any,
+        totalCount: c.counts.total,
+        passCount: c.counts.pass,
+        failCount: c.counts.fail,
+        noDataCount: c.counts.noData + c.counts.notProbed,
+      })),
+      totalCount: r.counts.total,
+      passCount: r.counts.pass,
+      failCount: r.counts.fail,
+      noDataCount: r.counts.noData + r.counts.notProbed,
+    }));
   }, [fullRoutesAndApis, routesFilter, routesSearchQuery]);
 
   const handleExpandAll = () => {
@@ -732,28 +610,28 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     if (!useMockData && livePayload?.candidateSample?.requestsCount != null) {
       return {
         countStr: `${Number(livePayload.candidateSample.requestsCount).toLocaleString()} requests`,
-        summary: livePayload.candidateSample.summary || '(sufficient, ≥ 10,000)',
+        summary: livePayload.candidateSample.summary || 'threshold not reported',
       };
     }
-    return {
-      countStr: resolvedEnv === 'PROD' ? '34,862 requests' : '12,450 requests',
-      summary: '(sufficient, ≥ 10,000)',
-    };
-  }, [livePayload, resolvedEnv, useMockData]);
+    // No real request counter available: never derive samples from probe_success gauges
+    return { countStr: 'NO DATA', summary: useMockData ? '(preview — no sample counter)' : '(no request counter wired)' };
+  }, [livePayload, useMockData]);
 
   const gateInfo = useMemo(() => {
-    if (!useMockData && livePayload?.gateStatus) {
+    if (!useMockData && livePayload?.gateStatus && parsedData.source === 'live') {
+      const st = String(livePayload.gateStatus.status || '').toUpperCase();
       return {
-        isBlocked: livePayload.gateStatus.status === 'BLOCKED',
-        summary: livePayload.gateStatus.summary || (failedCount > 0 ? `${failedCount} / 10 checks failed` : '10 / 10 checks passed'),
+        state: st === 'BLOCKED' ? 'BLOCKED' : st === 'ALLOWED' ? 'ALLOWED' : 'UNKNOWN',
+        isBlocked: st !== 'ALLOWED',
+        summary: livePayload.gateStatus.summary || st,
       };
     }
-    return {
-      isBlocked: failedCount > 0,
-      summary: failedCount > 0 ? `${failedCount} / 10 checks failed` : '10 / 10 checks passed',
-    };
-  }, [livePayload, failedCount, useMockData]);
+    const g = evaluateGate(endpointList, parsedData.source, 10);
+    return { state: g.state, isBlocked: g.state !== 'ALLOWED', summary: g.summary };
+  }, [livePayload, endpointList, useMockData, parsedData.source]);
 
+  const frontendCatCount = useMemo(() => new Set(fullRoutesAndApis.filter((i) => i.type === 'frontend').map((i) => i.categoryKey)).size, [fullRoutesAndApis]);
+  const backendCatCount = useMemo(() => new Set(fullRoutesAndApis.filter((i) => i.type === 'api').map((i) => i.categoryKey)).size, [fullRoutesAndApis]);
   const feCount = useMemo(() => fullRoutesAndApis.filter((i) => i.type === 'frontend').length, [fullRoutesAndApis]);
   const beCount = useMemo(() => fullRoutesAndApis.filter((i) => i.type === 'api').length, [fullRoutesAndApis]);
 
@@ -803,7 +681,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
           {item.httpCode}
         </div>
         <div style={{ color: latColor, fontSize: '10px', opacity: 0.9 }}>
-          {item.latencyMs !== '—' ? `p95 ${item.latencyMs} ms` : 'p95 —'}
+          {`${parsedData.latencyLabel} ${item.latencyMs !== '—' && item.latencyMs != null ? `${item.latencyMs} ms` : '—'}`}
         </div>
       </div>
     );
@@ -847,7 +725,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                 borderRadius: '4px',
               }}
             >
-              {parsedData.isLive ? `● LIVE ${resolvedEnv} DATA` : 'PREVIEW MOCK DATA'}
+              {parsedData.source === 'mock' ? 'PREVIEW MOCK DATA' : parsedData.isLive ? `● LIVE ${resolvedEnv} DATA` : 'NO TELEMETRY'}
             </span>
           </div>
 
@@ -928,7 +806,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                   color: gateInfo.isBlocked ? '#ef4444' : '#22c55e',
                 }}
               >
-                {gateInfo.isBlocked ? '✕' : '✓'}
+                {gateInfo.state === 'ALLOWED' ? '✓' : gateInfo.state === 'BLOCKED' ? '✕' : '?'}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ color: '#8b949e', fontSize: '12px', fontWeight: 500 }}>Release gate (overall)</div>
@@ -944,7 +822,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                       letterSpacing: '0.5px',
                     }}
                   >
-                    {gateInfo.isBlocked ? 'BLOCKED' : 'PASSED'}
+                    {gateInfo.state}
                   </span>
                   <span style={{ color: '#d1d5db', fontSize: '13px', fontWeight: 500 }}>
                     {gateInfo.summary}
@@ -1238,7 +1116,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ color: '#ffffff', fontSize: '15px', fontWeight: 700 }}>
-                Top 10 Endpoint Details ({parsedData.isLive ? `Live ${resolvedEnv} Data` : 'Sample Mock Data'})
+                Top 10 Endpoint Details ({parsedData.source === 'mock' ? 'Sample Mock Data' : parsedData.isLive ? `Live ${resolvedEnv} Data` : 'No telemetry'})
               </span>
               <span
                 style={{
@@ -1251,7 +1129,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                   borderRadius: '3px',
                 }}
               >
-                {parsedData.isLive ? '● LIVE METRICS' : 'SAMPLE MOCK DATA'}
+                {parsedData.source === 'mock' ? 'SAMPLE MOCK DATA' : parsedData.isLive ? '● LIVE METRICS' : 'NO TELEMETRY'}
               </span>
             </div>
             <div style={{ color: '#8b949e', fontSize: '12px' }}>
@@ -1268,7 +1146,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                   <th style={{ padding: '8px 10px', color: '#8b949e', fontSize: '12px', fontWeight: 600 }}>Endpoint (GET)</th>
                   <th style={{ padding: '8px 10px', color: '#8b949e', fontSize: '12px', fontWeight: 600 }}>Expected HTTP</th>
                   <th style={{ padding: '8px 10px', color: '#8b949e', fontSize: '12px', fontWeight: 600 }}>Observed HTTP</th>
-                  <th style={{ padding: '8px 10px', color: '#8b949e', fontSize: '12px', fontWeight: 600 }}>p95 Latency</th>
+                  <th style={{ padding: '8px 10px', color: '#8b949e', fontSize: '12px', fontWeight: 600 }}>{parsedData.latencyLabel === 'p95' ? 'p95 Latency' : 'Duration (last sample)'}</th>
                   <th style={{ padding: '8px 10px', color: '#8b949e', fontSize: '12px', fontWeight: 600 }}>Freshness (age)</th>
                   <th style={{ padding: '8px 10px', color: '#8b949e', fontSize: '12px', fontWeight: 600 }}>Result</th>
                 </tr>
@@ -1451,7 +1329,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                 }}
               >
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: (liveFetchStatus === 'success' || parsedData.isLive) ? '#22c55e' : '#3b82f6' }}></span>
-                {(liveFetchStatus === 'success' || parsedData.isLive) ? 'Live Telemetry Dynamic' : 'Catalog Synchronized'}
+                {liveFetchStatus === 'success' ? 'Live Inventory (BFF)' : parsedData.isLive ? 'Catalog + Prometheus' : parsedData.source === 'mock' ? 'Catalog + Mock Preview' : 'Catalog only · NO DATA'}
               </span>
               <span
                 style={{
@@ -1464,7 +1342,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                   fontWeight: 600,
                 }}
               >
-                🌐 {feCount} 前端路由 (7 大类)
+                🌐 {feCount} 前端路由 ({frontendCatCount} 大类)
               </span>
               <span
                 style={{
@@ -1477,7 +1355,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                   fontWeight: 600,
                 }}
               >
-                ⚙ {beCount} 后端接口 (8 大类)
+                ⚙ {beCount} 后端接口 ({backendCatCount} 大类)
               </span>
               <span
                 style={{
@@ -1707,7 +1585,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                               fontWeight: 600,
                             }}
                           >
-                            {root.passCount}/{root.totalCount} PASS
+                            {root.passCount}/{root.totalCount} PASS{root.noDataCount ? ` · ${root.noDataCount} NO DATA` : ''}
                           </span>
                         </div>
                       </div>
@@ -1771,7 +1649,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                                         fontWeight: 600,
                                       }}
                                     >
-                                      {cat.passCount}/{cat.totalCount} PASS
+                                      {cat.passCount}/{cat.totalCount} PASS{cat.noDataCount ? ` · ${cat.noDataCount} NO DATA` : ''}
                                     </span>
                                   </div>
                                 </div>
@@ -1813,7 +1691,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                                       </thead>
                                       <tbody>
                                         {cat.items.map((item, idx) => {
-                                          const isPass = item.status === 'PASS';
+                                          const isPass = item.result === 'PASS';
                                           const m = (item.method || 'GET').split(',')[0].trim().toUpperCase();
                                           const methodColor = m === 'GET' ? '#38bdf8' : m === 'POST' ? '#4ade80' : m === 'PUT' ? '#fbbf24' : '#f87171';
                                           const methodBg = m === 'GET' ? 'rgba(56, 189, 248, 0.15)' : m === 'POST' ? 'rgba(74, 222, 128, 0.15)' : m === 'PUT' ? 'rgba(251, 191, 36, 0.15)' : 'rgba(248, 113, 113, 0.15)';
@@ -1858,12 +1736,12 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                                                 {item.description}
                                               </td>
                                               <td style={{ padding: '6px 8px', color: '#94a3b8', fontSize: '11px', fontFamily: 'monospace' }}>
-                                                {item.expectedHttp}
+                                                {item.expectedHttp ?? '—'}
                                               </td>
                                               <td style={{ padding: '6px 8px' }}>
                                                 <span
                                                   style={{
-                                                    background: item.observedHttp === item.expectedHttp ? '#15803d' : '#b91c1c',
+                                                    background: item.observedHttp == null ? '#374151' : item.observedHttp === item.expectedHttp ? '#15803d' : '#b91c1c',
                                                     color: '#ffffff',
                                                     fontSize: '10px',
                                                     fontWeight: 700,
@@ -1872,24 +1750,27 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                                                     fontFamily: 'monospace',
                                                   }}
                                                 >
-                                                  {item.observedHttp}
+                                                  {item.observedHttp ?? '—'}
                                                 </span>
                                               </td>
                                               <td style={{ padding: '6px 8px', color: '#cbd5e1', fontSize: '10px', fontFamily: 'monospace' }}>
-                                                {item.latencyMs} ms
+                                                {item.latencyMs != null ? `${item.latencyMs} ms` : '—'}
                                                 <span style={{ display: 'block', color: '#64748b', fontSize: '9px' }}>
-                                                  {item.freshnessSec || 8}s ago
+                                                  {item.freshnessSec != null ? `${item.freshnessSec}s ago` : item.source}
                                                 </span>
                                               </td>
                                               <td style={{ padding: '6px 8px' }}>
                                                 <span
                                                   style={{
-                                                    color: isPass ? '#22c55e' : '#ef4444',
+                                                    color: isPass ? '#22c55e' : item.result === 'FAIL' ? '#ef4444' : '#9ca3af',
                                                     fontSize: '10px',
                                                     fontWeight: 700,
                                                   }}
                                                 >
-                                                  {isPass ? '✔ PASS' : '✖ FAIL'}
+                                                  {isPass ? '✔ PASS' : item.result === 'FAIL' ? '✖ FAIL' : item.result}
+                                                </span>
+                                                <span title={item.probeNote || ''} style={{ display: 'block', color: '#64748b', fontSize: '9px' }}>
+                                                  {item.probeNote || (item.source === 'mock' ? 'mock' : '')}
                                                 </span>
                                               </td>
                                             </tr>

@@ -8,6 +8,8 @@ export interface PanelOptions {
   showDetails: boolean;
   showFooter: boolean;
   showRoutesTable?: boolean;
+  /** Optional console BFF inventory endpoint, e.g. https://console.example.com/api/operations/progressive-release. Empty = catalog + Prometheus only. */
+  telemetryUrl?: string;
 }
 
 export interface EndpointStatus {
@@ -23,10 +25,10 @@ export interface EndpointStatus {
 export interface FlaggerServiceStatus {
   service: string;
   subdomain: string;
-  phase: 'Progressing' | 'Succeeded' | 'Failed' | 'Not configured';
+  phase: 'Progressing' | 'Succeeded' | 'Failed' | 'Not configured' | 'Unknown';
   weight: number | null;
-  primaryPercent: number;
-  candidatePercent: number;
+  primaryPercent: number | null;
+  candidatePercent: number | null;
   message?: string;
 }
 

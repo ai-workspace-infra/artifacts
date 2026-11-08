@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "Progressive Release Validation Matrix and Endpoints Panel for Grafana",
   "scripts": {
-    "build": "node build.js"
+    "build": "node build.js",
+    "test": "node test/dataModel.test.js"
   },
   "author": "AI Workspace Team",
   "license": "Apache-2.0",
