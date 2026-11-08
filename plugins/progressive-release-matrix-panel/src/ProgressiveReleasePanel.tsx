@@ -409,8 +409,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
   const flaggerServices: FlaggerServiceStatus[] = useMemo(() => {
     if (!useMockData && livePayload?.flaggerServices && Array.isArray(livePayload.flaggerServices) && livePayload.flaggerServices.length > 0) {
       return livePayload.flaggerServices.map((fs: any) => {
-        const isBilling = fs.service === "Billing";
-        const isNotConfigured = fs.phase === "Not configured" || fs.weight === null || isBilling;
+        const isNotConfigured = fs.phase === "Not configured" || (fs.weight === null && fs.phase !== 'Succeeded');
         const candidateTrafficPct = isNotConfigured ? 0 : (fs.candidateTrafficPct ?? fs.weight ?? 0);
         const primaryTrafficPct = isNotConfigured ? 100 : (fs.primaryTrafficPct ?? (100 - candidateTrafficPct));
 
@@ -446,11 +445,10 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       billing: {
         service: 'Billing',
         subdomain: resolvedEnv === 'PROD' ? 'billing.svc.plus' : 'billing.svc.plus (sit)',
-        phase: 'Not configured',
-        weight: null,
-        primaryPercent: 100,
-        candidatePercent: 0,
-        message: 'No canary configured for this service',
+        phase: 'Progressing',
+        weight: 10,
+        primaryPercent: 90,
+        candidatePercent: 10,
       },
     };
 
@@ -484,13 +482,18 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
           const num = Number(val);
           if (num === 0) {
             baseMap[targetKey].phase = 'Progressing';
+            baseMap[targetKey].weight = baseMap[targetKey].weight ?? 10;
+            baseMap[targetKey].message = undefined;
           } else if (num === 1) {
             baseMap[targetKey].phase = 'Succeeded';
             baseMap[targetKey].candidatePercent = 0;
             baseMap[targetKey].primaryPercent = 100;
             baseMap[targetKey].weight = 0;
+            baseMap[targetKey].message = undefined;
           } else if (num === 2) {
             baseMap[targetKey].phase = 'Failed';
+            baseMap[targetKey].weight = 0;
+            baseMap[targetKey].message = undefined;
           }
         } else if (metricName.includes('flagger_canary_weight')) {
           if (!name.includes('primary')) {
@@ -500,6 +503,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
               baseMap[targetKey].candidatePercent = w;
               baseMap[targetKey].primaryPercent = 100 - w;
               baseMap[targetKey].phase = 'Progressing';
+              baseMap[targetKey].message = undefined;
             }
           }
         }
