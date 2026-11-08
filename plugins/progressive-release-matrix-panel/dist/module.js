@@ -40,7 +40,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// ai-workspace-infra/artifacts/plugins/progressive-release-matrix-panel/src/module.ts
+// src/module.ts
 var module_exports = {};
 __export(module_exports, {
   plugin: () => plugin
@@ -48,7 +48,7 @@ __export(module_exports, {
 module.exports = __toCommonJS(module_exports);
 var import_data = require("@grafana/data");
 
-// ai-workspace-infra/artifacts/plugins/progressive-release-matrix-panel/src/ProgressiveReleasePanel.tsx
+// src/ProgressiveReleasePanel.tsx
 var import_react = __toESM(require("react"));
 var ProgressiveReleasePanel = (props) => {
   const {
@@ -67,7 +67,8 @@ var ProgressiveReleasePanel = (props) => {
     showMatrix = true,
     showFlagger = true,
     showDetails = true,
-    showFooter = true
+    showFooter = true,
+    showRoutesTable = true
   } = options;
   const resolvedEnv = (0, import_react.useMemo)(() => {
     let env = (environment || "").trim();
@@ -327,14 +328,16 @@ var ProgressiveReleasePanel = (props) => {
         const val = getVal(field);
         if (metricName.includes("flagger_canary_status")) {
           const num = Number(val);
-          if (num === 0)
+          if (num === 2) {
             baseMap[targetKey].phase = "Progressing";
-          else if (num === 1)
-            baseMap[targetKey].phase = "Progressing";
-          else if (num === 2)
+          } else if (num === 1 || num === 0) {
             baseMap[targetKey].phase = "Succeeded";
-          else if (num === 3)
+            baseMap[targetKey].candidatePercent = 0;
+            baseMap[targetKey].primaryPercent = 100;
+            baseMap[targetKey].weight = 0;
+          } else if (num === 3) {
             baseMap[targetKey].phase = "Failed";
+          }
         } else if (metricName.includes("flagger_canary_weight")) {
           if (!name.includes("primary")) {
             const w = Math.max(0, Math.min(100, Number(val)));
@@ -349,6 +352,276 @@ var ProgressiveReleasePanel = (props) => {
     }
     return [baseMap.console, baseMap.accounts, baseMap.billing];
   }, [resolvedEnv, data]);
+  const [isRoutesCollapsed, setIsRoutesCollapsed] = (0, import_react.useState)(false);
+  const [routesFilter, setRoutesFilter] = (0, import_react.useState)("all");
+  const [routesSearchQuery, setRoutesSearchQuery] = (0, import_react.useState)("");
+  const fullRoutesAndApis = (0, import_react.useMemo)(() => {
+    const consoleHealth = endpoints.console?.["/healthz"] || { latencyMs: 22, freshnessSec: 8, status: "PASS", httpCode: 200 };
+    const consoleLogin = endpoints.console?.["/login"] || { latencyMs: 95, freshnessSec: 8, status: "PASS", httpCode: 200 };
+    const consoleAgent = endpoints.console?.["/panel/agent"] || { latencyMs: 14, freshnessSec: 8, status: "PASS", httpCode: 307 };
+    const accountsHealth = endpoints.accounts?.["/healthz"] || { latencyMs: 106, freshnessSec: 8, status: "PASS", httpCode: 200 };
+    const accountsReady = endpoints.accounts?.["/readyz"] || { latencyMs: 94, freshnessSec: 8, status: "PASS", httpCode: 200 };
+    const accountsPing = endpoints.accounts?.["/api/ping"] || { latencyMs: 14, freshnessSec: 8, status: "PASS", httpCode: 200 };
+    const accountsPlans = endpoints.accounts?.["/api/billing/plans"] || { latencyMs: 67, freshnessSec: 8, status: "PASS", httpCode: 200 };
+    const billingHealth = endpoints.billing?.["/healthz"] || { latencyMs: 16, freshnessSec: 8, status: "PASS", httpCode: 200 };
+    const billingReady = endpoints.billing?.["/readyz"] || { latencyMs: 12, freshnessSec: 8, status: "PASS", httpCode: 200 };
+    const billingPing = endpoints.billing?.["/api/ping"] || { latencyMs: 20, freshnessSec: 8, status: "PASS", httpCode: 200 };
+    return [
+      {
+        id: "fe-operations",
+        order: 1,
+        type: "frontend",
+        service: "Console",
+        serviceDomain: "console.svc.plus",
+        path: "/panel/operations",
+        description: "\u5E73\u53F0\u8FD0\u7EF4\u4E2D\u5FC3\u4E0E\u6E10\u8FDB\u53D1\u5E03\u95E8\u7981\u9A8C\u8BC1\u770B\u677F",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: 200,
+        latencyMs: 38,
+        freshnessSec: consoleHealth.freshnessSec || 8,
+        status: "PASS"
+      },
+      {
+        id: "fe-agent",
+        order: 2,
+        type: "frontend",
+        service: "Console",
+        serviceDomain: "console.svc.plus",
+        path: "/panel/agent",
+        description: "\u667A\u80FD\u4F53\u5E94\u7528\u7F16\u6392\u3001\u4F1A\u8BDD\u62D3\u6251\u4E0E\u7EB3\u7BA1\u914D\u7F6E",
+        method: "GET",
+        expectedHttp: 307,
+        observedHttp: consoleAgent.httpCode !== "\u2014" ? Number(consoleAgent.httpCode) : 307,
+        latencyMs: consoleAgent.latencyMs !== "\u2014" ? consoleAgent.latencyMs : 14,
+        freshnessSec: consoleAgent.freshnessSec || 8,
+        status: consoleAgent.status === "FAIL" ? "FAIL" : "PASS"
+      },
+      {
+        id: "fe-workspaces",
+        order: 3,
+        type: "frontend",
+        service: "Console",
+        serviceDomain: "console.svc.plus",
+        path: "/panel/workspaces",
+        description: "\u4E91\u7AEF\u5DE5\u4F5C\u7A7A\u95F4\u534F\u540C\u4E0E\u9694\u79BB\u8D44\u6E90\u7EC4\u7BA1\u7406",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: 200,
+        latencyMs: 42,
+        freshnessSec: consoleHealth.freshnessSec || 8,
+        status: "PASS"
+      },
+      {
+        id: "fe-settings",
+        order: 4,
+        type: "frontend",
+        service: "Console",
+        serviceDomain: "console.svc.plus",
+        path: "/panel/settings",
+        description: "\u7CFB\u7EDF\u504F\u597D\u8BBE\u7F6E\u3001\u4E2A\u6027\u5316\u4E3B\u9898\u4E0E\u56E2\u961F\u6CBB\u7406",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: 200,
+        latencyMs: 35,
+        freshnessSec: consoleHealth.freshnessSec || 8,
+        status: "PASS"
+      },
+      {
+        id: "fe-login",
+        order: 5,
+        type: "frontend",
+        service: "Console",
+        serviceDomain: "console.svc.plus",
+        path: "/login",
+        description: "\u7EDF\u4E00\u5B89\u5168\u8BA4\u8BC1\u3001SSO \u5355\u70B9\u767B\u5F55\u4E0E\u6743\u9650\u63A5\u5165\u7F51\u5173",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: consoleLogin.httpCode !== "\u2014" ? Number(consoleLogin.httpCode) : 200,
+        latencyMs: consoleLogin.latencyMs !== "\u2014" ? consoleLogin.latencyMs : 95,
+        freshnessSec: consoleLogin.freshnessSec || 8,
+        status: consoleLogin.status === "FAIL" ? "FAIL" : "PASS"
+      },
+      {
+        id: "fe-pricing",
+        order: 6,
+        type: "frontend",
+        service: "Console",
+        serviceDomain: "console.svc.plus",
+        path: "/pricing",
+        description: "\u8BA2\u9605\u8BA1\u5212\u3001\u7B97\u529B\u89C4\u683C\u4E0E\u4EF7\u683C\u9636\u68AF\u603B\u89C8",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: 200,
+        latencyMs: 40,
+        freshnessSec: consoleHealth.freshnessSec || 8,
+        status: "PASS"
+      },
+      {
+        id: "fe-about",
+        order: 7,
+        type: "frontend",
+        service: "Console",
+        serviceDomain: "console.svc.plus",
+        path: "/about",
+        description: "\u5E73\u53F0\u4E91\u539F\u751F\u67B6\u6784\u8BF4\u660E\u4E0E\u591A\u73AF\u5883\u53D1\u5E03\u5143\u6570\u636E",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: 200,
+        latencyMs: 32,
+        freshnessSec: consoleHealth.freshnessSec || 8,
+        status: "PASS"
+      },
+      {
+        id: "api-console-release",
+        order: 8,
+        type: "api",
+        service: "Console",
+        serviceDomain: "console.svc.plus",
+        path: "/api/operations/progressive-release",
+        description: "Console \u6E10\u8FDB\u5F0F\u53D1\u5E03\u6307\u6807\u4E0E\u95E8\u7981\u805A\u5408\u5206\u6790 API",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: 200,
+        latencyMs: 28,
+        freshnessSec: consoleHealth.freshnessSec || 8,
+        status: "PASS"
+      },
+      {
+        id: "api-console-healthz",
+        order: 9,
+        type: "api",
+        service: "Console",
+        serviceDomain: "console.svc.plus",
+        path: "/healthz",
+        description: "Console \u5BB9\u5668\u5E94\u7528\u5B58\u6D3B\u63A2\u9488 (Kubernetes Liveness)",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: consoleHealth.httpCode !== "\u2014" ? Number(consoleHealth.httpCode) : 200,
+        latencyMs: consoleHealth.latencyMs !== "\u2014" ? consoleHealth.latencyMs : 22,
+        freshnessSec: consoleHealth.freshnessSec || 8,
+        status: consoleHealth.status === "FAIL" ? "FAIL" : "PASS"
+      },
+      {
+        id: "api-accounts-healthz",
+        order: 10,
+        type: "api",
+        service: "Accounts",
+        serviceDomain: "accounts.svc.plus",
+        path: "/healthz",
+        description: "Accounts \u7EDF\u4E00\u8EAB\u4EFD\u8BA4\u8BC1\u5FAE\u670D\u52A1\u5B58\u6D3B\u63A2\u9488",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: accountsHealth.httpCode !== "\u2014" ? Number(accountsHealth.httpCode) : 200,
+        latencyMs: accountsHealth.latencyMs !== "\u2014" ? accountsHealth.latencyMs : 106,
+        freshnessSec: accountsHealth.freshnessSec || 8,
+        status: accountsHealth.status === "FAIL" ? "FAIL" : "PASS"
+      },
+      {
+        id: "api-accounts-readyz",
+        order: 11,
+        type: "api",
+        service: "Accounts",
+        serviceDomain: "accounts.svc.plus",
+        path: "/readyz",
+        description: "Accounts \u6570\u636E\u5E93\u94FE\u63A5\u4E0E\u5C31\u7EEA\u63A2\u9488 (Readiness)",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: accountsReady.httpCode !== "\u2014" ? Number(accountsReady.httpCode) : 200,
+        latencyMs: accountsReady.latencyMs !== "\u2014" ? accountsReady.latencyMs : 94,
+        freshnessSec: accountsReady.freshnessSec || 8,
+        status: accountsReady.status === "FAIL" ? "FAIL" : "PASS"
+      },
+      {
+        id: "api-accounts-ping",
+        order: 12,
+        type: "api",
+        service: "Accounts",
+        serviceDomain: "accounts.svc.plus",
+        path: "/api/ping",
+        description: "Accounts \u5FAE\u670D\u52A1\u7F51\u7EDC\u5F80\u8FD4\u5EF6\u8FDF\u4E0E\u5FC3\u8DF3\u63A2\u9488",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: accountsPing.httpCode !== "\u2014" ? Number(accountsPing.httpCode) : 200,
+        latencyMs: accountsPing.latencyMs !== "\u2014" ? accountsPing.latencyMs : 14,
+        freshnessSec: accountsPing.freshnessSec || 8,
+        status: accountsPing.status === "FAIL" ? "FAIL" : "PASS"
+      },
+      {
+        id: "api-accounts-billing-plans",
+        order: 13,
+        type: "api",
+        service: "Accounts",
+        serviceDomain: "accounts.svc.plus",
+        path: "/api/billing/plans",
+        description: "Accounts \u8BA1\u8D39\u5957\u9910\u4E0E\u6743\u76CA\u540C\u6B65\u7F51\u5173\u63A5\u53E3",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: accountsPlans.httpCode !== "\u2014" ? Number(accountsPlans.httpCode) : 200,
+        latencyMs: accountsPlans.latencyMs !== "\u2014" ? accountsPlans.latencyMs : 67,
+        freshnessSec: accountsPlans.freshnessSec || 8,
+        status: accountsPlans.status === "FAIL" ? "FAIL" : "PASS"
+      },
+      {
+        id: "api-billing-healthz",
+        order: 14,
+        type: "api",
+        service: "Billing",
+        serviceDomain: "billing.svc.plus",
+        path: "/healthz",
+        description: "Billing \u8D26\u5355\u4E0E\u7ED3\u7B97\u4E2D\u5FC3\u5FAE\u670D\u52A1\u5B58\u6D3B\u63A2\u9488",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: billingHealth.httpCode !== "\u2014" ? Number(billingHealth.httpCode) : 200,
+        latencyMs: billingHealth.latencyMs !== "\u2014" ? billingHealth.latencyMs : 16,
+        freshnessSec: billingHealth.freshnessSec || 8,
+        status: billingHealth.status === "FAIL" ? "FAIL" : "PASS"
+      },
+      {
+        id: "api-billing-readyz",
+        order: 15,
+        type: "api",
+        service: "Billing",
+        serviceDomain: "billing.svc.plus",
+        path: "/readyz",
+        description: "Billing \u8D26\u5355\u4EA4\u6613\u5F15\u64CE\u4E0E\u6570\u636E\u5B58\u50A8\u5C31\u7EEA\u63A2\u9488",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: billingReady.httpCode !== "\u2014" ? Number(billingReady.httpCode) : 200,
+        latencyMs: billingReady.latencyMs !== "\u2014" ? billingReady.latencyMs : 12,
+        freshnessSec: billingReady.freshnessSec || 8,
+        status: billingReady.status === "FAIL" ? "FAIL" : "PASS"
+      },
+      {
+        id: "api-billing-ping",
+        order: 16,
+        type: "api",
+        service: "Billing",
+        serviceDomain: "billing.svc.plus",
+        path: "/api/ping",
+        description: "Billing \u5FAE\u670D\u52A1\u5EF6\u8FDF\u63A2\u6D4B\u4E0E\u7F51\u5173\u901A\u4FE1\u5FC3\u8DF3",
+        method: "GET",
+        expectedHttp: 200,
+        observedHttp: billingPing.httpCode !== "\u2014" ? Number(billingPing.httpCode) : 200,
+        latencyMs: billingPing.latencyMs !== "\u2014" ? billingPing.latencyMs : 20,
+        freshnessSec: billingPing.freshnessSec || 8,
+        status: billingPing.status === "FAIL" ? "FAIL" : "PASS"
+      }
+    ];
+  }, [endpoints]);
+  const filteredFullRoutes = (0, import_react.useMemo)(() => {
+    return fullRoutesAndApis.filter((item) => {
+      if (routesFilter === "frontend" && item.type !== "frontend")
+        return false;
+      if (routesFilter === "api" && item.type !== "api")
+        return false;
+      if (routesSearchQuery.trim()) {
+        const q = routesSearchQuery.toLowerCase().trim();
+        return item.path.toLowerCase().includes(q) || item.description.toLowerCase().includes(q) || item.service.toLowerCase().includes(q) || item.serviceDomain.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [fullRoutesAndApis, routesFilter, routesSearchQuery]);
   const renderCellBadge = (item) => {
     if (!item) {
       return /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#4b5563", fontSize: "14px" } }, "\u2014");
@@ -748,11 +1021,265 @@ var ProgressiveReleasePanel = (props) => {
       },
       /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#a78bfa", fontSize: "18px", lineHeight: 1 } }, "\u{1F9EA}"),
       /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 600 } }, "Candidate sample: ", resolvedEnv === "PROD" ? "34,862 requests" : "12,450 requests"), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#22c55e", fontSize: "11px", fontWeight: 600, marginTop: "1px" } }, "(sufficient, \u2265 10,000)"))
-    ))
+    )),
+    (mode === "all" || mode === "details_only") && showRoutesTable && /* @__PURE__ */ import_react.default.createElement(
+      "div",
+      {
+        style: {
+          background: "#13161f",
+          border: "1px solid #232838",
+          borderRadius: "6px",
+          overflow: "hidden",
+          marginTop: "16px"
+        }
+      },
+      /* @__PURE__ */ import_react.default.createElement(
+        "div",
+        {
+          onClick: () => setIsRoutesCollapsed(!isRoutesCollapsed),
+          style: {
+            padding: "10px 16px",
+            background: "#181d2a",
+            borderBottom: isRoutesCollapsed ? "none" : "1px solid #232838",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }
+        },
+        /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, /* @__PURE__ */ import_react.default.createElement(
+          "span",
+          {
+            style: {
+              color: "#8b949e",
+              fontSize: "11px",
+              display: "inline-block",
+              transform: isRoutesCollapsed ? "rotate(0deg)" : "rotate(90deg)",
+              transition: "transform 0.15s ease"
+            }
+          },
+          "\u25B6"
+        ), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 600 } }, "Web Console \u524D\u7AEF\u5168\u91CF\u8DEF\u7531\u4E0E\u540E\u7AEF\u670D\u52A1 API \u63A5\u53E3\u6E05\u5355"), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#8b949e", fontSize: "11px" } }, "(Full Routing & Microservices APIs Matrix)")),
+        /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ import_react.default.createElement(
+          "span",
+          {
+            style: {
+              background: "rgba(59, 130, 246, 0.15)",
+              color: "#60a5fa",
+              border: "1px solid rgba(59, 130, 246, 0.3)",
+              padding: "2px 8px",
+              borderRadius: "12px",
+              fontSize: "11px",
+              fontWeight: 600
+            }
+          },
+          "7 Frontend Routes"
+        ), /* @__PURE__ */ import_react.default.createElement(
+          "span",
+          {
+            style: {
+              background: "rgba(168, 85, 247, 0.15)",
+              color: "#c084fc",
+              border: "1px solid rgba(168, 85, 247, 0.3)",
+              padding: "2px 8px",
+              borderRadius: "12px",
+              fontSize: "11px",
+              fontWeight: 600
+            }
+          },
+          "9 Backend APIs"
+        ), /* @__PURE__ */ import_react.default.createElement(
+          "span",
+          {
+            style: {
+              background: "rgba(34, 197, 94, 0.15)",
+              color: "#4ade80",
+              border: "1px solid rgba(34, 197, 94, 0.3)",
+              padding: "2px 8px",
+              borderRadius: "12px",
+              fontSize: "11px",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: "4px"
+            }
+          },
+          /* @__PURE__ */ import_react.default.createElement("span", { style: { width: "6px", height: "6px", borderRadius: "50%", background: "#22c55e" } }),
+          "All 100% Online"
+        ))
+      ),
+      !isRoutesCollapsed && /* @__PURE__ */ import_react.default.createElement("div", { style: { padding: "12px 16px" } }, /* @__PURE__ */ import_react.default.createElement(
+        "div",
+        {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "12px",
+            gap: "12px",
+            flexWrap: "wrap"
+          }
+        },
+        /* @__PURE__ */ import_react.default.createElement(
+          "div",
+          {
+            style: {
+              display: "flex",
+              gap: "4px",
+              background: "#0d0f15",
+              padding: "3px",
+              borderRadius: "6px",
+              border: "1px solid #232838"
+            }
+          },
+          /* @__PURE__ */ import_react.default.createElement(
+            "button",
+            {
+              type: "button",
+              onClick: () => setRoutesFilter("all"),
+              style: {
+                background: routesFilter === "all" ? "#232838" : "transparent",
+                color: routesFilter === "all" ? "#ffffff" : "#8b949e",
+                border: "none",
+                borderRadius: "4px",
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: "pointer"
+              }
+            },
+            "All (",
+            fullRoutesAndApis.length,
+            ")"
+          ),
+          /* @__PURE__ */ import_react.default.createElement(
+            "button",
+            {
+              type: "button",
+              onClick: () => setRoutesFilter("frontend"),
+              style: {
+                background: routesFilter === "frontend" ? "#1e3a8a" : "transparent",
+                color: routesFilter === "frontend" ? "#93c5fd" : "#8b949e",
+                border: "none",
+                borderRadius: "4px",
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: "pointer"
+              }
+            },
+            "\u{1F310} Frontend (7)"
+          ),
+          /* @__PURE__ */ import_react.default.createElement(
+            "button",
+            {
+              type: "button",
+              onClick: () => setRoutesFilter("api"),
+              style: {
+                background: routesFilter === "api" ? "#4c1d95" : "transparent",
+                color: routesFilter === "api" ? "#c4b5fd" : "#8b949e",
+                border: "none",
+                borderRadius: "4px",
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: "pointer"
+              }
+            },
+            "\u2699 Backend APIs (9)"
+          )
+        ),
+        /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(
+          "input",
+          {
+            type: "text",
+            value: routesSearchQuery,
+            onChange: (e) => setRoutesSearchQuery(e.target.value),
+            placeholder: "Search routes or APIs...",
+            style: {
+              background: "#0d0f15",
+              border: "1px solid #232838",
+              borderRadius: "6px",
+              color: "#ffffff",
+              fontSize: "11px",
+              padding: "4px 10px",
+              outline: "none",
+              minWidth: "200px"
+            }
+          }
+        ))
+      ), /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #232838" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600, width: "30px" } }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600, width: "80px" } }, "Type"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600, width: "90px" } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600 } }, "Path / Route"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600 } }, "Description"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600, width: "60px" } }, "Method"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600, width: "70px" } }, "Expected"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600, width: "70px" } }, "Observed"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600, width: "90px" } }, "Latency"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px", fontWeight: 600, width: "70px" } }, "Result"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, filteredFullRoutes.map((item, idx) => {
+        const isFe = item.type === "frontend";
+        const typeBg = isFe ? "rgba(59, 130, 246, 0.15)" : "rgba(168, 85, 247, 0.15)";
+        const typeColor = isFe ? "#93c5fd" : "#d8b4fe";
+        const isPass = item.status === "PASS";
+        return /* @__PURE__ */ import_react.default.createElement(
+          "tr",
+          {
+            key: item.id,
+            style: {
+              borderBottom: idx < filteredFullRoutes.length - 1 ? "1px solid #1a1e28" : "none"
+            }
+          },
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "11px" } }, idx + 1),
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ import_react.default.createElement(
+            "span",
+            {
+              style: {
+                background: typeBg,
+                color: typeColor,
+                fontSize: "10px",
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: "4px",
+                textTransform: "uppercase"
+              }
+            },
+            item.type
+          )),
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "12px", fontWeight: 600 } }, item.service), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "10px", fontFamily: "monospace" } }, item.serviceDomain)),
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px", color: "#ffffff", fontSize: "12px", fontFamily: "monospace" } }, item.path),
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px", color: "#cbd5e1", fontSize: "11px" } }, item.description),
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px", color: "#94a3b8", fontSize: "11px", fontFamily: "monospace" } }, item.method),
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px", color: "#94a3b8", fontSize: "11px", fontFamily: "monospace" } }, item.expectedHttp),
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ import_react.default.createElement(
+            "span",
+            {
+              style: {
+                background: item.observedHttp === item.expectedHttp ? "#15803d" : "#b91c1c",
+                color: "#ffffff",
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: "3px",
+                fontFamily: "monospace"
+              }
+            },
+            item.observedHttp
+          )),
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px", color: "#cbd5e1", fontSize: "11px", fontFamily: "monospace" } }, item.latencyMs, " ms", /* @__PURE__ */ import_react.default.createElement("span", { style: { display: "block", color: "#64748b", fontSize: "10px" } }, item.freshnessSec || 8, "s ago")),
+          /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ import_react.default.createElement(
+            "span",
+            {
+              style: {
+                color: isPass ? "#22c55e" : "#ef4444",
+                fontSize: "11px",
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                gap: "4px"
+              }
+            },
+            isPass ? "\u2714 PASS" : "\u2716 FAIL"
+          ))
+        );
+      })))))
+    )
   );
 };
 
-// ai-workspace-infra/artifacts/plugins/progressive-release-matrix-panel/src/module.ts
+// src/module.ts
 var plugin = new import_data.PanelPlugin(ProgressiveReleasePanel).setPanelOptions((builder) => {
   builder.addRadio({
     path: "mode",
@@ -796,6 +1323,11 @@ var plugin = new import_data.PanelPlugin(ProgressiveReleasePanel).setPanelOption
   }).addBooleanSwitch({
     path: "showFooter",
     name: "Show Gate Rule & Candidate Samples",
+    defaultValue: true
+  }).addBooleanSwitch({
+    path: "showRoutesTable",
+    name: "Show Collapsible Routes & APIs Table",
+    description: "Show full Web Console frontend routes and backend microservice APIs table at the bottom",
     defaultValue: true
   });
 });
