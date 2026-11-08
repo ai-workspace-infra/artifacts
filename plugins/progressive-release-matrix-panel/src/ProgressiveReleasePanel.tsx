@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useMemo, useState, useEffect } from 'react';
 import { PanelProps } from '@grafana/data';
 import { PanelOptions, EndpointStatus, FlaggerServiceStatus, RouteApiStatus } from './types';
 import { RAW_ROUTES_CATALOG } from './routesCatalog';
@@ -68,6 +68,48 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     return finalEnv === 'SIT' ? 'SIT' : 'PROD';
   }, [environment, replaceVariables, data]);
 
+  // Dynamic Live Telemetry state from Web Console API
+  const [livePayload, setLivePayload] = useState<any>(null);
+  const [liveFetchStatus, setLiveFetchStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
+
+  // Poll Web Console live telemetry dynamically (every 15s)
+  useEffect(() => {
+    let isMounted = true;
+    let timer: any = null;
+
+    const fetchTelemetry = async () => {
+      try {
+        const targetEnv = resolvedEnv.toLowerCase().includes('sit') ? 'SIT' : 'PROD';
+        const url = `https://console.svc.plus/api/operations/progressive-release?environment=${targetEnv}`;
+        const res = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          mode: 'cors',
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (isMounted && json && Array.isArray(json.allRoutesAndApis)) {
+            setLivePayload(json);
+            setLiveFetchStatus('success');
+            setLastFetchedAt(new Date());
+          }
+        } else {
+          if (isMounted) setLiveFetchStatus('error');
+        }
+      } catch (err) {
+        if (isMounted) setLiveFetchStatus('error');
+      }
+    };
+
+    fetchTelemetry();
+    timer = setInterval(fetchTelemetry, 15000);
+
+    return () => {
+      isMounted = false;
+      if (timer) clearInterval(timer);
+    };
+  }, [resolvedEnv]);
+
   // Formatted observation window string (UTC)
   const observationWindowStr = useMemo(() => {
     try {
@@ -124,9 +166,32 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     },
   };
 
-  // 2. Extract live Prometheus metrics if available
+  // 2. Extract live Prometheus metrics or live API payload if available
   const parsedData = useMemo(() => {
     try {
+      if (!useMockData && livePayload?.endpoints && Array.isArray(livePayload.endpoints) && livePayload.endpoints.length > 0) {
+        const liveEp: Record<string, Record<string, EndpointStatus>> = {
+          console: {},
+          accounts: {},
+          billing: {},
+        };
+        for (const ep of livePayload.endpoints) {
+          const s = (ep.service || "").toLowerCase();
+          if (liveEp[s]) {
+            liveEp[s][ep.endpoint] = {
+              service: s,
+              route: ep.endpoint,
+              status: ep.result === "PASS" ? "PASS" : ep.result === "FAIL" ? "FAIL" : "NO DATA",
+              httpCode: ep.observedHttp != null ? ep.observedHttp : "—",
+              latencyMs: ep.p95LatencyMs != null ? ep.p95LatencyMs : "—",
+              freshnessSec: ep.freshnessSec || 8,
+              expectedHttp: ep.expectedHttp || (ep.endpoint === "/panel/agent" ? 307 : 200),
+            };
+          }
+        }
+        return { isLive: true, endpoints: liveEp };
+      }
+
       if (useMockData || !data?.series || data.series.length === 0) {
         return { isLive: false, endpoints: mockEndpoints };
       }
@@ -228,7 +293,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       console.warn('[ProgressiveReleasePanel] Failed to parse metrics data, using design mock baseline:', err);
       return { isLive: false, endpoints: mockEndpoints };
     }
-  }, [data, useMockData]);
+  }, [data, useMockData, livePayload]);
 
   const endpoints = parsedData.endpoints;
 
@@ -262,6 +327,25 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
 
   // Flagger status data matching environment reality & live Prometheus metrics
   const flaggerServices: FlaggerServiceStatus[] = useMemo(() => {
+    if (!useMockData && livePayload?.flaggerServices && Array.isArray(livePayload.flaggerServices) && livePayload.flaggerServices.length > 0) {
+      return livePayload.flaggerServices.map((fs: any) => {
+        const isBilling = fs.service === "Billing";
+        const isNotConfigured = fs.phase === "Not configured" || fs.weight === null || isBilling;
+        const candidateTrafficPct = isNotConfigured ? 0 : (fs.candidateTrafficPct ?? fs.weight ?? 0);
+        const primaryTrafficPct = isNotConfigured ? 100 : (fs.primaryTrafficPct ?? (100 - candidateTrafficPct));
+
+        return {
+          service: fs.service,
+          subdomain: fs.serviceDomain || (fs.service === "Console" ? "console.svc.plus" : fs.service === "Accounts" ? "accounts.svc.plus" : "billing.svc.plus"),
+          phase: isNotConfigured ? "Not configured" : fs.phase,
+          weight: isNotConfigured ? null : (fs.weight ?? candidateTrafficPct),
+          primaryPercent: primaryTrafficPct,
+          candidatePercent: candidateTrafficPct,
+          message: isNotConfigured ? (fs.message || "No canary configured for this service") : undefined,
+        };
+      });
+    }
+
     const baseMap: Record<string, FlaggerServiceStatus> = {
       console: {
         service: 'Console',
@@ -282,10 +366,11 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       billing: {
         service: 'Billing',
         subdomain: resolvedEnv === 'PROD' ? 'billing.svc.plus' : 'billing.svc.plus (sit)',
-        phase: 'Progressing',
-        weight: 10,
-        primaryPercent: 90,
-        candidatePercent: 10,
+        phase: 'Not configured',
+        weight: null,
+        primaryPercent: 100,
+        candidatePercent: 0,
+        message: 'No canary configured for this service',
       },
     };
 
@@ -317,14 +402,14 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
         const val = getVal(field);
         if (metricName.includes('flagger_canary_status')) {
           const num = Number(val);
-          if (num === 2) {
+          if (num === 0) {
             baseMap[targetKey].phase = 'Progressing';
-          } else if (num === 1 || num === 0) {
+          } else if (num === 1) {
             baseMap[targetKey].phase = 'Succeeded';
             baseMap[targetKey].candidatePercent = 0;
             baseMap[targetKey].primaryPercent = 100;
             baseMap[targetKey].weight = 0;
-          } else if (num === 3) {
+          } else if (num === 2) {
             baseMap[targetKey].phase = 'Failed';
           }
         } else if (metricName.includes('flagger_canary_weight')) {
@@ -334,6 +419,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
               baseMap[targetKey].weight = w;
               baseMap[targetKey].candidatePercent = w;
               baseMap[targetKey].primaryPercent = 100 - w;
+              baseMap[targetKey].phase = 'Progressing';
             }
           }
         }
@@ -341,15 +427,36 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     }
 
     return [baseMap.console, baseMap.accounts, baseMap.billing];
-  }, [resolvedEnv, data]);
+  }, [resolvedEnv, data, livePayload, useMockData]);
 
   // Collapsible Full Routes & APIs Table State
   const [isRoutesCollapsed, setIsRoutesCollapsed] = useState(false);
   const [routesFilter, setRoutesFilter] = useState<'all' | 'frontend' | 'api'>('all');
   const [routesSearchQuery, setRoutesSearchQuery] = useState('');
 
-  // Assemble full items for Web Console Frontend Routes & Backend Microservice APIs from codebase catalog
+  // Assemble full items for Web Console Frontend Routes & Backend Microservice APIs
   const fullRoutesAndApis: RouteApiStatus[] = useMemo(() => {
+    if (!useMockData && livePayload?.allRoutesAndApis && Array.isArray(livePayload.allRoutesAndApis) && livePayload.allRoutesAndApis.length > 0) {
+      return livePayload.allRoutesAndApis.map((item: any) => ({
+        id: item.id,
+        order: item.order,
+        type: item.type,
+        categoryKey: item.categoryKey,
+        categoryName: item.categoryName,
+        categoryEnName: item.categoryEnName,
+        service: item.service,
+        serviceDomain: item.serviceDomain,
+        path: item.path,
+        description: item.description,
+        method: item.method,
+        expectedHttp: item.expectedHttp,
+        observedHttp: item.observedHttp,
+        latencyMs: item.latencyMs,
+        freshnessSec: item.freshnessSec,
+        status: item.result === "PASS" ? "PASS" : "FAIL",
+      }));
+    }
+
     return RAW_ROUTES_CATALOG.map((item) => {
       const svc = item.service.toLowerCase();
       const epData = (endpoints as any)?.[svc]?.[item.path];
@@ -395,7 +502,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
         status,
       };
     });
-  }, [endpoints, resolvedEnv]);
+  }, [endpoints, resolvedEnv, livePayload, useMockData]);
 
   interface TreeCategory {
     key: string;
@@ -535,6 +642,33 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     }
     setExpandedCategories(next);
   };
+
+
+  const candidateSampleInfo = useMemo(() => {
+    if (!useMockData && livePayload?.candidateSample?.requestsCount != null) {
+      return {
+        countStr: `${Number(livePayload.candidateSample.requestsCount).toLocaleString()} requests`,
+        summary: livePayload.candidateSample.summary || '(sufficient, ≥ 10,000)',
+      };
+    }
+    return {
+      countStr: resolvedEnv === 'PROD' ? '34,862 requests' : '12,450 requests',
+      summary: '(sufficient, ≥ 10,000)',
+    };
+  }, [livePayload, resolvedEnv, useMockData]);
+
+  const gateInfo = useMemo(() => {
+    if (!useMockData && livePayload?.gateStatus) {
+      return {
+        isBlocked: livePayload.gateStatus.status === 'BLOCKED',
+        summary: livePayload.gateStatus.summary || (failedCount > 0 ? `${failedCount} / 10 checks failed` : '10 / 10 checks passed'),
+      };
+    }
+    return {
+      isBlocked: failedCount > 0,
+      summary: failedCount > 0 ? `${failedCount} / 10 checks failed` : '10 / 10 checks passed',
+    };
+  }, [livePayload, failedCount, useMockData]);
 
   const feCount = useMemo(() => fullRoutesAndApis.filter((i) => i.type === 'frontend').length, [fullRoutesAndApis]);
   const beCount = useMemo(() => fullRoutesAndApis.filter((i) => i.type === 'api').length, [fullRoutesAndApis]);
@@ -696,7 +830,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
             >
               <div
                 style={{
-                  border: `2px solid ${failedCount > 0 ? '#ef4444' : '#22c55e'}`,
+                  border: `2px solid ${gateInfo.isBlocked ? '#ef4444' : '#22c55e'}`,
                   borderRadius: '50%',
                   width: '28px',
                   height: '28px',
@@ -705,17 +839,17 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                   justifyContent: 'center',
                   fontSize: '14px',
                   fontWeight: 900,
-                  color: failedCount > 0 ? '#ef4444' : '#22c55e',
+                  color: gateInfo.isBlocked ? '#ef4444' : '#22c55e',
                 }}
               >
-                {failedCount > 0 ? '✕' : '✓'}
+                {gateInfo.isBlocked ? '✕' : '✓'}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ color: '#8b949e', fontSize: '12px', fontWeight: 500 }}>Release gate (overall)</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
                   <span
                     style={{
-                      background: failedCount > 0 ? '#dc2626' : '#16a34a',
+                      background: gateInfo.isBlocked ? '#dc2626' : '#16a34a',
                       color: '#ffffff',
                       fontSize: '11px',
                       fontWeight: 800,
@@ -724,10 +858,10 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                       letterSpacing: '0.5px',
                     }}
                   >
-                    {failedCount > 0 ? 'BLOCKED' : 'PASSED'}
+                    {gateInfo.isBlocked ? 'BLOCKED' : 'PASSED'}
                   </span>
                   <span style={{ color: '#d1d5db', fontSize: '13px', fontWeight: 500 }}>
-                    {failedCount > 0 ? `${failedCount} / 10 checks failed` : '10 / 10 checks passed'}
+                    {gateInfo.summary}
                   </span>
                 </div>
               </div>
@@ -918,11 +1052,30 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
               </thead>
               <tbody>
                 {flaggerServices.map((fs, idx) => {
+                  const isNotConfigured = fs.phase === 'Not configured' || fs.weight === null;
                   const isSucceeded = fs.phase === 'Succeeded';
                   const isProgressing = fs.phase === 'Progressing';
-                  const phaseBg = isSucceeded ? '#064e3b' : isProgressing ? '#1e3a8a' : '#1f2937';
-                  const phaseBorder = isSucceeded ? '#059669' : isProgressing ? '#2563eb' : '#374151';
-                  const phaseColor = isSucceeded ? '#6ee7b7' : isProgressing ? '#93c5fd' : '#9ca3af';
+                  const phaseBg = isNotConfigured
+                    ? '#1f2430'
+                    : isSucceeded
+                    ? '#064e3b'
+                    : isProgressing
+                    ? '#1e3a8a'
+                    : '#450a0a';
+                  const phaseBorder = isNotConfigured
+                    ? '#374151'
+                    : isSucceeded
+                    ? '#059669'
+                    : isProgressing
+                    ? '#2563eb'
+                    : '#991b1b';
+                  const phaseColor = isNotConfigured
+                    ? '#9ca3af'
+                    : isSucceeded
+                    ? '#6ee7b7'
+                    : isProgressing
+                    ? '#93c5fd'
+                    : '#fca5a5';
 
                   return (
                     <tr key={idx} style={{ borderBottom: idx < flaggerServices.length - 1 ? '1px solid #1b1e2a' : 'none' }}>
@@ -946,28 +1099,35 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                         </span>
                       </td>
                       <td style={{ padding: '10px 12px', color: '#ffffff', fontSize: '13px', fontWeight: 700 }}>
-                        {fs.weight != null ? `${fs.weight}%` : '—'}
+                        {isNotConfigured ? '—' : `${fs.weight}%`}
                       </td>
                       <td style={{ padding: '10px 12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div
-                            style={{
-                              flex: 1,
-                              height: '14px',
-                              background: '#1e293b',
-                              borderRadius: '4px',
-                              overflow: 'hidden',
-                              display: 'flex',
-                              maxWidth: '300px',
-                            }}
-                          >
-                            <div style={{ width: `${fs.primaryPercent}%`, background: '#22c55e', height: '100%' }} />
-                            <div style={{ width: `${fs.candidatePercent}%`, background: '#3b82f6', height: '100%' }} />
+                        {isNotConfigured ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#9ca3af', fontSize: '12px' }}>
+                            <span style={{ color: '#6b7280', fontSize: '13px' }}>ⓘ</span>
+                            <span>{fs.message || 'No canary configured for this service'}</span>
                           </div>
-                          <span style={{ color: '#9ca3af', fontSize: '11px' }}>
-                            Primary {fs.primaryPercent}% | Candidate {fs.candidatePercent}%
-                          </span>
-                        </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div
+                              style={{
+                                flex: 1,
+                                height: '14px',
+                                background: '#1e293b',
+                                borderRadius: '4px',
+                                overflow: 'hidden',
+                                display: 'flex',
+                                maxWidth: '300px',
+                              }}
+                            >
+                              <div style={{ width: `${fs.primaryPercent}%`, background: '#22c55e', height: '100%' }} />
+                              <div style={{ width: `${fs.candidatePercent}%`, background: '#3b82f6', height: '100%' }} />
+                            </div>
+                            <span style={{ color: '#9ca3af', fontSize: '11px' }}>
+                              Primary {fs.primaryPercent}% | Candidate {fs.candidatePercent}%
+                            </span>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1138,10 +1298,10 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
             <div style={{ color: '#a78bfa', fontSize: '18px', lineHeight: 1 }}>🧪</div>
             <div>
               <div style={{ color: '#ffffff', fontSize: '13px', fontWeight: 600 }}>
-                Candidate sample: {resolvedEnv === 'PROD' ? '34,862 requests' : '12,450 requests'}
+                Candidate sample: {candidateSampleInfo.countStr}
               </div>
               <div style={{ color: '#22c55e', fontSize: '11px', fontWeight: 600, marginTop: '1px' }}>
-                (sufficient, ≥ 10,000)
+                {candidateSampleInfo.summary}
               </div>
             </div>
           </div>
@@ -1189,7 +1349,24 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+              <span
+                style={{
+                  background: (liveFetchStatus === 'success' || parsedData.isLive) ? 'rgba(34, 197, 94, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                  color: (liveFetchStatus === 'success' || parsedData.isLive) ? '#4ade80' : '#60a5fa',
+                  border: `1px solid ${(liveFetchStatus === 'success' || parsedData.isLive) ? 'rgba(34, 197, 94, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: (liveFetchStatus === 'success' || parsedData.isLive) ? '#22c55e' : '#3b82f6' }}></span>
+                {(liveFetchStatus === 'success' || parsedData.isLive) ? 'Live Telemetry Dynamic' : 'Catalog Synchronized'}
+              </span>
               <span
                 style={{
                   background: 'rgba(59, 130, 246, 0.15)',
