@@ -4,8 +4,10 @@ kind: Service
 metadata:
   name: {{ include "observability-stack.fullname" . }}-blackbox
   labels:
-    {{- include "observability-stack.labels" . | nindent 4 }}
+    helm.sh/chart: {{ include "observability-stack.name" . }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/name: blackbox-exporter
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   type: ClusterIP
   ports:
