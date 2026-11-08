@@ -3488,77 +3488,136 @@ var ProgressiveReleasePanel = (props) => {
         billing: {}
       };
       let foundAny = false;
-      for (const frame of data.series) {
-        const field = frame.fields?.find(
-          (f) => f.name === "Value" || f.type === "number" || f.labels && Object.keys(f.labels).length > 0
-        );
-        const labels = frame.labels || field && field.labels || {};
-        let s = (labels.service || "").toLowerCase();
-        let r = labels.route;
-        if (!s || !r) {
-          const sField = frame.fields?.find((f) => f.name === "service" || f.labels && f.labels.service);
-          const rField = frame.fields?.find((f) => f.name === "route" || f.labels && f.labels.route);
-          if (sField) {
-            const sv = sField.labels?.service || getVal(sField);
-            if (sv) s = String(sv).toLowerCase();
-          }
-          if (rField) {
-            const rv = rField.labels?.route || getVal(rField);
-            if (rv) r = String(rv);
-          }
+      const getVal = (fld, idx) => {
+        if (!fld || !fld.values) {
+          return null;
         }
-        if (!s || !r || !liveEndpoints[s]) {
+        const len = typeof fld.values.length === "number" ? fld.values.length : typeof fld.values.size === "number" ? fld.values.size : 0;
+        if (len === 0) {
+          return null;
+        }
+        const i = idx !== void 0 ? idx : len - 1;
+        if (typeof fld.values.get === "function") {
+          return fld.values.get(i);
+        }
+        return fld.values[i];
+      };
+      for (const frame of data.series) {
+        if (!frame || !frame.fields || frame.fields.length === 0) {
           continue;
         }
-        foundAny = true;
-        if (!liveEndpoints[s][r]) {
-          liveEndpoints[s][r] = {
-            service: s,
-            route: r,
-            status: "NO DATA",
-            httpCode: "\u2014",
-            latencyMs: "\u2014",
-            freshnessSec: 10,
-            expectedHttp: r === "/panel/agent" ? 307 : 200
-          };
-        }
-        const getVal = (fld) => {
-          if (!fld || !fld.values) {
-            return null;
+        const sField = frame.fields.find((f) => f.name === "service" || f.labels && f.labels.service);
+        const rField = frame.fields.find((f) => f.name === "route" || f.labels && f.labels.route);
+        const valField = frame.fields.find(
+          (f) => f.name === "Value" || f.type === "number" || f.labels && Object.keys(f.labels).length > 0
+        );
+        const timeField = frame.fields.find((f) => f.type === "time" || f.name === "Time");
+        const rowCount = frame.length ?? valField?.values?.length ?? sField?.values?.length ?? 1;
+        if (sField && rField && rowCount > 1) {
+          for (let row = 0; row < rowCount; row++) {
+            const sRaw = sField.labels?.service || getVal(sField, row);
+            const rRaw = rField.labels?.route || getVal(rField, row);
+            if (!sRaw || !rRaw) continue;
+            const s = String(sRaw).toLowerCase();
+            const r = String(rRaw);
+            if (!liveEndpoints[s]) {
+              liveEndpoints[s] = {};
+            }
+            foundAny = true;
+            if (!liveEndpoints[s][r]) {
+              liveEndpoints[s][r] = {
+                service: s,
+                route: r,
+                status: "NO DATA",
+                httpCode: "\u2014",
+                latencyMs: "\u2014",
+                freshnessSec: 10,
+                expectedHttp: r === "/panel/agent" ? 307 : 200
+              };
+            }
+            const val = getVal(valField, row);
+            const metricName = valField && valField.name || frame.name || "";
+            const refId = frame.refId;
+            if (refId === "A" || metricName.includes("probe_success") || !metricName) {
+              const numVal = Number(val);
+              if (numVal === 1) {
+                liveEndpoints[s][r].status = "PASS";
+              } else if (numVal === 0) {
+                liveEndpoints[s][r].status = "FAIL";
+              }
+            } else if (refId === "B" || metricName.includes("status_code") || metricName.includes("http")) {
+              liveEndpoints[s][r].httpCode = val != null ? Number(val) : "\u2014";
+            } else if (refId === "C" || metricName.includes("duration") || metricName.includes("latency")) {
+              const numVal = Number(val);
+              liveEndpoints[s][r].latencyMs = !isNaN(numVal) ? Math.round(numVal * 1e3) : "\u2014";
+            }
+            if (timeField) {
+              const sampleTime = getVal(timeField, row);
+              if (sampleTime) {
+                const tMs = Number(sampleTime) > 1e11 ? Number(sampleTime) : Number(sampleTime) * 1e3;
+                const ageSec = Math.max(1, Math.round((Date.now() - tMs) / 1e3));
+                if (ageSec < 3600) {
+                  liveEndpoints[s][r].freshnessSec = ageSec;
+                }
+              }
+            }
           }
-          const len = typeof fld.values.length === "number" ? fld.values.length : 0;
-          if (len === 0) {
-            return null;
+        } else {
+          const labels = frame.labels || valField && valField.labels || {};
+          let s = (labels.service || "").toLowerCase();
+          let r = labels.route;
+          if (!s || !r) {
+            if (sField) {
+              const sv = sField.labels?.service || getVal(sField);
+              if (sv) s = String(sv).toLowerCase();
+            }
+            if (rField) {
+              const rv = rField.labels?.route || getVal(rField);
+              if (rv) r = String(rv);
+            }
           }
-          if (typeof fld.values.get === "function") {
-            return fld.values.get(len - 1);
+          if (!s || !r) {
+            continue;
           }
-          return fld.values[len - 1];
-        };
-        const val = getVal(field);
-        const metricName = labels.__name__ || frame.name || field && field.name || "";
-        const refId = frame.refId;
-        if (refId === "A" || metricName.includes("probe_success") || !metricName) {
-          const numVal = Number(val);
-          if (numVal === 1) {
-            liveEndpoints[s][r].status = "PASS";
-          } else if (numVal === 0) {
-            liveEndpoints[s][r].status = "FAIL";
+          if (!liveEndpoints[s]) {
+            liveEndpoints[s] = {};
           }
-        } else if (refId === "B" || metricName.includes("status_code")) {
-          liveEndpoints[s][r].httpCode = val != null ? Number(val) : "\u2014";
-        } else if (refId === "C" || metricName.includes("duration")) {
-          const numVal = Number(val);
-          liveEndpoints[s][r].latencyMs = !isNaN(numVal) ? Math.round(numVal * 1e3) : "\u2014";
-        }
-        const timeField = frame.fields?.find((f) => f.type === "time" || f.name === "Time");
-        if (timeField) {
-          const sampleTime = getVal(timeField);
-          if (sampleTime) {
-            const tMs = Number(sampleTime) > 1e11 ? Number(sampleTime) : Number(sampleTime) * 1e3;
-            const ageSec = Math.max(1, Math.round((Date.now() - tMs) / 1e3));
-            if (ageSec < 3600) {
-              liveEndpoints[s][r].freshnessSec = ageSec;
+          foundAny = true;
+          if (!liveEndpoints[s][r]) {
+            liveEndpoints[s][r] = {
+              service: s,
+              route: r,
+              status: "NO DATA",
+              httpCode: "\u2014",
+              latencyMs: "\u2014",
+              freshnessSec: 10,
+              expectedHttp: r === "/panel/agent" ? 307 : 200
+            };
+          }
+          const val = getVal(valField);
+          const metricName = labels.__name__ || frame.name || valField && valField.name || "";
+          const refId = frame.refId;
+          if (refId === "A" || metricName.includes("probe_success") || !metricName) {
+            const numVal = Number(val);
+            if (numVal === 1) {
+              liveEndpoints[s][r].status = "PASS";
+            } else if (numVal === 0) {
+              liveEndpoints[s][r].status = "FAIL";
+            }
+          } else if (refId === "B" || metricName.includes("status_code") || metricName.includes("http")) {
+            liveEndpoints[s][r].httpCode = val != null ? Number(val) : "\u2014";
+          } else if (refId === "C" || metricName.includes("duration") || metricName.includes("latency")) {
+            const numVal = Number(val);
+            liveEndpoints[s][r].latencyMs = !isNaN(numVal) ? Math.round(numVal * 1e3) : "\u2014";
+          }
+          if (timeField) {
+            const sampleTime = getVal(timeField);
+            if (sampleTime) {
+              const tMs = Number(sampleTime) > 1e11 ? Number(sampleTime) : Number(sampleTime) * 1e3;
+              const ageSec = Math.max(1, Math.round((Date.now() - tMs) / 1e3));
+              if (ageSec < 3600) {
+                liveEndpoints[s][r].freshnessSec = ageSec;
+              }
             }
           }
         }

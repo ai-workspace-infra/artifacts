@@ -204,84 +204,152 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
 
       let foundAny = false;
 
+      const getVal = (fld: any, idx?: number) => {
+        if (!fld || !fld.values) {
+          return null;
+        }
+        const len = typeof fld.values.length === 'number' ? fld.values.length : (typeof fld.values.size === 'number' ? fld.values.size : 0);
+        if (len === 0) {
+          return null;
+        }
+        const i = idx !== undefined ? idx : len - 1;
+        if (typeof fld.values.get === 'function') {
+          return fld.values.get(i);
+        }
+        return fld.values[i];
+      };
+
       // Iterate through series to extract probe_success, probe_http_status_code, etc.
       for (const frame of data.series) {
-        const field = frame.fields?.find(
-          (f: any) => f.name === 'Value' || f.type === 'number' || (f.labels && Object.keys(f.labels).length > 0)
-        );
-        const labels: Record<string, string> = frame.labels || (field && (field as any).labels) || {};
-        let s = (labels.service || '').toLowerCase();
-        let r = labels.route;
-        if (!s || !r) {
-          const sField = frame.fields?.find((f: any) => f.name === 'service' || (f.labels && f.labels.service));
-          const rField = frame.fields?.find((f: any) => f.name === 'route' || (f.labels && f.labels.route));
-          if (sField) {
-            const sv = sField.labels?.service || getVal(sField);
-            if (sv) s = String(sv).toLowerCase();
-          }
-          if (rField) {
-            const rv = rField.labels?.route || getVal(rField);
-            if (rv) r = String(rv);
-          }
-        }
-        if (!s || !r || !liveEndpoints[s]) {
+        if (!frame || !frame.fields || frame.fields.length === 0) {
           continue;
         }
 
-        foundAny = true;
-        if (!liveEndpoints[s][r]) {
-          liveEndpoints[s][r] = {
-            service: s,
-            route: r,
-            status: 'NO DATA',
-            httpCode: '—',
-            latencyMs: '—',
-            freshnessSec: 10,
-            expectedHttp: r === '/panel/agent' ? 307 : 200,
-          };
-        }
+        const sField = frame.fields.find((f: any) => f.name === 'service' || (f.labels && f.labels.service));
+        const rField = frame.fields.find((f: any) => f.name === 'route' || (f.labels && f.labels.route));
+        const valField = frame.fields.find(
+          (f: any) => f.name === 'Value' || f.type === 'number' || (f.labels && Object.keys(f.labels).length > 0)
+        );
+        const timeField = frame.fields.find((f: any) => f.type === 'time' || f.name === 'Time');
 
-        const getVal = (fld: any) => {
-          if (!fld || !fld.values) {
-            return null;
-          }
-          const len = typeof fld.values.length === 'number' ? fld.values.length : 0;
-          if (len === 0) {
-            return null;
-          }
-          if (typeof fld.values.get === 'function') {
-            return fld.values.get(len - 1);
-          }
-          return fld.values[len - 1];
-        };
+        const rowCount = frame.length ?? valField?.values?.length ?? sField?.values?.length ?? 1;
 
-        const val = getVal(field);
-        const metricName = labels.__name__ || frame.name || (field && (field as any).name) || '';
-        const refId = frame.refId;
+        if (sField && rField && rowCount > 1) {
+          for (let row = 0; row < rowCount; row++) {
+            const sRaw = sField.labels?.service || getVal(sField, row);
+            const rRaw = rField.labels?.route || getVal(rField, row);
+            if (!sRaw || !rRaw) continue;
 
-        if (refId === 'A' || metricName.includes('probe_success') || !metricName) {
-          const numVal = Number(val);
-          if (numVal === 1) {
-            liveEndpoints[s][r].status = 'PASS';
-          } else if (numVal === 0) {
-            liveEndpoints[s][r].status = 'FAIL';
+            const s = String(sRaw).toLowerCase();
+            const r = String(rRaw);
+
+            if (!liveEndpoints[s]) {
+              liveEndpoints[s] = {};
+            }
+
+            foundAny = true;
+            if (!liveEndpoints[s][r]) {
+              liveEndpoints[s][r] = {
+                service: s,
+                route: r,
+                status: 'NO DATA',
+                httpCode: '—',
+                latencyMs: '—',
+                freshnessSec: 10,
+                expectedHttp: r === '/panel/agent' ? 307 : 200,
+              };
+            }
+
+            const val = getVal(valField, row);
+            const metricName = (valField && (valField as any).name) || frame.name || '';
+            const refId = frame.refId;
+
+            if (refId === 'A' || metricName.includes('probe_success') || !metricName) {
+              const numVal = Number(val);
+              if (numVal === 1) {
+                liveEndpoints[s][r].status = 'PASS';
+              } else if (numVal === 0) {
+                liveEndpoints[s][r].status = 'FAIL';
+              }
+            } else if (refId === 'B' || metricName.includes('status_code') || metricName.includes('http')) {
+              liveEndpoints[s][r].httpCode = val != null ? Number(val) : '—';
+            } else if (refId === 'C' || metricName.includes('duration') || metricName.includes('latency')) {
+              const numVal = Number(val);
+              liveEndpoints[s][r].latencyMs = !isNaN(numVal) ? Math.round(numVal * 1000) : '—';
+            }
+
+            if (timeField) {
+              const sampleTime = getVal(timeField, row);
+              if (sampleTime) {
+                const tMs = Number(sampleTime) > 1e11 ? Number(sampleTime) : Number(sampleTime) * 1000;
+                const ageSec = Math.max(1, Math.round((Date.now() - tMs) / 1000));
+                if (ageSec < 3600) {
+                  liveEndpoints[s][r].freshnessSec = ageSec;
+                }
+              }
+            }
           }
-        } else if (refId === 'B' || metricName.includes('status_code')) {
-          liveEndpoints[s][r].httpCode = val != null ? Number(val) : '—';
-        } else if (refId === 'C' || metricName.includes('duration')) {
-          const numVal = Number(val);
-          liveEndpoints[s][r].latencyMs = !isNaN(numVal) ? Math.round(numVal * 1000) : '—';
-        }
+        } else {
+          const labels: Record<string, string> = frame.labels || (valField && (valField as any).labels) || {};
+          let s = (labels.service || '').toLowerCase();
+          let r = labels.route;
+          if (!s || !r) {
+            if (sField) {
+              const sv = sField.labels?.service || getVal(sField);
+              if (sv) s = String(sv).toLowerCase();
+            }
+            if (rField) {
+              const rv = rField.labels?.route || getVal(rField);
+              if (rv) r = String(rv);
+            }
+          }
+          if (!s || !r) {
+            continue;
+          }
 
-        // Freshness timestamp extraction
-        const timeField = frame.fields?.find((f: any) => f.type === 'time' || f.name === 'Time');
-        if (timeField) {
-          const sampleTime = getVal(timeField);
-          if (sampleTime) {
-            const tMs = Number(sampleTime) > 1e11 ? Number(sampleTime) : Number(sampleTime) * 1000;
-            const ageSec = Math.max(1, Math.round((Date.now() - tMs) / 1000));
-            if (ageSec < 3600) {
-              liveEndpoints[s][r].freshnessSec = ageSec;
+          if (!liveEndpoints[s]) {
+            liveEndpoints[s] = {};
+          }
+
+          foundAny = true;
+          if (!liveEndpoints[s][r]) {
+            liveEndpoints[s][r] = {
+              service: s,
+              route: r,
+              status: 'NO DATA',
+              httpCode: '—',
+              latencyMs: '—',
+              freshnessSec: 10,
+              expectedHttp: r === '/panel/agent' ? 307 : 200,
+            };
+          }
+
+          const val = getVal(valField);
+          const metricName = labels.__name__ || frame.name || (valField && (valField as any).name) || '';
+          const refId = frame.refId;
+
+          if (refId === 'A' || metricName.includes('probe_success') || !metricName) {
+            const numVal = Number(val);
+            if (numVal === 1) {
+              liveEndpoints[s][r].status = 'PASS';
+            } else if (numVal === 0) {
+              liveEndpoints[s][r].status = 'FAIL';
+            }
+          } else if (refId === 'B' || metricName.includes('status_code') || metricName.includes('http')) {
+            liveEndpoints[s][r].httpCode = val != null ? Number(val) : '—';
+          } else if (refId === 'C' || metricName.includes('duration') || metricName.includes('latency')) {
+            const numVal = Number(val);
+            liveEndpoints[s][r].latencyMs = !isNaN(numVal) ? Math.round(numVal * 1000) : '—';
+          }
+
+          if (timeField) {
+            const sampleTime = getVal(timeField);
+            if (sampleTime) {
+              const tMs = Number(sampleTime) > 1e11 ? Number(sampleTime) : Number(sampleTime) * 1000;
+              const ageSec = Math.max(1, Math.round((Date.now() - tMs) / 1000));
+              if (ageSec < 3600) {
+                liveEndpoints[s][r].freshnessSec = ageSec;
+              }
             }
           }
         }
