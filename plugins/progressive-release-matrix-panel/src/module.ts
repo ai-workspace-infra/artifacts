@@ -55,5 +55,11 @@ export const plugin = new PanelPlugin<PanelOptions>(ProgressiveReleasePanel)
         path: 'showFooter',
         name: 'Show Gate Rule & Candidate Samples',
         defaultValue: true,
+      })
+      .addBooleanSwitch({
+        path: 'showRoutesTable',
+        name: 'Show Collapsible Routes & APIs Table',
+        description: 'Show full Web Console frontend routes and backend microservice APIs table at the bottom',
+        defaultValue: true,
       });
   });

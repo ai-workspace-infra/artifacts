@@ -7,6 +7,7 @@ export interface PanelOptions {
   showFlagger: boolean;
   showDetails: boolean;
   showFooter: boolean;
+  showRoutesTable?: boolean;
 }
 
 export interface EndpointStatus {
@@ -26,4 +27,20 @@ export interface FlaggerServiceStatus {
   weight: number | null;
   primaryPercent: number;
   candidatePercent: number;
+}
+
+export interface RouteApiStatus {
+  id: string;
+  order: number;
+  type: 'frontend' | 'api';
+  service: string;
+  serviceDomain: string;
+  path: string;
+  description: string;
+  method: string;
+  expectedHttp: number;
+  observedHttp: number;
+  latencyMs: number | string;
+  freshnessSec?: number;
+  status: 'PASS' | 'FAIL';
 }
