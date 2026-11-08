@@ -42,71 +42,92 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = ({
 
   // 2. Extract live Prometheus metrics if available
   const parsedData = useMemo(() => {
-    if (useMockData || !data?.series || data.series.length === 0) {
-      return { isLive: false, endpoints: mockEndpoints };
-    }
-
-    const liveEndpoints: Record<string, Record<string, EndpointStatus>> = {
-      console: {},
-      accounts: {},
-      billing: {},
-    };
-
-    let foundAny = false;
-
-    // Iterate through series to extract probe_success, probe_http_status_code, etc.
-    for (const frame of data.series) {
-      const labels = frame.labels || {};
-      const s = (labels.service || '').toLowerCase();
-      const r = labels.route;
-      if (!s || !r || !liveEndpoints[s]) {
-        continue;
+    try {
+      if (useMockData || !data?.series || data.series.length === 0) {
+        return { isLive: false, endpoints: mockEndpoints };
       }
 
-      foundAny = true;
-      if (!liveEndpoints[s][r]) {
-        liveEndpoints[s][r] = {
-          service: s,
-          route: r,
-          status: 'NO DATA',
-          httpCode: '—',
-          latencyMs: '—',
-          freshnessSec: 10,
-          expectedHttp: r === '/panel/agent' ? 307 : 200,
-        };
-      }
+      const liveEndpoints: Record<string, Record<string, EndpointStatus>> = {
+        console: {},
+        accounts: {},
+        billing: {},
+      };
 
-      const field = frame.fields?.find((f) => f.name === 'Value' || f.type === 'number');
-      const val = field ? field.values.get(field.values.length - 1) : null;
-      const metricName = labels.__name__ || frame.name || '';
+      let foundAny = false;
 
-      if (metricName.includes('probe_success') || !metricName) {
-        if (val === 1) {
-          liveEndpoints[s][r].status = 'PASS';
-        } else if (val === 0) {
-          liveEndpoints[s][r].status = 'FAIL';
+      // Iterate through series to extract probe_success, probe_http_status_code, etc.
+      for (const frame of data.series) {
+        const field = frame.fields?.find(
+          (f: any) => f.name === 'Value' || f.type === 'number' || (f.labels && Object.keys(f.labels).length > 0)
+        );
+        const labels: Record<string, string> = frame.labels || (field && (field as any).labels) || {};
+        const s = (labels.service || '').toLowerCase();
+        const r = labels.route;
+        if (!s || !r || !liveEndpoints[s]) {
+          continue;
         }
-      } else if (metricName.includes('status_code')) {
-        liveEndpoints[s][r].httpCode = val != null ? val : '—';
-      } else if (metricName.includes('duration')) {
-        liveEndpoints[s][r].latencyMs = val != null ? Math.round(val * 1000) : '—';
-      }
-    }
 
-    if (!foundAny) {
-      return { isLive: false, endpoints: mockEndpoints };
-    }
-
-    // Default missing endpoints to mock/healthy
-    for (const s of ['console', 'accounts', 'billing']) {
-      for (const r of Object.keys(mockEndpoints[s])) {
+        foundAny = true;
         if (!liveEndpoints[s][r]) {
-          liveEndpoints[s][r] = { ...mockEndpoints[s][r] };
+          liveEndpoints[s][r] = {
+            service: s,
+            route: r,
+            status: 'NO DATA',
+            httpCode: '—',
+            latencyMs: '—',
+            freshnessSec: 10,
+            expectedHttp: r === '/panel/agent' ? 307 : 200,
+          };
+        }
+
+        const getVal = (fld: any) => {
+          if (!fld || !fld.values) {
+            return null;
+          }
+          const len = typeof fld.values.length === 'number' ? fld.values.length : 0;
+          if (len === 0) {
+            return null;
+          }
+          if (typeof fld.values.get === 'function') {
+            return fld.values.get(len - 1);
+          }
+          return fld.values[len - 1];
+        };
+
+        const val = getVal(field);
+        const metricName = labels.__name__ || frame.name || '';
+
+        if (metricName.includes('probe_success') || !metricName) {
+          if (val === 1) {
+            liveEndpoints[s][r].status = 'PASS';
+          } else if (val === 0) {
+            liveEndpoints[s][r].status = 'FAIL';
+          }
+        } else if (metricName.includes('status_code')) {
+          liveEndpoints[s][r].httpCode = val != null ? val : '—';
+        } else if (metricName.includes('duration')) {
+          liveEndpoints[s][r].latencyMs = val != null ? Math.round(val * 1000) : '—';
         }
       }
-    }
 
-    return { isLive: true, endpoints: liveEndpoints };
+      if (!foundAny) {
+        return { isLive: false, endpoints: mockEndpoints };
+      }
+
+      // Default missing endpoints to mock/healthy
+      for (const s of ['console', 'accounts', 'billing']) {
+        for (const r of Object.keys(mockEndpoints[s])) {
+          if (!liveEndpoints[s][r]) {
+            liveEndpoints[s][r] = { ...mockEndpoints[s][r] };
+          }
+        }
+      }
+
+      return { isLive: true, endpoints: liveEndpoints };
+    } catch (err) {
+      console.warn('[ProgressiveReleasePanel] Failed to parse metrics data, using design mock baseline:', err);
+      return { isLive: false, endpoints: mockEndpoints };
+    }
   }, [data, useMockData]);
 
   const endpoints = parsedData.endpoints;
