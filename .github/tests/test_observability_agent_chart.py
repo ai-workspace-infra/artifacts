@@ -61,6 +61,7 @@ class ObservabilityAgentChartTest(unittest.TestCase):
         vmagent = deployments["agent-observability-agent-vmagent"]["spec"]["template"]["spec"]
         container = vmagent["containers"][0]
         self.assertTrue(vmagent["securityContext"]["runAsNonRoot"])
+        self.assertEqual(vmagent["securityContext"]["fsGroup"], 65534)
         self.assertFalse(vmagent["automountServiceAccountToken"])
         self.assertIn("-remoteWrite.url=https://metrics.example.test/api/v1/write", container["args"])
         self.assertIn("-remoteWrite.basicAuth.passwordFile=/etc/vmagent/auth/password", container["args"])

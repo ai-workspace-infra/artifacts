@@ -15,7 +15,7 @@ Deploy this chart as an independent HelmRelease. It contains independently selec
 
 Blackbox and vmagent belong to this agent HelmRelease; do not create parallel hand-managed Deployments. Enable them per environment with immutable image digests and explicit scrape/module values. vmagent requires a bounded ephemeral write buffer plus a pre-created credential Secret; the chart never creates credentials and has no TLS verification bypass. Probe targets and remote-write identity live in environment GitOps values, while the central observability server remains a separate release.
 
-For a host Kubernetes profile enable Node `hostMetrics`, review/enable its `hostNetwork`, enable KSM/process, and disable console Vector when an existing server already scrapes those sources. The KSM/process defaults remain off in the parent Open Platform umbrella. Agent chart 1.2.0 is independently versioned; umbrella chart and its local dependency are versioned together to avoid overwriting immutable existing packages.
+For a host Kubernetes profile enable Node `hostMetrics`, review/enable its `hostNetwork`, enable KSM/process, and disable console Vector when an existing server already scrapes those sources. The KSM/process defaults remain off in the parent Open Platform umbrella. Agent chart 1.2.1 is independently versioned; umbrella chart and its local dependency are versioned together to avoid overwriting immutable existing packages.
 
 ### Security and signal scope
 
