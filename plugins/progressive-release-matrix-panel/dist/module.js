@@ -3985,6 +3985,7 @@ var ProgressiveReleasePanel = (props) => {
   }, [livePayload, endpointList, useMockData, parsedData.source]);
   const frontendCatCount = (0, import_react.useMemo)(() => new Set(fullRoutesAndApis.filter((i) => i.type === "frontend").map((i) => i.categoryKey)).size, [fullRoutesAndApis]);
   const backendCatCount = (0, import_react.useMemo)(() => new Set(fullRoutesAndApis.filter((i) => i.type === "api").map((i) => i.categoryKey)).size, [fullRoutesAndApis]);
+  const inventoryCounts = (0, import_react.useMemo)(() => countOf(fullRoutesAndApis), [fullRoutesAndApis]);
   const feCount = (0, import_react.useMemo)(() => fullRoutesAndApis.filter((i) => i.type === "frontend").length, [fullRoutesAndApis]);
   const beCount = (0, import_react.useMemo)(() => fullRoutesAndApis.filter((i) => i.type === "api").length, [fullRoutesAndApis]);
   const renderCellBadge = (item) => {
@@ -4490,7 +4491,7 @@ var ProgressiveReleasePanel = (props) => {
             }
           },
           /* @__PURE__ */ import_react.default.createElement("span", { style: { width: "6px", height: "6px", borderRadius: "50%", background: "#22c55e" } }),
-          "All 100% Online"
+          inventoryCounts.total > 0 && inventoryCounts.pass === inventoryCounts.total ? "All 100% Online" : `${inventoryCounts.pass}/${inventoryCounts.total} PASS \xB7 ${inventoryCounts.fail} FAIL \xB7 ${inventoryCounts.noData + inventoryCounts.notProbed} NO DATA/NOT PROBED`
         ))
       ),
       !isRoutesCollapsed && /* @__PURE__ */ import_react.default.createElement("div", { style: { padding: "12px 16px" } }, /* @__PURE__ */ import_react.default.createElement(

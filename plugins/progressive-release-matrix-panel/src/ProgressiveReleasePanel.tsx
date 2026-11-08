@@ -2,7 +2,7 @@ import React, { FC, useMemo, useState, useEffect } from 'react';
 import { PanelProps } from '@grafana/data';
 import { PanelOptions, EndpointStatus, FlaggerServiceStatus, RouteApiStatus } from './types';
 import { RAW_ROUTES_CATALOG } from './routesCatalog';
-import { mergeCatalogWithTelemetry, normalizeLiveInventory, buildTree, evaluateGate, normalizeCanary, DataSource } from './dataModel';
+import { mergeCatalogWithTelemetry, normalizeLiveInventory, buildTree, evaluateGate, normalizeCanary, countOf, DataSource } from './dataModel';
 
 export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => {
   const {
@@ -632,6 +632,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
 
   const frontendCatCount = useMemo(() => new Set(fullRoutesAndApis.filter((i) => i.type === 'frontend').map((i) => i.categoryKey)).size, [fullRoutesAndApis]);
   const backendCatCount = useMemo(() => new Set(fullRoutesAndApis.filter((i) => i.type === 'api').map((i) => i.categoryKey)).size, [fullRoutesAndApis]);
+  const inventoryCounts = useMemo(() => countOf(fullRoutesAndApis), [fullRoutesAndApis]);
   const feCount = useMemo(() => fullRoutesAndApis.filter((i) => i.type === 'frontend').length, [fullRoutesAndApis]);
   const beCount = useMemo(() => fullRoutesAndApis.filter((i) => i.type === 'api').length, [fullRoutesAndApis]);
 
@@ -1372,7 +1373,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                 }}
               >
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e' }}></span>
-                All 100% Online
+                {inventoryCounts.total > 0 && inventoryCounts.pass === inventoryCounts.total ? 'All 100% Online' : `${inventoryCounts.pass}/${inventoryCounts.total} PASS · ${inventoryCounts.fail} FAIL · ${inventoryCounts.noData + inventoryCounts.notProbed} NO DATA/NOT PROBED`}
               </span>
             </div>
           </div>
