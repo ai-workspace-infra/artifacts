@@ -33,6 +33,9 @@ export interface RouteApiStatus {
   id: string;
   order: number;
   type: 'frontend' | 'api';
+  categoryKey?: string;
+  categoryName?: string;
+  categoryEnName?: string;
   service: string;
   serviceDomain: string;
   path: string;
