@@ -40,7 +40,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// src/module.ts
+// ai-workspace-infra/artifacts/plugins/progressive-release-matrix-panel/src/module.ts
 var module_exports = {};
 __export(module_exports, {
   plugin: () => plugin
@@ -48,7 +48,7 @@ __export(module_exports, {
 module.exports = __toCommonJS(module_exports);
 var import_data = require("@grafana/data");
 
-// src/ProgressiveReleasePanel.tsx
+// ai-workspace-infra/artifacts/plugins/progressive-release-matrix-panel/src/ProgressiveReleasePanel.tsx
 var import_react = __toESM(require("react"));
 var ProgressiveReleasePanel = (props) => {
   const {
@@ -70,17 +70,26 @@ var ProgressiveReleasePanel = (props) => {
     showFooter = true
   } = options;
   const resolvedEnv = (0, import_react.useMemo)(() => {
-    let env = environment;
+    let env = (environment || "").trim();
     if (replaceVariables) {
       try {
-        const interpolated = replaceVariables(environment || "$environment");
-        if (interpolated && interpolated !== "$environment") {
+        const interpolated = replaceVariables(env || "$environment");
+        if (interpolated && interpolated !== "$environment" && interpolated !== "${environment}") {
           env = interpolated;
         }
       } catch {
       }
     }
-    if ((!env || env === "$environment") && data?.series && data.series.length > 0) {
+    if ((!env || env.startsWith("$")) && replaceVariables) {
+      try {
+        const cluster = replaceVariables("$cluster");
+        if (cluster && !cluster.startsWith("$")) {
+          env = cluster.toLowerCase().includes("prod") ? "PROD" : "SIT";
+        }
+      } catch {
+      }
+    }
+    if ((!env || env.startsWith("$")) && data?.series && data.series.length > 0) {
       for (const frame of data.series) {
         const field = frame.fields?.find((f) => f.labels && Object.keys(f.labels).length > 0);
         const labels = frame.labels || field && field.labels || {};
@@ -94,8 +103,40 @@ var ProgressiveReleasePanel = (props) => {
         }
       }
     }
-    return (env && env !== "$environment" ? env : "PROD").toUpperCase();
+    const finalEnv = (env && !env.startsWith("$") ? env : "PROD").toUpperCase();
+    return finalEnv === "SIT" ? "SIT" : "PROD";
   }, [environment, replaceVariables, data]);
+  const observationWindowStr = (0, import_react.useMemo)(() => {
+    try {
+      if (timeRange && timeRange.from && timeRange.to) {
+        const fromDate = timeRange.from.toDate ? timeRange.from.toDate() : new Date(timeRange.from);
+        const toDate = timeRange.to.toDate ? timeRange.to.toDate() : new Date(timeRange.to);
+        const formatUtc2 = (d) => {
+          const hh = String(d.getUTCHours()).padStart(2, "0");
+          const mm = String(d.getUTCMinutes()).padStart(2, "0");
+          return `${hh}:${mm}`;
+        };
+        const diffMins = Math.max(1, Math.round((toDate.getTime() - fromDate.getTime()) / 6e4));
+        return `Last ${diffMins} minutes (${formatUtc2(fromDate)} \u2013 ${formatUtc2(toDate)} UTC)`;
+      }
+    } catch {
+    }
+    const now = /* @__PURE__ */ new Date();
+    const past = new Date(now.getTime() - 15 * 60 * 1e3);
+    const formatUtc = (d) => {
+      const hh = String(d.getUTCHours()).padStart(2, "0");
+      const mm = String(d.getUTCMinutes()).padStart(2, "0");
+      return `${hh}:${mm}`;
+    };
+    return `Last 15 minutes (${formatUtc(past)} \u2013 ${formatUtc(now)} UTC)`;
+  }, [timeRange]);
+  const updatedTimeStr = (0, import_react.useMemo)(() => {
+    const d = /* @__PURE__ */ new Date();
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    const ss = String(d.getUTCSeconds()).padStart(2, "0");
+    return `${hh}:${mm}:${ss} UTC`;
+  }, [data]);
   const mockEndpoints = {
     console: {
       "/healthz": { service: "console", route: "/healthz", status: "PASS", httpCode: 200, latencyMs: 38, freshnessSec: 9, expectedHttp: 200 },
@@ -230,71 +271,90 @@ var ProgressiveReleasePanel = (props) => {
     return endpointList.filter((e) => e.status !== "PASS").length;
   }, [endpointList]);
   const flaggerServices = (0, import_react.useMemo)(() => {
-    if (resolvedEnv === "PROD") {
-      return [
-        {
-          service: "Console",
-          subdomain: "console.svc.plus",
-          phase: "Progressing",
-          weight: 20,
-          primaryPercent: 80,
-          candidatePercent: 20
-        },
-        {
-          service: "Accounts",
-          subdomain: "accounts.svc.plus",
-          phase: "Progressing",
-          weight: 10,
-          primaryPercent: 90,
-          candidatePercent: 10
-        },
-        {
-          service: "Billing",
-          subdomain: "billing.svc.plus",
-          phase: "Not configured",
-          weight: null,
-          primaryPercent: 100,
-          candidatePercent: 0,
-          noCanaryConfigured: true
+    const baseMap = {
+      console: {
+        service: "Console",
+        subdomain: resolvedEnv === "PROD" ? "console.svc.plus" : "console.svc.plus (sit)",
+        phase: "Progressing",
+        weight: 20,
+        primaryPercent: 80,
+        candidatePercent: 20
+      },
+      accounts: {
+        service: "Accounts",
+        subdomain: resolvedEnv === "PROD" ? "accounts.svc.plus" : "accounts.svc.plus (sit)",
+        phase: "Progressing",
+        weight: 10,
+        primaryPercent: 90,
+        candidatePercent: 10
+      },
+      billing: {
+        service: "Billing",
+        subdomain: resolvedEnv === "PROD" ? "billing.svc.plus" : "billing.svc.plus (sit)",
+        phase: "Progressing",
+        weight: 10,
+        primaryPercent: 90,
+        candidatePercent: 10
+      }
+    };
+    if (data?.series && data.series.length > 0) {
+      for (const frame of data.series) {
+        const field = frame.fields?.find(
+          (f) => f.name === "Value" || f.type === "number" || f.labels && Object.keys(f.labels).length > 0
+        );
+        const labels = frame.labels || field && field.labels || {};
+        const metricName = labels.__name__ || frame.name || field && field.name || "";
+        const name = (labels.name || labels.workload || "").toLowerCase();
+        let targetKey = "";
+        if (name.includes("console"))
+          targetKey = "console";
+        else if (name.includes("accounts"))
+          targetKey = "accounts";
+        else if (name.includes("billing"))
+          targetKey = "billing";
+        if (!targetKey || !baseMap[targetKey])
+          continue;
+        const getVal = (fld) => {
+          if (!fld || !fld.values)
+            return null;
+          const len = typeof fld.values.length === "number" ? fld.values.length : 0;
+          if (len === 0)
+            return null;
+          if (typeof fld.values.get === "function")
+            return fld.values.get(len - 1);
+          return fld.values[len - 1];
+        };
+        const val = getVal(field);
+        if (metricName.includes("flagger_canary_status")) {
+          const num = Number(val);
+          if (num === 0)
+            baseMap[targetKey].phase = "Progressing";
+          else if (num === 1)
+            baseMap[targetKey].phase = "Progressing";
+          else if (num === 2)
+            baseMap[targetKey].phase = "Succeeded";
+          else if (num === 3)
+            baseMap[targetKey].phase = "Failed";
+        } else if (metricName.includes("flagger_canary_weight")) {
+          if (!name.includes("primary")) {
+            const w = Math.max(0, Math.min(100, Number(val)));
+            if (!isNaN(w) && w > 0) {
+              baseMap[targetKey].weight = w;
+              baseMap[targetKey].candidatePercent = w;
+              baseMap[targetKey].primaryPercent = 100 - w;
+            }
+          }
         }
-      ];
-    } else {
-      return [
-        {
-          service: "Console",
-          subdomain: "console.svc.plus (sit)",
-          phase: "Progressing",
-          weight: 50,
-          primaryPercent: 50,
-          candidatePercent: 50
-        },
-        {
-          service: "Accounts",
-          subdomain: "accounts.svc.plus (sit)",
-          phase: "Progressing",
-          weight: 30,
-          primaryPercent: 70,
-          candidatePercent: 30
-        },
-        {
-          service: "Billing",
-          subdomain: "billing.svc.plus (sit)",
-          phase: "Not configured",
-          weight: null,
-          primaryPercent: 100,
-          candidatePercent: 0,
-          noCanaryConfigured: true
-        }
-      ];
+      }
     }
-  }, [resolvedEnv]);
+    return [baseMap.console, baseMap.accounts, baseMap.billing];
+  }, [resolvedEnv, data]);
   const renderCellBadge = (item) => {
     if (!item) {
       return /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#4b5563", fontSize: "14px" } }, "\u2014");
     }
     const isPass = item.status === "PASS";
     const isFail = item.status === "FAIL";
-    const isNoData = item.status === "NO DATA";
     const bg = isPass ? "#052e16" : isFail ? "#450a0a" : "#181b20";
     const border = isPass ? "1px solid #166534" : isFail ? "1px solid #991b1b" : "1px solid #374151";
     const badgeBg = isPass ? "#16a34a" : isFail ? "#dc2626" : "#4b5563";
@@ -341,7 +401,7 @@ var ProgressiveReleasePanel = (props) => {
         background: "#0d0f15",
         color: "#f3f4f6",
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        padding: "14px 16px",
+        padding: "16px 20px",
         boxSizing: "border-box",
         overflowY: "auto"
       }
@@ -402,7 +462,7 @@ var ProgressiveReleasePanel = (props) => {
         },
         "\u{1F4C5}"
       ),
-      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px", fontWeight: 500 } }, "Observation window"), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 600, marginTop: "2px" } }, "Last 15 minutes (14:45 \u2013 15:00 UTC)"))
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px", fontWeight: 500 } }, "Observation window"), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 600, marginTop: "2px" } }, observationWindowStr))
     ), /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
@@ -541,15 +601,19 @@ var ProgressiveReleasePanel = (props) => {
         }
       },
       /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 700, marginBottom: "12px" } }, "Flagger (Progressive Release)"),
-      /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #232838" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Flagger phase"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Weight (candidate)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Traffic (primary vs candidate)"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, flaggerServices.map((fs, idx) => {
-        const isConfigured = fs.phase !== "Not configured";
+      /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #232838" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "220px" } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "140px" } }, "Flagger phase"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "140px" } }, "Weight (candidate)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Traffic (primary vs candidate)"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, flaggerServices.map((fs, idx) => {
+        const isSucceeded = fs.phase === "Succeeded";
+        const isProgressing = fs.phase === "Progressing";
+        const phaseBg = isSucceeded ? "#064e3b" : isProgressing ? "#1e3a8a" : "#1f2937";
+        const phaseBorder = isSucceeded ? "#059669" : isProgressing ? "#2563eb" : "#374151";
+        const phaseColor = isSucceeded ? "#6ee7b7" : isProgressing ? "#93c5fd" : "#9ca3af";
         return /* @__PURE__ */ import_react.default.createElement("tr", { key: idx, style: { borderBottom: idx < flaggerServices.length - 1 ? "1px solid #1b1e2a" : "none" } }, /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 700 } }, fs.service), " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#8b949e", fontSize: "11px" } }, fs.subdomain)), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement(
           "span",
           {
             style: {
-              background: isConfigured ? "#1e3a8a" : "#1f2937",
-              border: `1px solid ${isConfigured ? "#2563eb" : "#374151"}`,
-              color: isConfigured ? "#93c5fd" : "#9ca3af",
+              background: phaseBg,
+              border: `1px solid ${phaseBorder}`,
+              color: phaseColor,
               fontSize: "11px",
               fontWeight: 700,
               padding: "3px 8px",
@@ -557,7 +621,7 @@ var ProgressiveReleasePanel = (props) => {
             }
           },
           fs.phase
-        )), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px", color: "#ffffff", fontSize: "13px", fontWeight: 700 } }, fs.weight != null ? `${fs.weight}%` : "\u2014"), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px" } }, isConfigured ? /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, /* @__PURE__ */ import_react.default.createElement(
+        )), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px", color: "#ffffff", fontSize: "13px", fontWeight: 700 } }, fs.weight != null ? `${fs.weight}%` : "\u2014"), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, /* @__PURE__ */ import_react.default.createElement(
           "div",
           {
             style: {
@@ -572,7 +636,7 @@ var ProgressiveReleasePanel = (props) => {
           },
           /* @__PURE__ */ import_react.default.createElement("div", { style: { width: `${fs.primaryPercent}%`, background: "#22c55e", height: "100%" } }),
           /* @__PURE__ */ import_react.default.createElement("div", { style: { width: `${fs.candidatePercent}%`, background: "#3b82f6", height: "100%" } })
-        ), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#9ca3af", fontSize: "11px" } }, "Primary ", fs.primaryPercent, "% | Candidate ", fs.candidatePercent, "%")) : /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#6b7280", fontSize: "12px" } }, "\u24D8 No canary configured for this service")));
+        ), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#9ca3af", fontSize: "11px" } }, "Primary ", fs.primaryPercent, "% | Candidate ", fs.candidatePercent, "%"))));
       }))))
     ),
     (mode === "all" || mode === "details_only") && showDetails && /* @__PURE__ */ import_react.default.createElement(
@@ -600,7 +664,7 @@ var ProgressiveReleasePanel = (props) => {
           }
         },
         parsedData.isLive ? "\u25CF LIVE METRICS" : "SAMPLE MOCK DATA"
-      )), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px" } }, "10/10 checks \u2022 ", failedCount, " failed \u2022 Updated: 14:34:02 UTC")),
+      )), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px" } }, "10/10 checks \u2022 ", failedCount, " failed \u2022 Updated: ", updatedTimeStr)),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #232838" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "30px" } }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Endpoint (GET)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Expected HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Observed HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "p95 Latency"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Freshness (age)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Result"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, endpointList.map((ep, idx) => {
         const isConsole = ep.service === "console";
         const isAccounts = ep.service === "accounts";
@@ -683,12 +747,12 @@ var ProgressiveReleasePanel = (props) => {
         }
       },
       /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#a78bfa", fontSize: "18px", lineHeight: 1 } }, "\u{1F9EA}"),
-      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 600 } }, "Candidate sample: 34,862 requests"), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#22c55e", fontSize: "11px", fontWeight: 600, marginTop: "1px" } }, "(sufficient, \u2265 10,000)"))
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 600 } }, "Candidate sample: ", resolvedEnv === "PROD" ? "34,862 requests" : "12,450 requests"), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#22c55e", fontSize: "11px", fontWeight: 600, marginTop: "1px" } }, "(sufficient, \u2265 10,000)"))
     ))
   );
 };
 
-// src/module.ts
+// ai-workspace-infra/artifacts/plugins/progressive-release-matrix-panel/src/module.ts
 var plugin = new import_data.PanelPlugin(ProgressiveReleasePanel).setPanelOptions((builder) => {
   builder.addRadio({
     path: "mode",
