@@ -210,8 +210,20 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
           (f: any) => f.name === 'Value' || f.type === 'number' || (f.labels && Object.keys(f.labels).length > 0)
         );
         const labels: Record<string, string> = frame.labels || (field && (field as any).labels) || {};
-        const s = (labels.service || '').toLowerCase();
-        const r = labels.route;
+        let s = (labels.service || '').toLowerCase();
+        let r = labels.route;
+        if (!s || !r) {
+          const sField = frame.fields?.find((f: any) => f.name === 'service' || (f.labels && f.labels.service));
+          const rField = frame.fields?.find((f: any) => f.name === 'route' || (f.labels && f.labels.route));
+          if (sField) {
+            const sv = sField.labels?.service || getVal(sField);
+            if (sv) s = String(sv).toLowerCase();
+          }
+          if (rField) {
+            const rv = rField.labels?.route || getVal(rField);
+            if (rv) r = String(rv);
+          }
+        }
         if (!s || !r || !liveEndpoints[s]) {
           continue;
         }
@@ -729,13 +741,15 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     <div
       style={{
         width: '100%',
-        minHeight: height || 'auto',
+        height: height ? `${height}px` : '100%',
+        maxHeight: height ? `${height}px` : '100%',
         background: '#0d0f15',
         color: '#f3f4f6',
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         padding: '16px 20px',
         boxSizing: 'border-box',
         overflowY: 'auto',
+        overflowX: 'hidden',
       }}
     >
       {/* 1. Header & Top KPIs */}
@@ -1309,7 +1323,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       )}
 
       {/* 7. Collapsible Full Routes & Microservices APIs Matrix (3-Level Tree View) */}
-      {showRoutesTable && (
+      {(showRoutesTable !== false) && (
         <div
           style={{
             background: '#141824',

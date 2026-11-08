@@ -3493,8 +3493,20 @@ var ProgressiveReleasePanel = (props) => {
           (f) => f.name === "Value" || f.type === "number" || f.labels && Object.keys(f.labels).length > 0
         );
         const labels = frame.labels || field && field.labels || {};
-        const s = (labels.service || "").toLowerCase();
-        const r = labels.route;
+        let s = (labels.service || "").toLowerCase();
+        let r = labels.route;
+        if (!s || !r) {
+          const sField = frame.fields?.find((f) => f.name === "service" || f.labels && f.labels.service);
+          const rField = frame.fields?.find((f) => f.name === "route" || f.labels && f.labels.route);
+          if (sField) {
+            const sv = sField.labels?.service || getVal(sField);
+            if (sv) s = String(sv).toLowerCase();
+          }
+          if (rField) {
+            const rv = rField.labels?.route || getVal(rField);
+            if (rv) r = String(rv);
+          }
+        }
         if (!s || !r || !liveEndpoints[s]) {
           continue;
         }
@@ -3921,13 +3933,15 @@ var ProgressiveReleasePanel = (props) => {
     {
       style: {
         width: "100%",
-        minHeight: height || "auto",
+        height: height ? `${height}px` : "100%",
+        maxHeight: height ? `${height}px` : "100%",
         background: "#0d0f15",
         color: "#f3f4f6",
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         padding: "16px 20px",
         boxSizing: "border-box",
-        overflowY: "auto"
+        overflowY: "auto",
+        overflowX: "hidden"
       }
     },
     (mode === "all" || mode === "matrix_only") && showKpis && /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: "16px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" } }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "22px", fontWeight: 800, letterSpacing: "-0.3px" } }, "Progressive Release Validation"), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "13px", marginTop: "2px" } }, "Service \xD7 API status matrix for progressive releases (", resolvedEnv, ")")), /* @__PURE__ */ import_react.default.createElement(
@@ -4274,7 +4288,7 @@ var ProgressiveReleasePanel = (props) => {
       /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#a78bfa", fontSize: "18px", lineHeight: 1 } }, "\u{1F9EA}"),
       /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 600 } }, "Candidate sample: ", candidateSampleInfo.countStr), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#22c55e", fontSize: "11px", fontWeight: 600, marginTop: "1px" } }, candidateSampleInfo.summary))
     )),
-    showRoutesTable && /* @__PURE__ */ import_react.default.createElement(
+    showRoutesTable !== false && /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
         style: {
