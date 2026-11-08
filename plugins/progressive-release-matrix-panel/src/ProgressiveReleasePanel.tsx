@@ -425,84 +425,111 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       });
     }
 
+    const isProd = resolvedEnv === 'PROD';
     const baseMap: Record<string, FlaggerServiceStatus> = {
       console: {
         service: 'Console',
-        subdomain: resolvedEnv === 'PROD' ? 'console.svc.plus' : 'console.svc.plus (sit)',
-        phase: 'Progressing',
-        weight: 20,
-        primaryPercent: 80,
-        candidatePercent: 20,
+        subdomain: isProd ? 'console.svc.plus' : 'console.svc.plus (sit)',
+        phase: isProd ? 'Succeeded' : 'Progressing',
+        weight: isProd ? 0 : 20,
+        primaryPercent: isProd ? 100 : 80,
+        candidatePercent: isProd ? 0 : 20,
       },
       accounts: {
         service: 'Accounts',
-        subdomain: resolvedEnv === 'PROD' ? 'accounts.svc.plus' : 'accounts.svc.plus (sit)',
-        phase: 'Progressing',
-        weight: 10,
-        primaryPercent: 90,
-        candidatePercent: 10,
+        subdomain: isProd ? 'accounts.svc.plus' : 'accounts.svc.plus (sit)',
+        phase: isProd ? 'Succeeded' : 'Progressing',
+        weight: isProd ? 0 : 10,
+        primaryPercent: isProd ? 100 : 90,
+        candidatePercent: isProd ? 0 : 10,
       },
       billing: {
         service: 'Billing',
-        subdomain: resolvedEnv === 'PROD' ? 'billing.svc.plus' : 'billing.svc.plus (sit)',
-        phase: 'Progressing',
-        weight: 10,
-        primaryPercent: 90,
-        candidatePercent: 10,
+        subdomain: isProd ? 'billing.svc.plus' : 'billing.svc.plus (sit)',
+        phase: 'Succeeded',
+        weight: 0,
+        primaryPercent: 100,
+        candidatePercent: 0,
       },
     };
 
     // If live metrics for flagger exist in series, update phase and weights
     if (data?.series && data.series.length > 0) {
+      const getVal = (fld: any, idx?: number) => {
+        if (!fld || !fld.values) return null;
+        const len = typeof fld.values.length === 'number' ? fld.values.length : (typeof fld.values.size === 'number' ? fld.values.size : 0);
+        if (len === 0) return null;
+        const i = idx !== undefined ? idx : len - 1;
+        if (typeof fld.values.get === 'function') return fld.values.get(i);
+        return fld.values[i];
+      };
+
       for (const frame of data.series) {
-        const field = frame.fields?.find(
+        if (!frame || !frame.fields || frame.fields.length === 0) continue;
+
+        const isStatusQuery = frame.refId === 'D' || (frame.name && frame.name.includes('status'));
+        const isWeightQuery = frame.refId === 'E' || (frame.name && frame.name.includes('weight'));
+
+        const nameField = frame.fields.find(
+          (f: any) => f.name === 'name' || f.name === 'workload' || (f.labels && (f.labels.name || f.labels.workload))
+        );
+        const valField = frame.fields.find(
           (f: any) => f.name === 'Value' || f.type === 'number' || (f.labels && Object.keys(f.labels).length > 0)
         );
-        const labels: Record<string, string> = frame.labels || (field && (field as any).labels) || {};
-        const metricName = labels.__name__ || frame.name || (field && (field as any).name) || '';
-        const name = (labels.name || labels.workload || '').toLowerCase();
 
-        let targetKey = '';
-        if (name.includes('console')) targetKey = 'console';
-        else if (name.includes('accounts')) targetKey = 'accounts';
-        else if (name.includes('billing')) targetKey = 'billing';
+        const rowCount = frame.length ?? valField?.values?.length ?? nameField?.values?.length ?? 1;
 
-        if (!targetKey || !baseMap[targetKey]) continue;
+        for (let row = 0; row < rowCount; row++) {
+          const rawName = String(
+            (nameField && (nameField.labels?.name || nameField.labels?.workload || getVal(nameField, row))) ||
+            (valField && (valField.labels?.name || valField.labels?.workload)) ||
+            frame.name ||
+            ''
+          ).toLowerCase();
 
-        const getVal = (fld: any) => {
-          if (!fld || !fld.values) return null;
-          const len = typeof fld.values.length === 'number' ? fld.values.length : 0;
-          if (len === 0) return null;
-          if (typeof fld.values.get === 'function') return fld.values.get(len - 1);
-          return fld.values[len - 1];
-        };
+          let targetKey: 'console' | 'accounts' | 'billing' | '' = '';
+          if (rawName.includes('console')) targetKey = 'console';
+          else if (rawName.includes('accounts')) targetKey = 'accounts';
+          else if (rawName.includes('billing')) targetKey = 'billing';
 
-        const val = getVal(field);
-        if (metricName.includes('flagger_canary_status')) {
-          const num = Number(val);
-          if (num === 0) {
-            baseMap[targetKey].phase = 'Progressing';
-            baseMap[targetKey].weight = baseMap[targetKey].weight ?? 10;
-            baseMap[targetKey].message = undefined;
-          } else if (num === 1) {
-            baseMap[targetKey].phase = 'Succeeded';
-            baseMap[targetKey].candidatePercent = 0;
-            baseMap[targetKey].primaryPercent = 100;
-            baseMap[targetKey].weight = 0;
-            baseMap[targetKey].message = undefined;
-          } else if (num === 2) {
-            baseMap[targetKey].phase = 'Failed';
-            baseMap[targetKey].weight = 0;
-            baseMap[targetKey].message = undefined;
+          if (!targetKey || !baseMap[targetKey]) continue;
+
+          const rawVal = getVal(valField, row);
+          const num = Number(rawVal);
+
+          if (isStatusQuery || (!isWeightQuery && !isNaN(num) && num <= 2)) {
+            if (num === 0) {
+              baseMap[targetKey].phase = 'Progressing';
+              if (baseMap[targetKey].weight === 0) {
+                baseMap[targetKey].weight = targetKey === 'console' ? 20 : 10;
+                baseMap[targetKey].candidatePercent = baseMap[targetKey].weight;
+                baseMap[targetKey].primaryPercent = 100 - (baseMap[targetKey].weight ?? 0);
+              }
+              baseMap[targetKey].message = undefined;
+            } else if (num === 1) {
+              baseMap[targetKey].phase = 'Succeeded';
+              baseMap[targetKey].candidatePercent = 0;
+              baseMap[targetKey].primaryPercent = 100;
+              baseMap[targetKey].weight = 0;
+              baseMap[targetKey].message = undefined;
+            } else if (num === 2) {
+              baseMap[targetKey].phase = 'Failed';
+              baseMap[targetKey].weight = 0;
+              baseMap[targetKey].candidatePercent = 0;
+              baseMap[targetKey].primaryPercent = 100;
+              baseMap[targetKey].message = undefined;
+            }
           }
-        } else if (metricName.includes('flagger_canary_weight')) {
-          if (!name.includes('primary')) {
-            const w = Math.max(0, Math.min(100, Number(val)));
-            if (!isNaN(w) && w > 0) {
+
+          if (isWeightQuery && !rawName.includes('primary')) {
+            const w = Math.max(0, Math.min(100, num));
+            if (!isNaN(w)) {
               baseMap[targetKey].weight = w;
               baseMap[targetKey].candidatePercent = w;
               baseMap[targetKey].primaryPercent = 100 - w;
-              baseMap[targetKey].phase = 'Progressing';
+              if (w > 0) {
+                baseMap[targetKey].phase = 'Progressing';
+              }
               baseMap[targetKey].message = undefined;
             }
           }
