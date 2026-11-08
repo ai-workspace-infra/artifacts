@@ -27,6 +27,7 @@ export interface FlaggerServiceStatus {
   weight: number | null;
   primaryPercent: number;
   candidatePercent: number;
+  message?: string;
 }
 
 export interface RouteApiStatus {

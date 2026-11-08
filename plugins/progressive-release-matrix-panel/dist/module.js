@@ -3371,6 +3371,41 @@ var ProgressiveReleasePanel = (props) => {
     const finalEnv = (env && !env.startsWith("$") ? env : "PROD").toUpperCase();
     return finalEnv === "SIT" ? "SIT" : "PROD";
   }, [environment, replaceVariables, data]);
+  const [livePayload, setLivePayload] = (0, import_react.useState)(null);
+  const [liveFetchStatus, setLiveFetchStatus] = (0, import_react.useState)("idle");
+  const [lastFetchedAt, setLastFetchedAt] = (0, import_react.useState)(null);
+  (0, import_react.useEffect)(() => {
+    let isMounted = true;
+    let timer = null;
+    const fetchTelemetry = async () => {
+      try {
+        const targetEnv = resolvedEnv.toLowerCase().includes("sit") ? "SIT" : "PROD";
+        const url = `https://console.svc.plus/api/operations/progressive-release?environment=${targetEnv}`;
+        const res = await fetch(url, {
+          headers: { Accept: "application/json" },
+          mode: "cors"
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (isMounted && json && Array.isArray(json.allRoutesAndApis)) {
+            setLivePayload(json);
+            setLiveFetchStatus("success");
+            setLastFetchedAt(/* @__PURE__ */ new Date());
+          }
+        } else {
+          if (isMounted) setLiveFetchStatus("error");
+        }
+      } catch (err) {
+        if (isMounted) setLiveFetchStatus("error");
+      }
+    };
+    fetchTelemetry();
+    timer = setInterval(fetchTelemetry, 15e3);
+    return () => {
+      isMounted = false;
+      if (timer) clearInterval(timer);
+    };
+  }, [resolvedEnv]);
   const observationWindowStr = (0, import_react.useMemo)(() => {
     try {
       if (timeRange && timeRange.from && timeRange.to) {
@@ -3422,6 +3457,28 @@ var ProgressiveReleasePanel = (props) => {
   };
   const parsedData = (0, import_react.useMemo)(() => {
     try {
+      if (!useMockData && livePayload?.endpoints && Array.isArray(livePayload.endpoints) && livePayload.endpoints.length > 0) {
+        const liveEp = {
+          console: {},
+          accounts: {},
+          billing: {}
+        };
+        for (const ep of livePayload.endpoints) {
+          const s = (ep.service || "").toLowerCase();
+          if (liveEp[s]) {
+            liveEp[s][ep.endpoint] = {
+              service: s,
+              route: ep.endpoint,
+              status: ep.result === "PASS" ? "PASS" : ep.result === "FAIL" ? "FAIL" : "NO DATA",
+              httpCode: ep.observedHttp != null ? ep.observedHttp : "\u2014",
+              latencyMs: ep.p95LatencyMs != null ? ep.p95LatencyMs : "\u2014",
+              freshnessSec: ep.freshnessSec || 8,
+              expectedHttp: ep.expectedHttp || (ep.endpoint === "/panel/agent" ? 307 : 200)
+            };
+          }
+        }
+        return { isLive: true, endpoints: liveEp };
+      }
       if (useMockData || !data?.series || data.series.length === 0) {
         return { isLive: false, endpoints: mockEndpoints };
       }
@@ -3509,7 +3566,7 @@ var ProgressiveReleasePanel = (props) => {
       console.warn("[ProgressiveReleasePanel] Failed to parse metrics data, using design mock baseline:", err);
       return { isLive: false, endpoints: mockEndpoints };
     }
-  }, [data, useMockData]);
+  }, [data, useMockData, livePayload]);
   const endpoints = parsedData.endpoints;
   const endpointList = (0, import_react.useMemo)(() => {
     const list = [];
@@ -3536,6 +3593,23 @@ var ProgressiveReleasePanel = (props) => {
     return endpointList.filter((e) => e.status !== "PASS").length;
   }, [endpointList]);
   const flaggerServices = (0, import_react.useMemo)(() => {
+    if (!useMockData && livePayload?.flaggerServices && Array.isArray(livePayload.flaggerServices) && livePayload.flaggerServices.length > 0) {
+      return livePayload.flaggerServices.map((fs) => {
+        const isBilling = fs.service === "Billing";
+        const isNotConfigured = fs.phase === "Not configured" || fs.weight === null || isBilling;
+        const candidateTrafficPct = isNotConfigured ? 0 : fs.candidateTrafficPct ?? fs.weight ?? 0;
+        const primaryTrafficPct = isNotConfigured ? 100 : fs.primaryTrafficPct ?? 100 - candidateTrafficPct;
+        return {
+          service: fs.service,
+          subdomain: fs.serviceDomain || (fs.service === "Console" ? "console.svc.plus" : fs.service === "Accounts" ? "accounts.svc.plus" : "billing.svc.plus"),
+          phase: isNotConfigured ? "Not configured" : fs.phase,
+          weight: isNotConfigured ? null : fs.weight ?? candidateTrafficPct,
+          primaryPercent: primaryTrafficPct,
+          candidatePercent: candidateTrafficPct,
+          message: isNotConfigured ? fs.message || "No canary configured for this service" : void 0
+        };
+      });
+    }
     const baseMap = {
       console: {
         service: "Console",
@@ -3556,10 +3630,11 @@ var ProgressiveReleasePanel = (props) => {
       billing: {
         service: "Billing",
         subdomain: resolvedEnv === "PROD" ? "billing.svc.plus" : "billing.svc.plus (sit)",
-        phase: "Progressing",
-        weight: 10,
-        primaryPercent: 90,
-        candidatePercent: 10
+        phase: "Not configured",
+        weight: null,
+        primaryPercent: 100,
+        candidatePercent: 0,
+        message: "No canary configured for this service"
       }
     };
     if (data?.series && data.series.length > 0) {
@@ -3571,35 +3646,28 @@ var ProgressiveReleasePanel = (props) => {
         const metricName = labels.__name__ || frame.name || field && field.name || "";
         const name = (labels.name || labels.workload || "").toLowerCase();
         let targetKey = "";
-        if (name.includes("console"))
-          targetKey = "console";
-        else if (name.includes("accounts"))
-          targetKey = "accounts";
-        else if (name.includes("billing"))
-          targetKey = "billing";
-        if (!targetKey || !baseMap[targetKey])
-          continue;
+        if (name.includes("console")) targetKey = "console";
+        else if (name.includes("accounts")) targetKey = "accounts";
+        else if (name.includes("billing")) targetKey = "billing";
+        if (!targetKey || !baseMap[targetKey]) continue;
         const getVal = (fld) => {
-          if (!fld || !fld.values)
-            return null;
+          if (!fld || !fld.values) return null;
           const len = typeof fld.values.length === "number" ? fld.values.length : 0;
-          if (len === 0)
-            return null;
-          if (typeof fld.values.get === "function")
-            return fld.values.get(len - 1);
+          if (len === 0) return null;
+          if (typeof fld.values.get === "function") return fld.values.get(len - 1);
           return fld.values[len - 1];
         };
         const val = getVal(field);
         if (metricName.includes("flagger_canary_status")) {
           const num = Number(val);
-          if (num === 2) {
+          if (num === 0) {
             baseMap[targetKey].phase = "Progressing";
-          } else if (num === 1 || num === 0) {
+          } else if (num === 1) {
             baseMap[targetKey].phase = "Succeeded";
             baseMap[targetKey].candidatePercent = 0;
             baseMap[targetKey].primaryPercent = 100;
             baseMap[targetKey].weight = 0;
-          } else if (num === 3) {
+          } else if (num === 2) {
             baseMap[targetKey].phase = "Failed";
           }
         } else if (metricName.includes("flagger_canary_weight")) {
@@ -3609,17 +3677,38 @@ var ProgressiveReleasePanel = (props) => {
               baseMap[targetKey].weight = w;
               baseMap[targetKey].candidatePercent = w;
               baseMap[targetKey].primaryPercent = 100 - w;
+              baseMap[targetKey].phase = "Progressing";
             }
           }
         }
       }
     }
     return [baseMap.console, baseMap.accounts, baseMap.billing];
-  }, [resolvedEnv, data]);
+  }, [resolvedEnv, data, livePayload, useMockData]);
   const [isRoutesCollapsed, setIsRoutesCollapsed] = (0, import_react.useState)(false);
   const [routesFilter, setRoutesFilter] = (0, import_react.useState)("all");
   const [routesSearchQuery, setRoutesSearchQuery] = (0, import_react.useState)("");
   const fullRoutesAndApis = (0, import_react.useMemo)(() => {
+    if (!useMockData && livePayload?.allRoutesAndApis && Array.isArray(livePayload.allRoutesAndApis) && livePayload.allRoutesAndApis.length > 0) {
+      return livePayload.allRoutesAndApis.map((item) => ({
+        id: item.id,
+        order: item.order,
+        type: item.type,
+        categoryKey: item.categoryKey,
+        categoryName: item.categoryName,
+        categoryEnName: item.categoryEnName,
+        service: item.service,
+        serviceDomain: item.serviceDomain,
+        path: item.path,
+        description: item.description,
+        method: item.method,
+        expectedHttp: item.expectedHttp,
+        observedHttp: item.observedHttp,
+        latencyMs: item.latencyMs,
+        freshnessSec: item.freshnessSec,
+        status: item.result === "PASS" ? "PASS" : "FAIL"
+      }));
+    }
     return RAW_ROUTES_CATALOG.map((item) => {
       const svc = item.service.toLowerCase();
       const epData = endpoints?.[svc]?.[item.path];
@@ -3660,7 +3749,7 @@ var ProgressiveReleasePanel = (props) => {
         status
       };
     });
-  }, [endpoints, resolvedEnv]);
+  }, [endpoints, resolvedEnv, livePayload, useMockData]);
   const [expandedRoots, setExpandedRoots] = (0, import_react.useState)({
     frontend: true,
     api: true
@@ -3675,10 +3764,8 @@ var ProgressiveReleasePanel = (props) => {
   const treeData = (0, import_react.useMemo)(() => {
     const list = fullRoutesAndApis;
     const filterItem = (item) => {
-      if (routesFilter === "frontend" && item.type !== "frontend")
-        return false;
-      if (routesFilter === "api" && item.type !== "api")
-        return false;
+      if (routesFilter === "frontend" && item.type !== "frontend") return false;
+      if (routesFilter === "api" && item.type !== "api") return false;
       if (routesSearchQuery.trim()) {
         const q = routesSearchQuery.toLowerCase().trim();
         return item.path.toLowerCase().includes(q) || item.description.toLowerCase().includes(q) || item.service.toLowerCase().includes(q) || item.serviceDomain.toLowerCase().includes(q) || (item.categoryName || "").toLowerCase().includes(q) || (item.categoryEnName || "").toLowerCase().includes(q) || (item.method || "").toLowerCase().includes(q);
@@ -3760,6 +3847,30 @@ var ProgressiveReleasePanel = (props) => {
     }
     setExpandedCategories(next);
   };
+  const candidateSampleInfo = (0, import_react.useMemo)(() => {
+    if (!useMockData && livePayload?.candidateSample?.requestsCount != null) {
+      return {
+        countStr: `${Number(livePayload.candidateSample.requestsCount).toLocaleString()} requests`,
+        summary: livePayload.candidateSample.summary || "(sufficient, \u2265 10,000)"
+      };
+    }
+    return {
+      countStr: resolvedEnv === "PROD" ? "34,862 requests" : "12,450 requests",
+      summary: "(sufficient, \u2265 10,000)"
+    };
+  }, [livePayload, resolvedEnv, useMockData]);
+  const gateInfo = (0, import_react.useMemo)(() => {
+    if (!useMockData && livePayload?.gateStatus) {
+      return {
+        isBlocked: livePayload.gateStatus.status === "BLOCKED",
+        summary: livePayload.gateStatus.summary || (failedCount > 0 ? `${failedCount} / 10 checks failed` : "10 / 10 checks passed")
+      };
+    }
+    return {
+      isBlocked: failedCount > 0,
+      summary: failedCount > 0 ? `${failedCount} / 10 checks failed` : "10 / 10 checks passed"
+    };
+  }, [livePayload, failedCount, useMockData]);
   const feCount = (0, import_react.useMemo)(() => fullRoutesAndApis.filter((i) => i.type === "frontend").length, [fullRoutesAndApis]);
   const beCount = (0, import_react.useMemo)(() => fullRoutesAndApis.filter((i) => i.type === "api").length, [fullRoutesAndApis]);
   const renderCellBadge = (item) => {
@@ -3893,7 +4004,7 @@ var ProgressiveReleasePanel = (props) => {
         "div",
         {
           style: {
-            border: `2px solid ${failedCount > 0 ? "#ef4444" : "#22c55e"}`,
+            border: `2px solid ${gateInfo.isBlocked ? "#ef4444" : "#22c55e"}`,
             borderRadius: "50%",
             width: "28px",
             height: "28px",
@@ -3902,16 +4013,16 @@ var ProgressiveReleasePanel = (props) => {
             justifyContent: "center",
             fontSize: "14px",
             fontWeight: 900,
-            color: failedCount > 0 ? "#ef4444" : "#22c55e"
+            color: gateInfo.isBlocked ? "#ef4444" : "#22c55e"
           }
         },
-        failedCount > 0 ? "\u2715" : "\u2713"
+        gateInfo.isBlocked ? "\u2715" : "\u2713"
       ),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px", fontWeight: 500 } }, "Release gate (overall)"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginTop: "3px" } }, /* @__PURE__ */ import_react.default.createElement(
         "span",
         {
           style: {
-            background: failedCount > 0 ? "#dc2626" : "#16a34a",
+            background: gateInfo.isBlocked ? "#dc2626" : "#16a34a",
             color: "#ffffff",
             fontSize: "11px",
             fontWeight: 800,
@@ -3920,8 +4031,8 @@ var ProgressiveReleasePanel = (props) => {
             letterSpacing: "0.5px"
           }
         },
-        failedCount > 0 ? "BLOCKED" : "PASSED"
-      ), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#d1d5db", fontSize: "13px", fontWeight: 500 } }, failedCount > 0 ? `${failedCount} / 10 checks failed` : "10 / 10 checks passed")))
+        gateInfo.isBlocked ? "BLOCKED" : "PASSED"
+      ), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#d1d5db", fontSize: "13px", fontWeight: 500 } }, gateInfo.summary)))
     ))),
     (mode === "all" || mode === "matrix_only") && showMatrix && /* @__PURE__ */ import_react.default.createElement(
       "div",
@@ -4015,11 +4126,12 @@ var ProgressiveReleasePanel = (props) => {
       },
       /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 700, marginBottom: "12px" } }, "Flagger (Progressive Release)"),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #232838" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "220px" } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "140px" } }, "Flagger phase"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "140px" } }, "Weight (candidate)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 12px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Traffic (primary vs candidate)"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, flaggerServices.map((fs, idx) => {
+        const isNotConfigured = fs.phase === "Not configured" || fs.weight === null;
         const isSucceeded = fs.phase === "Succeeded";
         const isProgressing = fs.phase === "Progressing";
-        const phaseBg = isSucceeded ? "#064e3b" : isProgressing ? "#1e3a8a" : "#1f2937";
-        const phaseBorder = isSucceeded ? "#059669" : isProgressing ? "#2563eb" : "#374151";
-        const phaseColor = isSucceeded ? "#6ee7b7" : isProgressing ? "#93c5fd" : "#9ca3af";
+        const phaseBg = isNotConfigured ? "#1f2430" : isSucceeded ? "#064e3b" : isProgressing ? "#1e3a8a" : "#450a0a";
+        const phaseBorder = isNotConfigured ? "#374151" : isSucceeded ? "#059669" : isProgressing ? "#2563eb" : "#991b1b";
+        const phaseColor = isNotConfigured ? "#9ca3af" : isSucceeded ? "#6ee7b7" : isProgressing ? "#93c5fd" : "#fca5a5";
         return /* @__PURE__ */ import_react.default.createElement("tr", { key: idx, style: { borderBottom: idx < flaggerServices.length - 1 ? "1px solid #1b1e2a" : "none" } }, /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 700 } }, fs.service), " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#8b949e", fontSize: "11px" } }, fs.subdomain)), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement(
           "span",
           {
@@ -4034,7 +4146,7 @@ var ProgressiveReleasePanel = (props) => {
             }
           },
           fs.phase
-        )), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px", color: "#ffffff", fontSize: "13px", fontWeight: 700 } }, fs.weight != null ? `${fs.weight}%` : "\u2014"), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, /* @__PURE__ */ import_react.default.createElement(
+        )), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px", color: "#ffffff", fontSize: "13px", fontWeight: 700 } }, isNotConfigured ? "\u2014" : `${fs.weight}%`), /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "10px 12px" } }, isNotConfigured ? /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "6px", color: "#9ca3af", fontSize: "12px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#6b7280", fontSize: "13px" } }, "\u24D8"), /* @__PURE__ */ import_react.default.createElement("span", null, fs.message || "No canary configured for this service")) : /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, /* @__PURE__ */ import_react.default.createElement(
           "div",
           {
             style: {
@@ -4160,7 +4272,7 @@ var ProgressiveReleasePanel = (props) => {
         }
       },
       /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#a78bfa", fontSize: "18px", lineHeight: 1 } }, "\u{1F9EA}"),
-      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 600 } }, "Candidate sample: ", resolvedEnv === "PROD" ? "34,862 requests" : "12,450 requests"), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#22c55e", fontSize: "11px", fontWeight: 600, marginTop: "1px" } }, "(sufficient, \u2265 10,000)"))
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 600 } }, "Candidate sample: ", candidateSampleInfo.countStr), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#22c55e", fontSize: "11px", fontWeight: 600, marginTop: "1px" } }, candidateSampleInfo.summary))
     )),
     showRoutesTable && /* @__PURE__ */ import_react.default.createElement(
       "div",
@@ -4191,7 +4303,25 @@ var ProgressiveReleasePanel = (props) => {
           }
         },
         /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: "12px", color: "#8b949e" } }, isRoutesCollapsed ? "\u25B6" : "\u25BC"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 700 } }, "\u5168\u91CF\u8DEF\u7531\u4E0E\u540E\u7AEF\u670D\u52A1 API \u6E05\u5355"), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#8b949e", fontSize: "11px", marginLeft: "6px" } }, "(Collapsible Routes & APIs Matrix \u2022 \u524D\u7AEF / \u540E\u7AEF / \u5927\u7C7B / \u5B50\u7EC4\u4EF6\u4E09\u7EA7\u6811\u72B6\u5C55\u793A)"))),
-        /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ import_react.default.createElement(
+        /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ import_react.default.createElement(
+          "span",
+          {
+            style: {
+              background: liveFetchStatus === "success" || parsedData.isLive ? "rgba(34, 197, 94, 0.15)" : "rgba(59, 130, 246, 0.15)",
+              color: liveFetchStatus === "success" || parsedData.isLive ? "#4ade80" : "#60a5fa",
+              border: `1px solid ${liveFetchStatus === "success" || parsedData.isLive ? "rgba(34, 197, 94, 0.3)" : "rgba(59, 130, 246, 0.3)"}`,
+              padding: "2px 8px",
+              borderRadius: "12px",
+              fontSize: "11px",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: "4px"
+            }
+          },
+          /* @__PURE__ */ import_react.default.createElement("span", { style: { width: "6px", height: "6px", borderRadius: "50%", background: liveFetchStatus === "success" || parsedData.isLive ? "#22c55e" : "#3b82f6" } }),
+          liveFetchStatus === "success" || parsedData.isLive ? "Live Telemetry Dynamic" : "Catalog Synchronized"
+        ), /* @__PURE__ */ import_react.default.createElement(
           "span",
           {
             style: {
