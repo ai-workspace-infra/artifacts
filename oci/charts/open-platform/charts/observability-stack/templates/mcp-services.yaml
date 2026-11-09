@@ -1,0 +1,85 @@
+{{- if .Values.mcp.enabled }}
+{{- if .Values.mcp.victoriaMetrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.mcp.victoriaMetrics.serviceName | default (printf "%s-mcp-victoriametrics" (include "observability-stack.fullname" .)) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-victoriametrics
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: mcp
+      port: {{ .Values.mcp.victoriaMetrics.port | default 8088 }}
+      targetPort: mcp
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ include "observability-stack.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-victoriametrics
+---
+{{- end }}
+{{- if .Values.mcp.victoriaLogs.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.mcp.victoriaLogs.serviceName | default (printf "%s-mcp-victorialogs" (include "observability-stack.fullname" .)) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-victorialogs
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: mcp
+      port: {{ .Values.mcp.victoriaLogs.port | default 8083 }}
+      targetPort: mcp
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ include "observability-stack.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-victorialogs
+---
+{{- end }}
+{{- if .Values.mcp.victoriaTraces.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.mcp.victoriaTraces.serviceName | default (printf "%s-mcp-victoriatraces" (include "observability-stack.fullname" .)) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-victoriatraces
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: mcp
+      port: {{ .Values.mcp.victoriaTraces.port | default 8082 }}
+      targetPort: mcp
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ include "observability-stack.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-victoriatraces
+---
+{{- end }}
+{{- if .Values.mcp.grafana.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.mcp.grafana.serviceName | default (printf "%s-mcp-grafana" (include "observability-stack.fullname" .)) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-grafana
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http-sse
+      port: {{ .Values.mcp.grafana.port | default 8000 }}
+      targetPort: grafana-sse
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ include "observability-stack.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-grafana
+{{- end }}
+{{- end }}

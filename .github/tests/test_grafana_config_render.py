@@ -32,6 +32,49 @@ class Provisioning(unittest.TestCase):
  def test_unsafe_paths_and_unpinned_plugins_rejected(self):
   for v in [{'plugins':['latest']},{'unsignedPlugins':['*']},{'dashboardProviders':[{'path':'../escape','configMaps':['x']}]}]:
    self.assertNotEqual(self.render({'grafana':v}).returncode,0)
+ def test_mcp_deployments_and_services_render_when_enabled(self):
+  r=self.render({'domain':'svc.plus','mcp':{'enabled':True,'grafana':{'extraAllowedHosts':['custom.domain.test']}}})
+  self.assertEqual(r.returncode,0,r.stderr)
+  docs=[x for x in yaml.safe_load_all(r.stdout) if x]
+  deployments={d['metadata']['name']:d for d in docs if d.get('kind')=='Deployment'}
+  self.assertIn('migration-observability-stack-mcp-victoriametrics',deployments)
+  self.assertIn('migration-observability-stack-mcp-victorialogs',deployments)
+  self.assertIn('migration-observability-stack-mcp-victoriatraces',deployments)
+  self.assertIn('migration-observability-stack-mcp-grafana',deployments)
+  grafana_dep=deployments['migration-observability-stack-mcp-grafana']
+  args=grafana_dep['spec']['template']['spec']['containers'][0]['args']
+  allowed_hosts_idx=args.index('--allowed-hosts')+1
+  allowed_hosts=args[allowed_hosts_idx].split(',')
+  self.assertIn('mcp-grafana',allowed_hosts)
+  self.assertIn('migration-observability-stack-mcp-grafana',allowed_hosts)
+  self.assertIn('localhost',allowed_hosts)
+  self.assertIn('svc.plus',allowed_hosts)
+  self.assertIn('observability.svc.plus',allowed_hosts)
+  self.assertIn('mcp.svc.plus',allowed_hosts)
+  self.assertIn('custom.domain.test',allowed_hosts)
+  services={s['metadata']['name']:s for s in docs if s.get('kind')=='Service'}
+  self.assertIn('migration-observability-stack-mcp-victoriametrics',services)
+  self.assertIn('migration-observability-stack-mcp-victorialogs',services)
+  self.assertIn('migration-observability-stack-mcp-victoriatraces',services)
+  self.assertIn('migration-observability-stack-mcp-grafana',services)
+ def test_traefik_routes_render_when_enabled(self):
+  r=self.render({'domain':'svc.plus','mcp':{'enabled':True},'traefik':{'ingressRoute':{'enabled':True,'host':'observability.svc.plus'}}})
+  self.assertEqual(r.returncode,0,r.stderr)
+  docs=[x for x in yaml.safe_load_all(r.stdout) if x]
+  mws={m['metadata']['name']:m for m in docs if m.get('kind')=='Middleware'}
+  self.assertIn('migration-observability-stack-ingest-prefix',mws)
+  self.assertIn('migration-observability-stack-strip-mcp-prefix',mws)
+  self.assertIn('migration-observability-stack-metrics-prefix',mws)
+  self.assertIn('migration-observability-stack-logs-prefix',mws)
+  self.assertIn('migration-observability-stack-traces-prefix',mws)
+  routes={rt['metadata']['name']:rt for rt in docs if rt.get('kind')=='IngressRoute'}
+  self.assertIn('migration-observability-stack-ingest',routes)
+  self.assertIn('migration-observability-stack-query',routes)
+  self.assertIn('migration-observability-stack-mcp-grafana',routes)
+  self.assertIn('migration-observability-stack-mcp-metrics',routes)
+  self.assertIn('migration-observability-stack-mcp-logs',routes)
+  self.assertIn('migration-observability-stack-mcp-traces',routes)
+  self.assertIn('migration-observability-stack-grafana',routes)
 class KubeletMetricGroups(unittest.TestCase):
  def render_config(self, kubernetes):
   with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml') as f:
