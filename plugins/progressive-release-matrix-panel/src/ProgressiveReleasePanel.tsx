@@ -146,23 +146,23 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
     return `${hh}:${mm}:${ss} UTC`;
   }, [data]);
 
-  // 1. Mock baseline data matching original design target
-  const mockEndpoints: Record<string, Record<string, EndpointStatus>> = {
+  // Canonical top-10 monitored endpoints matrix schema (default clean state: NO DATA)
+  const defaultEndpoints: Record<string, Record<string, EndpointStatus>> = {
     console: {
-      '/healthz': { service: 'console', route: '/healthz', status: 'PASS', httpCode: 200, latencyMs: 38, freshnessSec: 9, expectedHttp: 200 },
-      '/login': { service: 'console', route: '/login', status: 'PASS', httpCode: 200, latencyMs: 182, freshnessSec: 11, expectedHttp: 200 },
-      '/panel/agent': { service: 'console', route: '/panel/agent', status: 'PASS', httpCode: 307, latencyMs: 246, freshnessSec: 12, expectedHttp: 307 },
+      '/healthz': { service: 'console', route: '/healthz', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 200 },
+      '/login': { service: 'console', route: '/login', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 200 },
+      '/panel/agent': { service: 'console', route: '/panel/agent', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 307 },
     },
     accounts: {
-      '/healthz': { service: 'accounts', route: '/healthz', status: 'PASS', httpCode: 200, latencyMs: 41, freshnessSec: 8, expectedHttp: 200 },
-      '/readyz': { service: 'accounts', route: '/readyz', status: 'PASS', httpCode: 200, latencyMs: 57, freshnessSec: 9, expectedHttp: 200 },
-      '/api/ping': { service: 'accounts', route: '/api/ping', status: 'PASS', httpCode: 200, latencyMs: 64, freshnessSec: 10, expectedHttp: 200 },
-      '/api/billing/plans': { service: 'accounts', route: '/api/billing/plans', status: 'FAIL', httpCode: 503, latencyMs: 1204, freshnessSec: 10, expectedHttp: 200 },
+      '/healthz': { service: 'accounts', route: '/healthz', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 200 },
+      '/readyz': { service: 'accounts', route: '/readyz', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 200 },
+      '/api/ping': { service: 'accounts', route: '/api/ping', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 200 },
+      '/api/billing/plans': { service: 'accounts', route: '/api/billing/plans', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 200 },
     },
     billing: {
-      '/healthz': { service: 'billing', route: '/healthz', status: 'PASS', httpCode: 200, latencyMs: 35, freshnessSec: 9, expectedHttp: 200 },
-      '/readyz': { service: 'billing', route: '/readyz', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 9, expectedHttp: 200 },
-      '/api/ping': { service: 'billing', route: '/api/ping', status: 'PASS', httpCode: 200, latencyMs: 71, freshnessSec: 11, expectedHttp: 200 },
+      '/healthz': { service: 'billing', route: '/healthz', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 200 },
+      '/readyz': { service: 'billing', route: '/readyz', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 200 },
+      '/api/ping': { service: 'billing', route: '/api/ping', status: 'NO DATA', httpCode: '—', latencyMs: '—', freshnessSec: 0, expectedHttp: 200 },
     },
   };
 
@@ -189,11 +189,18 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
             };
           }
         }
+        for (const s of ['console', 'accounts', 'billing']) {
+          for (const r of Object.keys(defaultEndpoints[s])) {
+            if (!liveEp[s][r]) {
+              liveEp[s][r] = { ...defaultEndpoints[s][r] };
+            }
+          }
+        }
         return { isLive: true, endpoints: liveEp };
       }
 
-      if (useMockData || !data?.series || data.series.length === 0) {
-        return { isLive: false, endpoints: mockEndpoints };
+      if (!data?.series || data.series.length === 0) {
+        return { isLive: false, endpoints: defaultEndpoints };
       }
 
       const liveEndpoints: Record<string, Record<string, EndpointStatus>> = {
@@ -356,22 +363,22 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       }
 
       if (!foundAny) {
-        return { isLive: false, endpoints: mockEndpoints };
+        return { isLive: false, endpoints: defaultEndpoints };
       }
 
-      // Default missing endpoints to mock/healthy
+      // Fill missing endpoints from canonical baseline with NO DATA
       for (const s of ['console', 'accounts', 'billing']) {
-        for (const r of Object.keys(mockEndpoints[s])) {
+        for (const r of Object.keys(defaultEndpoints[s])) {
           if (!liveEndpoints[s][r]) {
-            liveEndpoints[s][r] = { ...mockEndpoints[s][r] };
+            liveEndpoints[s][r] = { ...defaultEndpoints[s][r] };
           }
         }
       }
 
       return { isLive: true, endpoints: liveEndpoints };
     } catch (err) {
-      console.warn('[ProgressiveReleasePanel] Failed to parse metrics data, using design mock baseline:', err);
-      return { isLive: false, endpoints: mockEndpoints };
+      console.warn('[ProgressiveReleasePanel] Failed to parse metrics data:', err);
+      return { isLive: false, endpoints: defaultEndpoints };
     }
   }, [data, useMockData, livePayload]);
 
@@ -430,18 +437,18 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       console: {
         service: 'Console',
         subdomain: isProd ? 'console.svc.plus' : 'console.svc.plus (sit)',
-        phase: isProd ? 'Succeeded' : 'Progressing',
-        weight: isProd ? 0 : 20,
-        primaryPercent: isProd ? 100 : 80,
-        candidatePercent: isProd ? 0 : 20,
+        phase: 'Succeeded',
+        weight: 0,
+        primaryPercent: 100,
+        candidatePercent: 0,
       },
       accounts: {
         service: 'Accounts',
         subdomain: isProd ? 'accounts.svc.plus' : 'accounts.svc.plus (sit)',
-        phase: isProd ? 'Succeeded' : 'Progressing',
-        weight: isProd ? 0 : 10,
-        primaryPercent: isProd ? 100 : 90,
-        candidatePercent: isProd ? 0 : 10,
+        phase: 'Succeeded',
+        weight: 0,
+        primaryPercent: 100,
+        candidatePercent: 0,
       },
       billing: {
         service: 'Billing',
@@ -763,8 +770,8 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       };
     }
     return {
-      countStr: resolvedEnv === 'PROD' ? '34,862 requests' : '12,450 requests',
-      summary: '(sufficient, ≥ 10,000)',
+      countStr: '— requests',
+      summary: '(monitoring live telemetry)',
     };
   }, [livePayload, resolvedEnv, useMockData]);
 
@@ -874,7 +881,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                 borderRadius: '4px',
               }}
             >
-              {parsedData.isLive ? `● LIVE ${resolvedEnv} DATA` : 'PREVIEW MOCK DATA'}
+              {parsedData.isLive ? `● LIVE ${resolvedEnv} DATA` : 'NO LIVE DATA'}
             </span>
           </div>
 
@@ -1265,7 +1272,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ color: '#ffffff', fontSize: '15px', fontWeight: 700 }}>
-                Top 10 Endpoint Details ({parsedData.isLive ? `Live ${resolvedEnv} Data` : 'Sample Mock Data'})
+                Top 10 Endpoint Details ({parsedData.isLive ? `Live ${resolvedEnv} Data` : 'Telemetry Baseline'})
               </span>
               <span
                 style={{
@@ -1278,7 +1285,7 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
                   borderRadius: '3px',
                 }}
               >
-                {parsedData.isLive ? '● LIVE METRICS' : 'SAMPLE MOCK DATA'}
+                {parsedData.isLive ? '● LIVE METRICS' : 'NO LIVE DATA'}
               </span>
             </div>
             <div style={{ color: '#8b949e', fontSize: '12px' }}>

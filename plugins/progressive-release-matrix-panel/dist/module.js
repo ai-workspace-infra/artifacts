@@ -3437,22 +3437,22 @@ var ProgressiveReleasePanel = (props) => {
     const ss = String(d.getUTCSeconds()).padStart(2, "0");
     return `${hh}:${mm}:${ss} UTC`;
   }, [data]);
-  const mockEndpoints = {
+  const defaultEndpoints = {
     console: {
-      "/healthz": { service: "console", route: "/healthz", status: "PASS", httpCode: 200, latencyMs: 38, freshnessSec: 9, expectedHttp: 200 },
-      "/login": { service: "console", route: "/login", status: "PASS", httpCode: 200, latencyMs: 182, freshnessSec: 11, expectedHttp: 200 },
-      "/panel/agent": { service: "console", route: "/panel/agent", status: "PASS", httpCode: 307, latencyMs: 246, freshnessSec: 12, expectedHttp: 307 }
+      "/healthz": { service: "console", route: "/healthz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
+      "/login": { service: "console", route: "/login", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
+      "/panel/agent": { service: "console", route: "/panel/agent", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 307 }
     },
     accounts: {
-      "/healthz": { service: "accounts", route: "/healthz", status: "PASS", httpCode: 200, latencyMs: 41, freshnessSec: 8, expectedHttp: 200 },
-      "/readyz": { service: "accounts", route: "/readyz", status: "PASS", httpCode: 200, latencyMs: 57, freshnessSec: 9, expectedHttp: 200 },
-      "/api/ping": { service: "accounts", route: "/api/ping", status: "PASS", httpCode: 200, latencyMs: 64, freshnessSec: 10, expectedHttp: 200 },
-      "/api/billing/plans": { service: "accounts", route: "/api/billing/plans", status: "FAIL", httpCode: 503, latencyMs: 1204, freshnessSec: 10, expectedHttp: 200 }
+      "/healthz": { service: "accounts", route: "/healthz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
+      "/readyz": { service: "accounts", route: "/readyz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
+      "/api/ping": { service: "accounts", route: "/api/ping", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
+      "/api/billing/plans": { service: "accounts", route: "/api/billing/plans", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 }
     },
     billing: {
-      "/healthz": { service: "billing", route: "/healthz", status: "PASS", httpCode: 200, latencyMs: 35, freshnessSec: 9, expectedHttp: 200 },
-      "/readyz": { service: "billing", route: "/readyz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 9, expectedHttp: 200 },
-      "/api/ping": { service: "billing", route: "/api/ping", status: "PASS", httpCode: 200, latencyMs: 71, freshnessSec: 11, expectedHttp: 200 }
+      "/healthz": { service: "billing", route: "/healthz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
+      "/readyz": { service: "billing", route: "/readyz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
+      "/api/ping": { service: "billing", route: "/api/ping", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 }
     }
   };
   const parsedData = (0, import_react.useMemo)(() => {
@@ -3477,10 +3477,17 @@ var ProgressiveReleasePanel = (props) => {
             };
           }
         }
+        for (const s of ["console", "accounts", "billing"]) {
+          for (const r of Object.keys(defaultEndpoints[s])) {
+            if (!liveEp[s][r]) {
+              liveEp[s][r] = { ...defaultEndpoints[s][r] };
+            }
+          }
+        }
         return { isLive: true, endpoints: liveEp };
       }
-      if (useMockData || !data?.series || data.series.length === 0) {
-        return { isLive: false, endpoints: mockEndpoints };
+      if (!data?.series || data.series.length === 0) {
+        return { isLive: false, endpoints: defaultEndpoints };
       }
       const liveEndpoints = {
         console: {},
@@ -3623,19 +3630,19 @@ var ProgressiveReleasePanel = (props) => {
         }
       }
       if (!foundAny) {
-        return { isLive: false, endpoints: mockEndpoints };
+        return { isLive: false, endpoints: defaultEndpoints };
       }
       for (const s of ["console", "accounts", "billing"]) {
-        for (const r of Object.keys(mockEndpoints[s])) {
+        for (const r of Object.keys(defaultEndpoints[s])) {
           if (!liveEndpoints[s][r]) {
-            liveEndpoints[s][r] = { ...mockEndpoints[s][r] };
+            liveEndpoints[s][r] = { ...defaultEndpoints[s][r] };
           }
         }
       }
       return { isLive: true, endpoints: liveEndpoints };
     } catch (err) {
-      console.warn("[ProgressiveReleasePanel] Failed to parse metrics data, using design mock baseline:", err);
-      return { isLive: false, endpoints: mockEndpoints };
+      console.warn("[ProgressiveReleasePanel] Failed to parse metrics data:", err);
+      return { isLive: false, endpoints: defaultEndpoints };
     }
   }, [data, useMockData, livePayload]);
   const endpoints = parsedData.endpoints;
@@ -3685,18 +3692,18 @@ var ProgressiveReleasePanel = (props) => {
       console: {
         service: "Console",
         subdomain: isProd ? "console.svc.plus" : "console.svc.plus (sit)",
-        phase: isProd ? "Succeeded" : "Progressing",
-        weight: isProd ? 0 : 20,
-        primaryPercent: isProd ? 100 : 80,
-        candidatePercent: isProd ? 0 : 20
+        phase: "Succeeded",
+        weight: 0,
+        primaryPercent: 100,
+        candidatePercent: 0
       },
       accounts: {
         service: "Accounts",
         subdomain: isProd ? "accounts.svc.plus" : "accounts.svc.plus (sit)",
-        phase: isProd ? "Succeeded" : "Progressing",
-        weight: isProd ? 0 : 10,
-        primaryPercent: isProd ? 100 : 90,
-        candidatePercent: isProd ? 0 : 10
+        phase: "Succeeded",
+        weight: 0,
+        primaryPercent: 100,
+        candidatePercent: 0
       },
       billing: {
         service: "Billing",
@@ -3948,8 +3955,8 @@ var ProgressiveReleasePanel = (props) => {
       };
     }
     return {
-      countStr: resolvedEnv === "PROD" ? "34,862 requests" : "12,450 requests",
-      summary: "(sufficient, \u2265 10,000)"
+      countStr: "\u2014 requests",
+      summary: "(monitoring live telemetry)"
     };
   }, [livePayload, resolvedEnv, useMockData]);
   const gateInfo = (0, import_react.useMemo)(() => {
@@ -4038,7 +4045,7 @@ var ProgressiveReleasePanel = (props) => {
           borderRadius: "4px"
         }
       },
-      parsedData.isLive ? `\u25CF LIVE ${resolvedEnv} DATA` : "PREVIEW MOCK DATA"
+      parsedData.isLive ? `\u25CF LIVE ${resolvedEnv} DATA` : "NO LIVE DATA"
     )), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1.5fr 1.5fr", gap: "12px" } }, /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
@@ -4270,7 +4277,7 @@ var ProgressiveReleasePanel = (props) => {
           marginBottom: "16px"
         }
       },
-      /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 700 } }, "Top 10 Endpoint Details (", parsedData.isLive ? `Live ${resolvedEnv} Data` : "Sample Mock Data", ")"), /* @__PURE__ */ import_react.default.createElement(
+      /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 700 } }, "Top 10 Endpoint Details (", parsedData.isLive ? `Live ${resolvedEnv} Data` : "Telemetry Baseline", ")"), /* @__PURE__ */ import_react.default.createElement(
         "span",
         {
           style: {
@@ -4283,7 +4290,7 @@ var ProgressiveReleasePanel = (props) => {
             borderRadius: "3px"
           }
         },
-        parsedData.isLive ? "\u25CF LIVE METRICS" : "SAMPLE MOCK DATA"
+        parsedData.isLive ? "\u25CF LIVE METRICS" : "NO LIVE DATA"
       )), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px" } }, "10/10 checks \u2022 ", failedCount, " failed \u2022 Updated: ", updatedTimeStr)),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #232838" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "30px" } }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Endpoint (GET)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Expected HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Observed HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "p95 Latency"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Freshness (age)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Result"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, endpointList.map((ep, idx) => {
         const isConsole = ep.service === "console";
