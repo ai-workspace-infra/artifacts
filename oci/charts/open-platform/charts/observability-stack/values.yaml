@@ -165,3 +165,127 @@ telemetry:
       units:
         - k3s.service
         - k3s-agent.service
+
+# ------------------------------------------------------------------------------
+# Model Context Protocol (MCP) Server Gateways
+# Exposes MCP interfaces for VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana
+# ------------------------------------------------------------------------------
+mcp:
+  enabled: false
+  victoriaMetrics:
+    enabled: true
+    image:
+      repository: ghcr.io/victoriametrics/mcp-victoriametrics
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 8088
+    # When empty, defaults to http://<fullname>-victoria-metrics:<service.metricsPort>
+    entrypoint: ""
+    instanceType: single
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  victoriaLogs:
+    enabled: true
+    image:
+      repository: ghcr.io/victoriametrics/mcp-victorialogs
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 8083
+    # When empty, defaults to http://<fullname>-victoria-logs:<service.logsPort>
+    entrypoint: ""
+    readOnly: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  victoriaTraces:
+    enabled: true
+    image:
+      repository: ghcr.io/victoriametrics-community/mcp-victoriatraces
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 8082
+    # When empty, defaults to http://<fullname>-victoria-traces:<service.tracesPort>
+    entrypoint: ""
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  grafana:
+    enabled: true
+    image:
+      repository: grafana/mcp-grafana
+      tag: "latest@sha256:71a3f4e6f412d253611314233df709ec2571fb50e39742d23fa2940f670646dc"
+      pullPolicy: IfNotPresent
+    port: 8000
+    basePath: "/v1/grafana"
+    disableWrite: true
+    disableAdmin: true
+    # When empty, defaults to http://<fullname>-grafana:<service.grafanaPort>/
+    grafanaUrl: ""
+    tokenSecret:
+      name: "infra-mcp-auth"
+      key: "grafana-service-account-token"
+      optional: true
+    extraAllowedHosts: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ------------------------------------------------------------------------------
+# Traefik IngressRoutes and Middlewares
+# Exposes shared observability routes (/mcp/v1/*, /ingest/*, /api/v1/*, and root)
+# ------------------------------------------------------------------------------
+traefik:
+  ingressRoute:
+    enabled: false
+    entryPoints:
+      - websecure
+    # When empty, defaults to observability.<domain>
+    host: ""
+    extraHosts: []
+    priorities:
+      ingest: 1000
+      query: 1100
+      mcpGrafana: 1200
+      mcpMetrics: 1200
+      mcpLogs: 1200
+      mcpTraces: 1200
+      grafana: 1
+    tls:
+      enabled: true
+      secretName: "shared-observability-tls"
+    # Target service for /ingest/metrics/api/v1/write, /ingest/logs/, /ingest/otlp/
+    ingestService:
+      name: "observability-ingest-auth"
+      port: 8427
+      namespace: ""
+    # Target service for /api/v1/query and /api/v1/query_range
+    queryService:
+      name: ""
+      port: 0
+      namespace: ""
+    middleware:
+      ingestPrefix: ""
+      stripMcpPrefix: ""
+      metricsPrefix: ""
+      logsPrefix: ""
+      tracesPrefix: ""
