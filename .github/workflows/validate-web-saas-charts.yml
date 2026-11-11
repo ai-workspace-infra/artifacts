@@ -46,8 +46,14 @@ jobs:
           helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true >/tmp/grafana-mcp.yaml
           grep -q "name: grafana-mcp-server" /tmp/grafana-mcp.yaml
           grep -q -- "--disable-write" /tmp/grafana-mcp.yaml
-          ! grep -q "MCP_GRAFANA_SERVER_TOKEN" /tmp/grafana-mcp.yaml
-          helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true --set global.mcp.bearerToken.existingSecret=platform-mcp | grep -q "MCP_GRAFANA_SERVER_TOKEN"
+          # Bearer auth is on by default (Secret platform-mcp) and usage stats are off.
+          grep -q "MCP_GRAFANA_SERVER_TOKEN" /tmp/grafana-mcp.yaml
+          grep -q 'name: "platform-mcp"' /tmp/grafana-mcp.yaml
+          grep -q "GRAFANA_USAGE_STATS" /tmp/grafana-mcp.yaml
+          grep -q 'GF_ANALYTICS_REPORTING_ENABLED' /tmp/grafana-rendered.yaml
+          # Auth on with no Secret must fail to render; explicit opt-out renders without the token.
+          ! helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true --set global.mcp.bearerToken.existingSecret= >/dev/null 2>&1
+          ! helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true --set global.mcp.bearerToken.enabled=false | grep -q "MCP_GRAFANA_SERVER_TOKEN"
           helm template platform-observability oci/charts/open-platform/charts/observability-stack --set telemetry.cluster=validation --set telemetry.environment=prod >/tmp/observability-rendered.yaml
       - name: Verify Grafana external configuration and rejection cases
         run: python3 .github/tests/test_grafana_config_render.py

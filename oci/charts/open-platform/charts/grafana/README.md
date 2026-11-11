@@ -24,6 +24,12 @@ It reaches Grafana through the in-cluster Service and reuses `existingSecret`/`a
 extra credential is defined. `--disable-write` and `--disable-admin` are on by default. It is covered by
 the chart's shared `vpa`/`hpa` settings like the Grafana Deployment.
 
-Inbound auth: set `global.mcp.bearerToken.existingSecret` (key `global.mcp.bearerToken.key`, default
-`mcp-service-token`) to require `Authorization: Bearer <token>`; the same global value is meant for
-every MCP server and the MCP gateway. `mcp.bearerToken` overrides it for this server only.
+Inbound auth is on by default: `global.mcp.bearerToken` (`enabled: true`, Secret `platform-mcp`, key
+`mcp-service-token`) makes the server require `Authorization: Bearer <token>`, so no MCP endpoint is
+served without auth. The same global value is meant for every MCP server and the MCP gateway;
+`mcp.bearerToken` overrides it for this server only. Rendering fails if auth is on and no Secret is
+named; `global.mcp.bearerToken.enabled=false` turns it off explicitly (throwaway local clusters only).
+
+Phone-home is off by default: mcp-grafana usage stats (`mcp.usageStats: false`, sets
+`GRAFANA_USAGE_STATS=disabled` and `DO_NOT_TRACK=1`) and Grafana's own reporting and update checks
+(`analytics.reportingEnabled` / `analytics.checkForUpdates`).

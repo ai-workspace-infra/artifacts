@@ -3,8 +3,12 @@
 # token under bearerToken.key. Empty -> MCP servers run without inbound auth.
 global:
   mcp:
+    # One bearer token shared by every MCP server and the MCP gateway. On by default so no MCP
+    # endpoint is ever served without auth: rendering fails when it is on and no Secret is named.
+    # Turn off only for a throwaway local cluster (global.mcp.bearerToken.enabled=false).
     bearerToken:
-      existingSecret: ""
+      enabled: true
+      existingSecret: platform-mcp
       key: mcp-service-token
 
 replicaCount: 1
@@ -117,6 +121,11 @@ hpa:
 # Optional read-only MCP server for this Grafana (grafana/mcp-grafana), as its own Deployment
 # and Service "grafana-mcp-server" (mcp.name). Off by default. It talks to Grafana over the in-cluster Service
 # and reuses existingSecret/adminPasswordKey, so no extra credential is defined.
+# Grafana server phone-home: anonymous usage reporting and update checks to grafana.com. Off by default.
+analytics:
+  reportingEnabled: false
+  checkForUpdates: false
+
 mcp:
   enabled: false
   name: grafana-mcp-server
@@ -139,6 +148,8 @@ mcp:
   bearerToken:
     existingSecret: ""
     key: ""
+  # Anonymous usage statistics mcp-grafana sends to Grafana Labs. Off by default.
+  usageStats: false
   resources:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {cpu: 200m, memory: 256Mi}
