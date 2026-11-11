@@ -18,7 +18,7 @@ Aggregates 11 Core Service Categories (12 modular subcharts):
 import os
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent / "open-platform"
+BASE_DIR = Path(__file__).resolve().parents[2] / "oci" / "charts" / "open-platform"
 
 def write(filepath: Path, content: str):
     filepath.parent.mkdir(parents=True, exist_ok=True)

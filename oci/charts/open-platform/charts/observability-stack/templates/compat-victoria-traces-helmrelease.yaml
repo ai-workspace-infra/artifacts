@@ -1,0 +1,29 @@
+{{- if .Values.compat.enabled }}
+{{- if .Values.compat.server.victoriaTraces.enabled }}
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: {{ .Values.compat.server.victoriaTraces.releaseName }}
+  namespace: {{ .Values.compat.namespaces.observability }}
+spec:
+  interval: 10m0s
+  releaseName: {{ .Values.compat.server.victoriaTraces.releaseName }}
+  chart:
+    spec:
+      chart: {{ .Values.compat.server.victoriaTraces.chart.name }}
+      version: {{ .Values.compat.server.victoriaTraces.chart.version | quote }}
+      sourceRef:
+        kind: {{ .Values.compat.server.victoriaTraces.sourceRef.kind }}
+        name: {{ .Values.compat.server.victoriaTraces.sourceRef.name }}
+        namespace: {{ .Values.compat.server.victoriaTraces.sourceRef.namespace }}
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    {{- toYaml .Values.compat.server.victoriaTraces.values | nindent 4 }}
+{{- end }}
+
+{{- end }}

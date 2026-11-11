@@ -10,7 +10,7 @@ import unittest
 import yaml
 
 REPO = Path(__file__).resolve().parents[2]
-CHART = REPO / 'oci/charts/distributed-web-saas-fullstack'
+CHART = REPO / 'oci/charts/web-saas-fullstack'
 SUB = CHART / 'subcharts'
 IMAGE = 'registry.example.invalid/test-only@sha256:' + 'a' * 64
 FRONT = ['static-pages', 'frontend-router', 'ssr-public', 'ssr-content', 'ssr-auth', 'ssr-console', 'ssr-workspace']

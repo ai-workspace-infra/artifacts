@@ -1,6 +1,6 @@
 import os
 
-CHART_DIR = "/Users/shenlan/workspaces/ai-workspace-infra/artifacts/oci/charts/web-saas"
+CHART_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "oci", "charts", "web-saas-fullstack", "standalone", "web-saas")
 
 def create_file(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)

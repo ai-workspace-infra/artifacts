@@ -1,0 +1,72 @@
+{{- if .Values.compat.enabled }}
+{{- if .Values.compat.agent.vector.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.compat.agent.vector.serviceAccountName }}
+  namespace: {{ .Values.compat.namespaces.observability }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-agent-config
+  namespace: {{ .Values.compat.namespaces.observability }}
+data:
+  vector.yaml: |
+    {{- .Values.compat.agent.vector.config | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vector-agent
+  namespace: {{ .Values.compat.namespaces.observability }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vector-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vector-agent
+    spec:
+      serviceAccountName: {{ .Values.compat.agent.vector.serviceAccountName }}
+      containers:
+        - name: vector
+          image: "{{ .Values.compat.agent.vector.image.repository }}:{{ .Values.compat.agent.vector.image.tag }}"
+          imagePullPolicy: {{ .Values.compat.agent.vector.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.compat.agent.vector.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector
+            {{- if .Values.compat.agent.vector.volume.enabled }}
+            - name: {{ .Values.compat.agent.vector.volume.name }}
+              mountPath: {{ .Values.compat.agent.vector.volume.mountPath }}
+            {{- end }}
+            - name: var-log
+              mountPath: /var/log
+              readOnly: true
+            - name: machine-id
+              mountPath: /etc/machine-id
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: vector-agent-config
+        {{- if .Values.compat.agent.vector.volume.enabled }}
+        - name: {{ .Values.compat.agent.vector.volume.name }}
+          emptyDir:
+            {{- if .Values.compat.agent.vector.volume.sizeLimit }}
+            sizeLimit: {{ .Values.compat.agent.vector.volume.sizeLimit }}
+            {{- end }}
+        {{- end }}
+        - name: var-log
+          hostPath:
+            path: /var/log
+        - name: machine-id
+          hostPath:
+            path: /etc/machine-id
+            type: File
+{{- end }}
+
+{{- end }}

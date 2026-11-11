@@ -2,7 +2,7 @@ name: validate-web-saas-charts
 on:
   pull_request:
     paths:
-      - 'oci/charts/distributed-web-saas-fullstack/**'
+      - 'oci/charts/web-saas-fullstack/**'
       - 'oci/charts/open-platform/**'
       - '.github/scripts/*web-saas-*.sh'
       - '.github/tests/test_observability_agent_chart.py'

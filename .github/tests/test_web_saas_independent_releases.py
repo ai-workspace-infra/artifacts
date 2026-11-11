@@ -16,7 +16,7 @@ class Releases(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
         cls.chart = Path(cls.temp.name) / "chart"
-        shutil.copytree(ROOT / "oci/charts/distributed-web-saas-fullstack", cls.chart)
+        shutil.copytree(ROOT / "oci/charts/web-saas-fullstack", cls.chart)
         for chart in cls.chart.glob('subcharts/*/Chart.yaml'):
             if chart.parent.name != 'web-saas-common':
                 subprocess.run(['helm', 'dependency', 'build', str(chart.parent)], check=True, capture_output=True)
