@@ -2,7 +2,7 @@ apiVersion: v2
 name: grafana
 description: Grafana as an independent release (split out of observability-stack), with VPA and an HPA template disabled by default
 type: application
-version: 1.2.0
+version: 1.2.1
 appVersion: "13.2.4"
 keywords: [grafana, observability, open-platform]
 home: https://github.com/ai-workspace-infra

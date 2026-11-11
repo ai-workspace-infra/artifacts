@@ -48,5 +48,10 @@ app.kubernetes.io/component: mcp-grafana
 {{- $l := .Values.mcp.bearerToken | default dict -}}
 {{- $secret := $l.existingSecret | default $g.existingSecret | default "" -}}
 {{- $key := $l.key | default $g.key | default "mcp-service-token" -}}
-{{- if $secret }}{{ dict "secret" $secret "key" $key | toJson }}{{ end -}}
+{{- $enabled := true -}}
+{{- if hasKey $l "enabled" }}{{ $enabled = $l.enabled }}{{ else if hasKey $g "enabled" }}{{ $enabled = $g.enabled }}{{ end -}}
+{{- if $enabled -}}
+{{- if not $secret }}{{ fail "MCP bearer token auth is on but no Secret is set: set global.mcp.bearerToken.existingSecret (or disable it explicitly with global.mcp.bearerToken.enabled=false)" }}{{ end -}}
+{{ dict "secret" $secret "key" $key | toJson }}
+{{- end -}}
 {{- end }}

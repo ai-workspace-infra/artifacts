@@ -51,6 +51,12 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: {{ (.Values.analytics).reportingEnabled | default false | quote }}
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: {{ (.Values.analytics).checkForUpdates | default false | quote }}
+            - name: GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES
+              value: {{ (.Values.analytics).checkForUpdates | default false | quote }}
             {{- if .Values.pluginArchives }}
             - name: GF_PATHS_PLUGINS
               value: /opt/grafana/plugins

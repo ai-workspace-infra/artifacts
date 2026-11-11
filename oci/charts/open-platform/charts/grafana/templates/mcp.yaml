@@ -64,6 +64,12 @@ spec:
                 secretKeyRef:
                   name: {{ required "existingSecret is required" .Values.existingSecret | quote }}
                   key: {{ .Values.adminPasswordKey | quote }}
+            {{- if not $m.usageStats }}
+            - name: GRAFANA_USAGE_STATS
+              value: "disabled"
+            - name: DO_NOT_TRACK
+              value: "1"
+            {{- end }}
             {{- $tok := include "grafana.mcpBearerToken" . }}
             {{- if $tok }}
             {{- with ($tok | fromJson) }}
