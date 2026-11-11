@@ -6,7 +6,9 @@ metadata:
     {{- include "vault-zitadel.labels" . | nindent 4 }}
     app.kubernetes.io/subcomponent: vault
 spec:
+  {{- if not $.Values.hpa.enabled }}
   replicas: 1
+  {{- end }}
   selector:
     matchLabels:
       {{- include "vault-zitadel.selectorLabels" . | nindent 6 }}

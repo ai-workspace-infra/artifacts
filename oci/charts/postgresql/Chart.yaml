@@ -2,7 +2,7 @@ apiVersion: v2
 name: postgresql
 description: PostgreSQL service chart with optional stunnel server and client for cloud-neutral deployments
 type: application
-version: 1.1.0
+version: 1.1.1
 appVersion: "16.4"
 keywords:
   - postgresql

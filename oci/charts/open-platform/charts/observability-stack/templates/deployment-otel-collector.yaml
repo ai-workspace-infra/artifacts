@@ -6,7 +6,7 @@ metadata:
     {{- include "observability-stack.labels" . | nindent 4 }}
     app.kubernetes.io/component: otel-collector
 spec:
-  replicas: {{ .Values.replicaCount }}
+  {{- include "workload-autoscaling.replicas" . | nindent 2 }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "observability-stack.name" . }}

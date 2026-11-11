@@ -3,52 +3,52 @@ name: distributed-web-saas-fullstack
 description: Composable Web SaaS services with a Caddy HTTPS ingress
 type: application
 kubeVersion: '>=1.32.0-0'
-version: 0.2.16
+version: 0.2.17
 appVersion: 0.2.12
 dependencies:
 - name: web-saas-console
   alias: console
-  version: 0.1.1
+  version: 0.1.2
   repository: file://subcharts/console
   condition: console.enabled
 - name: web-saas-accounts
   alias: accounts
-  version: 0.1.3
+  version: 0.1.4
   repository: file://subcharts/accounts
   condition: accounts.enabled
 - name: web-saas-billing
   alias: billing
-  version: 0.1.3
+  version: 0.1.4
   repository: file://subcharts/billing
   condition: billing.enabled
 - name: web-saas-content
   alias: content
-  version: 0.1.3
+  version: 0.1.4
   repository: file://subcharts/content
   condition: content.enabled
 - name: web-saas-edge-gateway
   alias: edgeGateway
-  version: 0.1.1
+  version: 0.1.2
   repository: file://subcharts/edge-gateway
   condition: edgeGateway.enabled
 - name: web-saas-postgresql
   alias: postgresql
-  version: 0.1.7
+  version: 0.1.8
   repository: file://subcharts/postgresql
   condition: postgresql.enabled
 - name: web-saas-caddy
   alias: caddy
-  version: 0.1.6
+  version: 0.1.7
   repository: file://subcharts/caddy
   condition: caddy.enabled
 - name: web-saas-stunnel-client
   alias: stunnelClient
-  version: 0.1.1
+  version: 0.1.2
   repository: file://subcharts/stunnel-client
   condition: stunnelClient.enabled
 - name: web-saas-stunnel-server
   alias: stunnelServer
-  version: 0.1.1
+  version: 0.1.2
   repository: file://subcharts/stunnel-server
   condition: stunnelServer.enabled
 - name: flagger

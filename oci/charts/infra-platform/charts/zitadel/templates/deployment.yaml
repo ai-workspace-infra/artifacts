@@ -5,7 +5,7 @@ metadata:
   labels:
     app: zitadel
 spec:
-  replicas: {{ .Values.replicaCount }}
+  {{- include "workload-autoscaling.replicas" . | nindent 2 }}
   selector:
     matchLabels:
       app: zitadel

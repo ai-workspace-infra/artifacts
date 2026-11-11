@@ -62,42 +62,88 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "root": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "username": { "type": "string", "pattern": "^$|^[a-z_][a-z0-9_]{0,62}$" },
-            "existingSecret": { "type": "string" },
-            "secretKey": { "type": "string" }
+            "username": {
+              "type": "string",
+              "pattern": "^$|^[a-z_][a-z0-9_]{0,62}$"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "secretKey": {
+              "type": "string"
+            }
           },
-          "required": ["username", "existingSecret", "secretKey"]
+          "required": [
+            "username",
+            "existingSecret",
+            "secretKey"
+          ]
         },
         "operator": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "username": { "type": "string", "pattern": "^[a-z_][a-z0-9_]{0,62}$" },
-            "existingSecret": { "type": "string" },
-            "secretKey": { "type": "string" },
-            "tables": { "$ref": "#/definitions/qualifiedObjects" },
-            "sequences": { "$ref": "#/definitions/qualifiedObjects" }
+            "username": {
+              "type": "string",
+              "pattern": "^[a-z_][a-z0-9_]{0,62}$"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "secretKey": {
+              "type": "string"
+            },
+            "tables": {
+              "$ref": "#/definitions/qualifiedObjects"
+            },
+            "sequences": {
+              "$ref": "#/definitions/qualifiedObjects"
+            }
           },
-          "required": ["username", "existingSecret", "secretKey", "tables", "sequences"]
+          "required": [
+            "username",
+            "existingSecret",
+            "secretKey",
+            "tables",
+            "sequences"
+          ]
         },
         "auditor": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "username": { "type": "string", "pattern": "^[a-z_][a-z0-9_]{0,62}$" },
-            "existingSecret": { "type": "string" },
-            "secretKey": { "type": "string" },
-            "views": { "$ref": "#/definitions/qualifiedObjects" }
+            "username": {
+              "type": "string",
+              "pattern": "^[a-z_][a-z0-9_]{0,62}$"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "secretKey": {
+              "type": "string"
+            },
+            "views": {
+              "$ref": "#/definitions/qualifiedObjects"
+            }
           },
-          "required": ["username", "existingSecret", "secretKey", "views"]
+          "required": [
+            "username",
+            "existingSecret",
+            "secretKey",
+            "views"
+          ]
         }
       },
-      "required": ["enabled"]
+      "required": [
+        "enabled"
+      ]
     },
     "storage": {
       "type": "object",
@@ -140,9 +186,16 @@
         "enabled": {
           "type": "boolean"
         },
-        "username": { "type": "string" },
-        "existingSecret": { "type": "string" },
-        "secretKey": { "type": "string", "minLength": 1 },
+        "username": {
+          "type": "string"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "secretKey": {
+          "type": "string",
+          "minLength": 1
+        },
         "image": {
           "type": "string",
           "pattern": "^([^ @]+@sha256:[a-f0-9]{64})?$"
@@ -159,8 +212,12 @@
         "service": {
           "type": "object",
           "properties": {
-            "port": { "type": "integer" },
-            "annotations": { "type": "object" }
+            "port": {
+              "type": "integer"
+            },
+            "annotations": {
+              "type": "object"
+            }
           }
         },
         "env": {
@@ -170,6 +227,45 @@
     },
     "web-saas-common": {
       "type": "object"
+    },
+    "vpa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "updateMode": {
+          "type": "string",
+          "enum": [
+            "Off",
+            "Initial",
+            "Recreate",
+            "InPlaceOrRecreate",
+            "Auto"
+          ]
+        },
+        "minReplicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "controlledValues": {
+          "type": "string",
+          "enum": [
+            "RequestsAndLimits",
+            "RequestsOnly"
+          ]
+        },
+        "minAllowed": {
+          "type": "object"
+        },
+        "maxAllowed": {
+          "type": "object"
+        },
+        "workloads": {
+          "type": "array"
+        }
+      }
     }
   },
   "definitions": {
@@ -179,10 +275,19 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "schema": { "type": "string", "pattern": "^[a-z_][a-z0-9_]{0,62}$" },
-          "name": { "type": "string", "pattern": "^[a-z_][a-z0-9_]{0,62}$" }
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_]{0,62}$"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_]{0,62}$"
+          }
         },
-        "required": ["schema", "name"]
+        "required": [
+          "schema",
+          "name"
+        ]
       }
     }
   },
@@ -190,18 +295,39 @@
     {
       "if": {
         "properties": {
-          "metrics": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+          "metrics": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          }
         },
-        "required": ["metrics"]
+        "required": [
+          "metrics"
+        ]
       },
       "then": {
         "properties": {
           "metrics": {
-            "required": ["username", "existingSecret", "secretKey"],
+            "required": [
+              "username",
+              "existingSecret",
+              "secretKey"
+            ],
             "properties": {
-              "username": { "minLength": 1 },
-              "existingSecret": { "minLength": 1 },
-              "secretKey": { "minLength": 1 }
+              "username": {
+                "minLength": 1
+              },
+              "existingSecret": {
+                "minLength": 1
+              },
+              "secretKey": {
+                "minLength": 1
+              }
             }
           }
         }
@@ -210,26 +336,86 @@
     {
       "if": {
         "properties": {
-          "identityAccounts": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+          "identityAccounts": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          }
         },
-        "required": ["identityAccounts"]
+        "required": [
+          "identityAccounts"
+        ]
       },
       "then": {
         "properties": {
           "identityAccounts": {
-            "required": ["root", "operator", "auditor"],
+            "required": [
+              "root",
+              "operator",
+              "auditor"
+            ],
             "properties": {
               "root": {
-                "required": ["username", "existingSecret", "secretKey"],
-                "properties": { "username": { "minLength": 1 }, "existingSecret": { "minLength": 1 }, "secretKey": { "minLength": 1 } }
+                "required": [
+                  "username",
+                  "existingSecret",
+                  "secretKey"
+                ],
+                "properties": {
+                  "username": {
+                    "minLength": 1
+                  },
+                  "existingSecret": {
+                    "minLength": 1
+                  },
+                  "secretKey": {
+                    "minLength": 1
+                  }
+                }
               },
               "operator": {
-                "required": ["username", "existingSecret", "secretKey", "tables", "sequences"],
-                "properties": { "username": { "minLength": 1 }, "existingSecret": { "minLength": 1 }, "secretKey": { "minLength": 1 } }
+                "required": [
+                  "username",
+                  "existingSecret",
+                  "secretKey",
+                  "tables",
+                  "sequences"
+                ],
+                "properties": {
+                  "username": {
+                    "minLength": 1
+                  },
+                  "existingSecret": {
+                    "minLength": 1
+                  },
+                  "secretKey": {
+                    "minLength": 1
+                  }
+                }
               },
               "auditor": {
-                "required": ["username", "existingSecret", "secretKey", "views"],
-                "properties": { "username": { "minLength": 1 }, "existingSecret": { "minLength": 1 }, "secretKey": { "minLength": 1 } }
+                "required": [
+                  "username",
+                  "existingSecret",
+                  "secretKey",
+                  "views"
+                ],
+                "properties": {
+                  "username": {
+                    "minLength": 1
+                  },
+                  "existingSecret": {
+                    "minLength": 1
+                  },
+                  "secretKey": {
+                    "minLength": 1
+                  }
+                }
               }
             }
           }

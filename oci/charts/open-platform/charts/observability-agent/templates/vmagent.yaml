@@ -22,7 +22,9 @@ metadata:
   labels:
     {{- include "observability-agent.labels" . | nindent 4 }}
 spec:
+  {{- if not $.Values.hpa.enabled }}
   replicas: 1
+  {{- end }}
   selector:
     matchLabels:
       {{- include "observability-agent.vmagent.selectorLabels" . | nindent 6 }}

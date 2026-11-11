@@ -1,6 +1,6 @@
 dependencies:
 - name: app-service
   repository: file://../app-service
-  version: 0.1.0
-digest: sha256:29102607dbddc890cc60258ec869b75fd9e5f995fc8c5ee1f1a31b046b80e407
-generated: "2026-04-02T17:55:26.238504+08:00"
+  version: 0.1.1
+digest: sha256:6a638fa1974ef51096284d97fc4c0ed367d5b4a7d95aeeb322b10b165f843429
+generated: "2026-11-11T13:05:51.935909861+08:00"
