@@ -46,6 +46,8 @@ jobs:
           helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true >/tmp/grafana-mcp.yaml
           grep -q "name: grafana-mcp-server" /tmp/grafana-mcp.yaml
           grep -q -- "--disable-write" /tmp/grafana-mcp.yaml
+          ! grep -q "MCP_GRAFANA_SERVER_TOKEN" /tmp/grafana-mcp.yaml
+          helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true --set global.mcp.bearerToken.existingSecret=platform-mcp | grep -q "MCP_GRAFANA_SERVER_TOKEN"
           helm template platform-observability oci/charts/open-platform/charts/observability-stack --set telemetry.cluster=validation --set telemetry.environment=prod >/tmp/observability-rendered.yaml
       - name: Verify Grafana external configuration and rejection cases
         run: python3 .github/tests/test_grafana_config_render.py
