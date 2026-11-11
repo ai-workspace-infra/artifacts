@@ -64,6 +64,17 @@ spec:
                 secretKeyRef:
                   name: {{ required "existingSecret is required" .Values.existingSecret | quote }}
                   key: {{ .Values.adminPasswordKey | quote }}
+            {{- $tok := include "grafana.mcpBearerToken" . }}
+            {{- if $tok }}
+            {{- with ($tok | fromJson) }}
+            # Require "Authorization: Bearer <token>" from callers (the MCP gateway).
+            - name: MCP_GRAFANA_SERVER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secret | quote }}
+                  key: {{ .key | quote }}
+            {{- end }}
+            {{- end }}
           ports:
             - name: mcp
               containerPort: {{ $port }}

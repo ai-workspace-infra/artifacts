@@ -23,3 +23,7 @@ own Deployment and Service `grafana-mcp-server` (`mcp.name`) (port 8000, SSE und
 It reaches Grafana through the in-cluster Service and reuses `existingSecret`/`adminPasswordKey`, so no
 extra credential is defined. `--disable-write` and `--disable-admin` are on by default. It is covered by
 the chart's shared `vpa`/`hpa` settings like the Grafana Deployment.
+
+Inbound auth: set `global.mcp.bearerToken.existingSecret` (key `global.mcp.bearerToken.key`, default
+`mcp-service-token`) to require `Authorization: Bearer <token>`; the same global value is meant for
+every MCP server and the MCP gateway. `mcp.bearerToken` overrides it for this server only.

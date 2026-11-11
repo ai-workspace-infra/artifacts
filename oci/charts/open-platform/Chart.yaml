@@ -2,7 +2,7 @@ apiVersion: v2
 name: open-platform
 description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating core platform services (Caddy and the Zitadel server are optional, off by default)
 type: application
-version: 1.5.1
+version: 1.5.2
 appVersion: "2026.10"
 keywords:
   - platform-engineering
@@ -47,7 +47,7 @@ dependencies:
     repository: "file://./charts/observability-stack"
     condition: observability-stack.enabled
   - name: grafana
-    version: 1.1.1
+    version: 1.2.0
     repository: "file://./charts/grafana"
     condition: grafana.enabled
   - name: observability-agent

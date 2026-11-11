@@ -1,3 +1,12 @@
+# Shared by all MCP servers in open-platform (and the umbrella's subcharts via global).
+# bearerToken.existingSecret: Secret in the release namespace holding the shared MCP bearer
+# token under bearerToken.key. Empty -> MCP servers run without inbound auth.
+global:
+  mcp:
+    bearerToken:
+      existingSecret: ""
+      key: mcp-service-token
+
 replicaCount: 1
 serviceAccountName: default
 nameOverride: ""
@@ -125,6 +134,11 @@ mcp:
   username: admin
   # Host headers accepted besides the Service names and localhost (e.g. public hostnames).
   extraAllowedHosts: []
+  # Inbound bearer token for this MCP server (MCP_GRAFANA_SERVER_TOKEN). Empty fields fall back
+  # to global.mcp.bearerToken, the one token shared by every MCP server and the MCP gateway.
+  bearerToken:
+    existingSecret: ""
+    key: ""
   resources:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {cpu: 200m, memory: 256Mi}

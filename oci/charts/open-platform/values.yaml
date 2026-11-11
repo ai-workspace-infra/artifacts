@@ -3,6 +3,12 @@ global:
   domain: "open-platform.local"
   storageClass: ""
   imagePullPolicy: "IfNotPresent"
+  # One bearer token shared by every MCP server (grafana-mcp-server, ssh/victoria* MCP servers)
+  # and the MCP gateway: name of a Secret in the release namespace and its key. Empty -> no auth.
+  mcp:
+    bearerToken:
+      existingSecret: ""
+      key: mcp-service-token
 
 # 01 Git & CI/CD Engine
 gitea:
