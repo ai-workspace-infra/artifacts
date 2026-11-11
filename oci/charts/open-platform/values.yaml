@@ -21,6 +21,11 @@ cmdb:
   enabled: true
 
 # 05 Full-Stack Observability & Telemetry Central Stack
+# Grafana as its own release. Off by default here: observability-stack still bundles Grafana
+# unless observability-stack.grafana.enabled=false.
+grafana:
+  enabled: false
+
 observability-stack:
   enabled: true
   domain: "open-platform.local"
