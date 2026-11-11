@@ -10,7 +10,7 @@ New collection features belong in `oci/charts/open-platform/charts/observability
 
 The former standalone compatibility composition (`oci/charts/observability`, OCI name `observability`) is merged into `observability-stack` as `templates/compat-*.yaml` with values under `compat:`; `compat.enabled` defaults to `false`, so the canonical stack render is unchanged. With `compat.enabled: true` (and the old values moved under `compat:`) it emits the same child Flux HelmReleases and native Vector/process-exporter resources as the old chart. The old directory is removed and `observability` is no longer published; existing published versions stay in the registry. New features must not be implemented a second time in `compat`.
 
-The separate `oci/charts/infra-platform/charts/observability` scaffold is another path with the same basename. It is not the compatibility Chart discussed here and is not implicitly migrated.
+The former `oci/charts/infra-platform/charts/observability` placeholder scaffold is carried in `observability-stack` as `compat.infraPlatformScaffold` (off by default); the infra-platform group no longer exists.
 
 ### Component and values map
 

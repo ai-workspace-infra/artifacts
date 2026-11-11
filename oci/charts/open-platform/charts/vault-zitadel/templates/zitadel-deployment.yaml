@@ -1,0 +1,31 @@
+{{- if and .Values.zitadel .Values.zitadel.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vault-zitadel.fullname" . }}-zitadel
+  labels:
+    {{- include "vault-zitadel.labels" . | nindent 4 }}
+    app.kubernetes.io/subcomponent: zitadel
+spec:
+  {{- if not $.Values.hpa.enabled }}
+  replicas: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "vault-zitadel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/subcomponent: zitadel
+  template:
+    metadata:
+      labels:
+        {{- include "vault-zitadel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/subcomponent: zitadel
+    spec:
+      containers:
+        - name: zitadel
+          image: "{{ .Values.zitadel.image.repository }}:{{ .Values.zitadel.image.tag }}"
+          imagePullPolicy: {{ .Values.zitadel.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.zitadel.port }}
+              protocol: TCP
+{{- end }}

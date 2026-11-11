@@ -12,7 +12,7 @@ import re, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LIB = ROOT / "oci/charts/infra-platform/library/workload-autoscaling"
+LIB = ROOT / "oci/charts/open-platform/library/workload-autoscaling"
 CANON = (LIB / "templates/_autoscaling.tpl").read_text()
 WEBSAAS_COMMON = ROOT / "oci/charts/web-saas-fullstack/subcharts/web-saas-common"
 WORKLOAD = re.compile(r"^kind:\s*(Deployment|StatefulSet|DaemonSet)\b|websaas\.fleet", re.M)

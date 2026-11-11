@@ -1,2 +1,3 @@
-# Group layout: standalone/ holds separate charts, not part of this umbrella.
+# Group layout: library/ and standalone/ hold separate charts, not part of this umbrella.
+library/
 standalone/

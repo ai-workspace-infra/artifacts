@@ -37,10 +37,6 @@ vault-zitadel:
   vault:
     apiAddr: ""
 
-# 07 Declarative GitOps Controller
-doco-cd:
-  enabled: true
-
 # 08 Cloud-Neutral Container & Vector DB
 pgvector:
   enabled: true
@@ -56,3 +52,7 @@ ai-gateway:
 # 11 Infrastructure MCP Tool Gateway
 mcp-gateway:
   enabled: true
+
+# Caddy (moved from the former infra-platform group; scaffold image, off by default)
+caddy:
+  enabled: false

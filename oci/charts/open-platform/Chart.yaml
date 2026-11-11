@@ -1,8 +1,8 @@
 apiVersion: v2
 name: open-platform
-description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating 11 core infrastructure services
+description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating core platform services (Caddy and the Zitadel server are optional, off by default)
 type: application
-version: 1.3.0
+version: 1.4.0
 appVersion: "2026.10"
 keywords:
   - platform-engineering
@@ -18,7 +18,6 @@ keywords:
   - vector
   - vault
   - zitadel
-  - doco-cd
   - pgvector
   - ai-gateway
   - mcp
@@ -44,7 +43,7 @@ dependencies:
     repository: "file://./charts/cmdb"
     condition: cmdb.enabled
   - name: observability-stack
-    version: 1.4.0
+    version: 1.5.0
     repository: "file://./charts/observability-stack"
     condition: observability-stack.enabled
   - name: observability-agent
@@ -52,13 +51,9 @@ dependencies:
     repository: "file://./charts/observability-agent"
     condition: observability-agent.enabled
   - name: vault-zitadel
-    version: 1.0.2
+    version: 1.1.0
     repository: "file://./charts/vault-zitadel"
     condition: vault-zitadel.enabled
-  - name: doco-cd
-    version: 1.0.1
-    repository: "file://./charts/doco-cd"
-    condition: doco-cd.enabled
   - name: pgvector
     version: 1.0.1
     repository: "file://./charts/pgvector"
@@ -75,3 +70,7 @@ dependencies:
     version: 1.0.1
     repository: "file://./charts/mcp-gateway"
     condition: mcp-gateway.enabled
+  - name: caddy
+    version: 0.1.1
+    repository: "file://./charts/caddy"
+    condition: caddy.enabled
