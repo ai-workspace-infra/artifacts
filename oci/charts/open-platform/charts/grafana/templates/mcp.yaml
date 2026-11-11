@@ -1,6 +1,6 @@
 {{- if .Values.mcp.enabled }}
 {{- $fullname := include "grafana.fullname" . }}
-{{- $name := printf "%s-mcp" $fullname | trunc 63 | trimSuffix "-" }}
+{{- $name := .Values.mcp.name | default "grafana-mcp-server" | trunc 63 | trimSuffix "-" }}
 {{- $m := .Values.mcp }}
 {{- $port := int $m.port }}
 {{- $hosts := list $name (printf "%s.%s" $name .Release.Namespace) (printf "%s.%s.svc" $name .Release.Namespace) (printf "%s.%s.svc.cluster.local" $name .Release.Namespace) "localhost" "127.0.0.1" }}

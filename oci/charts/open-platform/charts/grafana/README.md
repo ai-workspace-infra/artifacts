@@ -19,7 +19,7 @@ sized, upgraded and rolled back on its own.
 ## Optional mcp-grafana
 
 `mcp.enabled: true` adds a read-only [mcp-grafana](https://github.com/grafana/mcp-grafana) server as its
-own Deployment and Service `<fullname>-mcp` (port 8000, SSE under `mcp.basePath`, default `/v1/grafana`).
+own Deployment and Service `grafana-mcp-server` (`mcp.name`) (port 8000, SSE under `mcp.basePath`, default `/v1/grafana`).
 It reaches Grafana through the in-cluster Service and reuses `existingSecret`/`adminPasswordKey`, so no
 extra credential is defined. `--disable-write` and `--disable-admin` are on by default. It is covered by
 the chart's shared `vpa`/`hpa` settings like the Grafana Deployment.
