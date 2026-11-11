@@ -50,3 +50,20 @@ Outputs will be generated into the `dist/` folder:
    GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=progressive-release-matrix-panel
    ```
 3. Restart Grafana to load the plugin.
+
+## Collapsible Routes & APIs Matrix (dynamic inventory)
+
+Aligned with the Web Console ops board: Service × Endpoint core matrix → Flagger weight matrix → three-level asset tree
+(`前端 / 后端` → `大类 / 子组件` → route or API rows) with expand/collapse all, search and type filter.
+
+Data contract (`src/dataModel.ts`):
+
+- **Inventory** = optional console BFF payload (`allRoutesAndApis`, option *Inventory / telemetry URL*) or, if empty, the static `routesCatalog.ts`. Deduplicated by service/method/path; all totals and category counts are computed, never hardcoded.
+- **Telemetry** is merged separately. No sample → `NO DATA` (never PASS). Unsafe methods (POST/PUT/DELETE), side-effect flows (logout, unsubscribe) and dynamic templates → `NOT PROBED`; the plugin itself never sends requests to inventory assets.
+- `—` = not applicable cell; `NO DATA` = no valid observation; `FAIL` / `PASS` only from telemetry.
+- **Mock** (*Force Design Mock Data*) is labelled and the gate shows `PREVIEW`; it can never produce `ALLOWED`. Missing core checks give `UNKNOWN`.
+- **Latency**: BFF `p95LatencyMs` is labelled p95; Prometheus `probe_duration_seconds` is shown as last-sample duration, not p95.
+- **Candidate samples** require a real request counter from the BFF; otherwise `NO DATA` (no `increase(probe_success)`).
+- **Flagger**: `Not configured` only when explicitly reported; missing telemetry is `Unknown`; `Succeeded 0%` only with an actual weight.
+
+Run `npm test` for the data-model tests.

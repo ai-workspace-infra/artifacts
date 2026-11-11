@@ -3313,6 +3313,154 @@ var RAW_ROUTES_CATALOG = [
   }
 ];
 
+// src/dataModel.ts
+var SIDE_EFFECT_PATHS = [/\/logout\b/, /\/unsubscribe\b/];
+var SAFE_METHODS = /* @__PURE__ */ new Set(["GET", "HEAD"]);
+function probePolicy(method, path) {
+  const m = (method || "GET").split(",")[0].trim().toUpperCase();
+  if (!SAFE_METHODS.has(m)) return { probe: false, note: `${m}: unsafe method, catalog only` };
+  if (SIDE_EFFECT_PATHS.some((re) => re.test(path))) return { probe: false, note: "side-effect flow, not actively called" };
+  if (/[:\[{]/.test(path)) return { probe: false, note: "dynamic template, no authorised probe parameter" };
+  return { probe: true };
+}
+var assetKey = (service, method, path) => `${(service || "").toLowerCase()} ${(method || "GET").split(",")[0].trim().toUpperCase()} ${path}`;
+function dedupeInventory(items) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const it of items) {
+    const k = assetKey(it.service, it.method, it.path);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(it);
+  }
+  return out;
+}
+var num = (v) => {
+  if (v === null || v === void 0 || v === "" || v === "\u2014") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+function mergeCatalogWithTelemetry(catalog, lookup, source) {
+  return dedupeInventory(catalog).map((c) => {
+    const policy = probePolicy(c.method, c.path);
+    const base = {
+      id: c.id,
+      order: c.order,
+      type: c.type,
+      categoryKey: c.categoryKey,
+      categoryName: c.categoryName,
+      categoryEnName: c.categoryEnName,
+      service: c.service,
+      serviceDomain: c.serviceDomain,
+      path: c.path,
+      method: c.method,
+      description: c.description,
+      expectedHttp: num(c.expectedHttp),
+      observedHttp: null,
+      latencyMs: null,
+      freshnessSec: null,
+      result: policy.probe ? "NO DATA" : "NOT PROBED",
+      source: "catalog",
+      probeNote: policy.note
+    };
+    const s = lookup(c.service, c.path);
+    if (!s || s.status === "NO DATA") return base;
+    return {
+      ...base,
+      observedHttp: num(s.httpCode),
+      latencyMs: num(s.latencyMs),
+      freshnessSec: num(s.freshnessSec),
+      result: s.status,
+      source
+    };
+  });
+}
+function normalizeLiveInventory(list) {
+  const items = list.filter((i) => i && i.path && (i.type === "frontend" || i.type === "api")).map((i, idx) => {
+    const r = String(i.result || "").toUpperCase();
+    const result = r === "PASS" ? "PASS" : r === "FAIL" ? "FAIL" : r === "NOT PROBED" ? "NOT PROBED" : "NO DATA";
+    return {
+      id: String(i.id ?? `${i.type}-${idx + 1}`),
+      order: Number(i.order ?? idx + 1),
+      type: i.type,
+      categoryKey: i.categoryKey || (i.type === "frontend" ? "fe-other" : "be-other"),
+      categoryName: i.categoryName || i.categoryKey || "\u672A\u5206\u7C7B",
+      categoryEnName: i.categoryEnName || i.categoryKey || "Uncategorized",
+      service: i.service || "Unknown",
+      serviceDomain: i.serviceDomain || "",
+      path: i.path,
+      method: i.method || "GET",
+      description: i.description || "",
+      expectedHttp: num(i.expectedHttp),
+      observedHttp: num(i.observedHttp),
+      latencyMs: num(i.latencyMs),
+      freshnessSec: num(i.freshnessSec),
+      result,
+      source: "live"
+    };
+  });
+  return dedupeInventory(items);
+}
+function countOf(items) {
+  const c = { total: items.length, pass: 0, fail: 0, noData: 0, notProbed: 0 };
+  for (const i of items) {
+    if (i.result === "PASS") c.pass++;
+    else if (i.result === "FAIL") c.fail++;
+    else if (i.result === "NOT PROBED") c.notProbed++;
+    else c.noData++;
+  }
+  return c;
+}
+function matchesQuery(i, q) {
+  const s = q.trim().toLowerCase();
+  if (!s) return true;
+  return [i.path, i.description, i.service, i.serviceDomain, i.categoryName, i.categoryEnName, i.method, i.categoryKey].some((v) => (v || "").toLowerCase().includes(s));
+}
+function buildTree(items, filter, query) {
+  const roots = [];
+  for (const type of ["frontend", "api"]) {
+    if (filter !== "all" && filter !== type) continue;
+    const list = items.filter((i) => i.type === type && matchesQuery(i, query)).sort((a, b) => a.order - b.order);
+    const map = /* @__PURE__ */ new Map();
+    for (const it of list) {
+      if (!map.has(it.categoryKey)) {
+        map.set(it.categoryKey, { key: it.categoryKey, name: it.categoryName, enName: it.categoryEnName, type, items: [], counts: countOf([]) });
+      }
+      map.get(it.categoryKey).items.push(it);
+    }
+    const categories = Array.from(map.values()).map((c) => ({ ...c, counts: countOf(c.items) }));
+    categories.sort((a, b) => b.counts.total - a.counts.total);
+    roots.push({ type, categories, counts: countOf(list) });
+  }
+  return roots;
+}
+function evaluateGate(checks, source, expected = 10) {
+  if (source === "mock" || source === "catalog") {
+    return { state: "PREVIEW", summary: "Preview data \u2014 not a release decision" };
+  }
+  const fail = checks.filter((c) => c.status === "FAIL").length;
+  const pass = checks.filter((c) => c.status === "PASS").length;
+  const missing = expected - pass - fail;
+  if (fail > 0) return { state: "BLOCKED", summary: `${fail} / ${expected} checks failed` };
+  if (missing > 0) return { state: "UNKNOWN", summary: `${missing} / ${expected} checks have no data` };
+  return { state: "ALLOWED", summary: `All ${expected} checks passed` };
+}
+function normalizeCanary(fs) {
+  if (!fs) return { phase: "Unknown", weight: null, primaryPercent: null, candidatePercent: null };
+  if (fs.phase === "Not configured" || fs.configured === false) {
+    return { phase: "Not configured", weight: null, primaryPercent: null, candidatePercent: null };
+  }
+  const known = ["Progressing", "Succeeded", "Failed"];
+  const phase = known.includes(fs.phase) ? fs.phase : "Unknown";
+  const w = num(fs.candidateTrafficPct ?? fs.weight);
+  if (phase === "Unknown" || w === null) {
+    return { phase, weight: null, primaryPercent: null, candidatePercent: null };
+  }
+  const cand = Math.max(0, Math.min(100, w));
+  const prim = num(fs.primaryTrafficPct) ?? 100 - cand;
+  return { phase, weight: cand, primaryPercent: prim, candidatePercent: cand };
+}
+
 // src/ProgressiveReleasePanel.tsx
 var ProgressiveReleasePanel = (props) => {
   const {
@@ -3332,7 +3480,8 @@ var ProgressiveReleasePanel = (props) => {
     showFlagger = true,
     showDetails = true,
     showFooter = true,
-    showRoutesTable = true
+    showRoutesTable = true,
+    telemetryUrl = ""
   } = options;
   const resolvedEnv = (0, import_react.useMemo)(() => {
     let env = (environment || "").trim();
@@ -3380,7 +3529,11 @@ var ProgressiveReleasePanel = (props) => {
     const fetchTelemetry = async () => {
       try {
         const targetEnv = resolvedEnv.toLowerCase().includes("sit") ? "SIT" : "PROD";
-        const url = `https://console.svc.plus/api/operations/progressive-release?environment=${targetEnv}`;
+        const base = replaceVariables ? replaceVariables(telemetryUrl) : telemetryUrl;
+        if (!base || base.startsWith("$")) {
+          return;
+        }
+        const url = `${base}${base.includes("?") ? "&" : "?"}environment=${targetEnv}`;
         const res = await fetch(url, {
           headers: { Accept: "application/json" },
           mode: "cors"
@@ -3399,13 +3552,20 @@ var ProgressiveReleasePanel = (props) => {
         if (isMounted) setLiveFetchStatus("error");
       }
     };
+    if (!telemetryUrl || useMockData) {
+      setLivePayload(null);
+      setLiveFetchStatus("idle");
+      return () => {
+        isMounted = false;
+      };
+    }
     fetchTelemetry();
     timer = setInterval(fetchTelemetry, 15e3);
     return () => {
       isMounted = false;
       if (timer) clearInterval(timer);
     };
-  }, [resolvedEnv]);
+  }, [resolvedEnv, telemetryUrl, useMockData, replaceVariables]);
   const observationWindowStr = (0, import_react.useMemo)(() => {
     try {
       if (timeRange && timeRange.from && timeRange.to) {
@@ -3437,23 +3597,33 @@ var ProgressiveReleasePanel = (props) => {
     const ss = String(d.getUTCSeconds()).padStart(2, "0");
     return `${hh}:${mm}:${ss} UTC`;
   }, [data]);
-  const defaultEndpoints = {
+  const mockEndpoints = {
     console: {
-      "/healthz": { service: "console", route: "/healthz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
-      "/login": { service: "console", route: "/login", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
-      "/panel/agent": { service: "console", route: "/panel/agent", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 307 }
+      "/healthz": { service: "console", route: "/healthz", status: "PASS", httpCode: 200, latencyMs: 38, freshnessSec: 9, expectedHttp: 200 },
+      "/login": { service: "console", route: "/login", status: "PASS", httpCode: 200, latencyMs: 182, freshnessSec: 11, expectedHttp: 200 },
+      "/panel/agent": { service: "console", route: "/panel/agent", status: "PASS", httpCode: 307, latencyMs: 246, freshnessSec: 12, expectedHttp: 307 }
     },
     accounts: {
-      "/healthz": { service: "accounts", route: "/healthz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
-      "/readyz": { service: "accounts", route: "/readyz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
-      "/api/ping": { service: "accounts", route: "/api/ping", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
-      "/api/billing/plans": { service: "accounts", route: "/api/billing/plans", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 }
+      "/healthz": { service: "accounts", route: "/healthz", status: "PASS", httpCode: 200, latencyMs: 41, freshnessSec: 8, expectedHttp: 200 },
+      "/readyz": { service: "accounts", route: "/readyz", status: "PASS", httpCode: 200, latencyMs: 57, freshnessSec: 9, expectedHttp: 200 },
+      "/api/ping": { service: "accounts", route: "/api/ping", status: "PASS", httpCode: 200, latencyMs: 64, freshnessSec: 10, expectedHttp: 200 },
+      "/api/billing/plans": { service: "accounts", route: "/api/billing/plans", status: "FAIL", httpCode: 503, latencyMs: 1204, freshnessSec: 10, expectedHttp: 200 }
     },
     billing: {
-      "/healthz": { service: "billing", route: "/healthz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
-      "/readyz": { service: "billing", route: "/readyz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 },
-      "/api/ping": { service: "billing", route: "/api/ping", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 0, expectedHttp: 200 }
+      "/healthz": { service: "billing", route: "/healthz", status: "PASS", httpCode: 200, latencyMs: 35, freshnessSec: 9, expectedHttp: 200 },
+      "/readyz": { service: "billing", route: "/readyz", status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: 9, expectedHttp: 200 },
+      "/api/ping": { service: "billing", route: "/api/ping", status: "PASS", httpCode: 200, latencyMs: 71, freshnessSec: 11, expectedHttp: 200 }
     }
+  };
+  const noDataEndpoints = () => {
+    const out = {};
+    for (const s of Object.keys(mockEndpoints)) {
+      out[s] = {};
+      for (const r of Object.keys(mockEndpoints[s])) {
+        out[s][r] = { service: s, route: r, status: "NO DATA", httpCode: "\u2014", latencyMs: "\u2014", freshnessSec: void 0, expectedHttp: mockEndpoints[s][r].expectedHttp };
+      }
+    }
+    return out;
   };
   const parsedData = (0, import_react.useMemo)(() => {
     try {
@@ -3472,22 +3642,18 @@ var ProgressiveReleasePanel = (props) => {
               status: ep.result === "PASS" ? "PASS" : ep.result === "FAIL" ? "FAIL" : "NO DATA",
               httpCode: ep.observedHttp != null ? ep.observedHttp : "\u2014",
               latencyMs: ep.p95LatencyMs != null ? ep.p95LatencyMs : "\u2014",
-              freshnessSec: ep.freshnessSec || 8,
+              freshnessSec: ep.freshnessSec ?? void 0,
               expectedHttp: ep.expectedHttp || (ep.endpoint === "/panel/agent" ? 307 : 200)
             };
           }
         }
-        for (const s of ["console", "accounts", "billing"]) {
-          for (const r of Object.keys(defaultEndpoints[s])) {
-            if (!liveEp[s][r]) {
-              liveEp[s][r] = { ...defaultEndpoints[s][r] };
-            }
-          }
-        }
-        return { isLive: true, endpoints: liveEp };
+        return { isLive: true, source: "live", latencyLabel: "p95", endpoints: liveEp };
+      }
+      if (useMockData) {
+        return { isLive: false, source: "mock", latencyLabel: "p95", endpoints: mockEndpoints };
       }
       if (!data?.series || data.series.length === 0) {
-        return { isLive: false, endpoints: defaultEndpoints };
+        return { isLive: false, source: "catalog", latencyLabel: "dur", endpoints: noDataEndpoints() };
       }
       const liveEndpoints = {
         console: {},
@@ -3630,19 +3796,20 @@ var ProgressiveReleasePanel = (props) => {
         }
       }
       if (!foundAny) {
-        return { isLive: false, endpoints: defaultEndpoints };
+        return { isLive: false, source: "catalog", latencyLabel: "dur", endpoints: noDataEndpoints() };
       }
-      for (const s of ["console", "accounts", "billing"]) {
-        for (const r of Object.keys(defaultEndpoints[s])) {
+      const empty = noDataEndpoints();
+      for (const s of Object.keys(empty)) {
+        for (const r of Object.keys(empty[s])) {
           if (!liveEndpoints[s][r]) {
-            liveEndpoints[s][r] = { ...defaultEndpoints[s][r] };
+            liveEndpoints[s][r] = empty[s][r];
           }
         }
       }
-      return { isLive: true, endpoints: liveEndpoints };
+      return { isLive: true, source: "prometheus", latencyLabel: "dur", endpoints: liveEndpoints };
     } catch (err) {
       console.warn("[ProgressiveReleasePanel] Failed to parse metrics data:", err);
-      return { isLive: false, endpoints: defaultEndpoints };
+      return { isLive: false, source: "catalog", latencyLabel: "dur", endpoints: noDataEndpoints() };
     }
   }, [data, useMockData, livePayload]);
   const endpoints = parsedData.endpoints;
@@ -3671,185 +3838,90 @@ var ProgressiveReleasePanel = (props) => {
     return endpointList.filter((e) => e.status !== "PASS").length;
   }, [endpointList]);
   const flaggerServices = (0, import_react.useMemo)(() => {
-    if (!useMockData && livePayload?.flaggerServices && Array.isArray(livePayload.flaggerServices) && livePayload.flaggerServices.length > 0) {
-      return livePayload.flaggerServices.map((fs) => {
-        const isNotConfigured = fs.phase === "Not configured" || fs.weight === null && fs.phase !== "Succeeded";
-        const candidateTrafficPct = isNotConfigured ? 0 : fs.candidateTrafficPct ?? fs.weight ?? 0;
-        const primaryTrafficPct = isNotConfigured ? 100 : fs.primaryTrafficPct ?? 100 - candidateTrafficPct;
-        return {
-          service: fs.service,
-          subdomain: fs.serviceDomain || (fs.service === "Console" ? "console.svc.plus" : fs.service === "Accounts" ? "accounts.svc.plus" : "billing.svc.plus"),
-          phase: isNotConfigured ? "Not configured" : fs.phase,
-          weight: isNotConfigured ? null : fs.weight ?? candidateTrafficPct,
-          primaryPercent: primaryTrafficPct,
-          candidatePercent: candidateTrafficPct,
-          message: isNotConfigured ? fs.message || "No canary configured for this service" : void 0
-        };
+    const services = [
+      { key: "console", service: "Console" },
+      { key: "accounts", service: "Accounts" },
+      { key: "billing", service: "Billing" }
+    ];
+    const toView = (svc, raw, msg) => {
+      const v = normalizeCanary(raw);
+      return {
+        service: svc.service,
+        subdomain: raw && raw.serviceDomain || `${svc.key}.*`,
+        phase: v.phase,
+        weight: v.weight,
+        primaryPercent: v.primaryPercent,
+        candidatePercent: v.candidatePercent,
+        message: v.phase === "Not configured" ? raw && raw.message || "No canary configured for this service" : v.phase === "Unknown" ? msg || "Canary telemetry missing \u2014 status unknown" : void 0
+      };
+    };
+    if (useMockData) {
+      const mock = {
+        console: { phase: "Progressing", weight: 20 },
+        accounts: { phase: "Succeeded", weight: 0 },
+        billing: { phase: "Not configured" }
+      };
+      return services.map((s) => toView(s, mock[s.key]));
+    }
+    if (livePayload?.flaggerServices && Array.isArray(livePayload.flaggerServices) && livePayload.flaggerServices.length > 0) {
+      return services.map((s) => {
+        const raw = livePayload.flaggerServices.find((f) => String(f.service || "").toLowerCase() === s.key);
+        return toView(s, raw);
       });
     }
-    const isProd = resolvedEnv === "PROD";
-    const baseMap = {
-      console: {
-        service: "Console",
-        subdomain: isProd ? "console.svc.plus" : "console.svc.plus (sit)",
-        phase: "Succeeded",
-        weight: 0,
-        primaryPercent: 100,
-        candidatePercent: 0
-      },
-      accounts: {
-        service: "Accounts",
-        subdomain: isProd ? "accounts.svc.plus" : "accounts.svc.plus (sit)",
-        phase: "Succeeded",
-        weight: 0,
-        primaryPercent: 100,
-        candidatePercent: 0
-      },
-      billing: {
-        service: "Billing",
-        subdomain: isProd ? "billing.svc.plus" : "billing.svc.plus (sit)",
-        phase: "Succeeded",
-        weight: 0,
-        primaryPercent: 100,
-        candidatePercent: 0
-      }
-    };
+    const acc = {};
     if (data?.series && data.series.length > 0) {
-      const getVal = (fld, idx) => {
-        if (!fld || !fld.values) return null;
-        const len = typeof fld.values.length === "number" ? fld.values.length : typeof fld.values.size === "number" ? fld.values.size : 0;
-        if (len === 0) return null;
-        const i = idx !== void 0 ? idx : len - 1;
-        if (typeof fld.values.get === "function") return fld.values.get(i);
-        return fld.values[i];
+      const at = (fld, idx) => {
+        const vals = fld && fld.values;
+        if (!vals) return null;
+        return typeof vals.get === "function" ? vals.get(idx) : vals[idx];
       };
       for (const frame of data.series) {
-        if (!frame || !frame.fields || frame.fields.length === 0) continue;
-        const isStatusQuery = frame.refId === "D" || frame.name && frame.name.includes("status");
-        const isWeightQuery = frame.refId === "E" || frame.name && frame.name.includes("weight");
-        const nameField = frame.fields.find(
-          (f) => f.name === "name" || f.name === "workload" || f.labels && (f.labels.name || f.labels.workload)
-        );
-        const valField = frame.fields.find(
+        const fields = frame.fields || [];
+        const valField = fields.find(
           (f) => f.name === "Value" || f.type === "number" || f.labels && Object.keys(f.labels).length > 0
         );
-        const rowCount = frame.length ?? valField?.values?.length ?? nameField?.values?.length ?? 1;
-        for (let row = 0; row < rowCount; row++) {
-          const rawName = String(
-            nameField && (nameField.labels?.name || nameField.labels?.workload || getVal(nameField, row)) || valField && (valField.labels?.name || valField.labels?.workload) || frame.name || ""
-          ).toLowerCase();
-          let targetKey = "";
-          if (rawName.includes("console")) targetKey = "console";
-          else if (rawName.includes("accounts")) targetKey = "accounts";
-          else if (rawName.includes("billing")) targetKey = "billing";
-          if (!targetKey || !baseMap[targetKey]) continue;
-          const rawVal = getVal(valField, row);
-          const num = Number(rawVal);
-          if (isStatusQuery || !isWeightQuery && !isNaN(num) && num <= 2) {
-            if (num === 0) {
-              baseMap[targetKey].phase = "Progressing";
-              if (baseMap[targetKey].weight === 0) {
-                baseMap[targetKey].weight = targetKey === "console" ? 20 : 10;
-                baseMap[targetKey].candidatePercent = baseMap[targetKey].weight;
-                baseMap[targetKey].primaryPercent = 100 - (baseMap[targetKey].weight ?? 0);
-              }
-              baseMap[targetKey].message = void 0;
-            } else if (num === 1) {
-              baseMap[targetKey].phase = "Succeeded";
-              baseMap[targetKey].candidatePercent = 0;
-              baseMap[targetKey].primaryPercent = 100;
-              baseMap[targetKey].weight = 0;
-              baseMap[targetKey].message = void 0;
-            } else if (num === 2) {
-              baseMap[targetKey].phase = "Failed";
-              baseMap[targetKey].weight = 0;
-              baseMap[targetKey].candidatePercent = 0;
-              baseMap[targetKey].primaryPercent = 100;
-              baseMap[targetKey].message = void 0;
-            }
-          }
-          if (isWeightQuery && !rawName.includes("primary")) {
-            const w = Math.max(0, Math.min(100, num));
-            if (!isNaN(w)) {
-              baseMap[targetKey].weight = w;
-              baseMap[targetKey].candidatePercent = w;
-              baseMap[targetKey].primaryPercent = 100 - w;
-              if (w > 0) {
-                baseMap[targetKey].phase = "Progressing";
-              }
-              baseMap[targetKey].message = void 0;
-            }
+        if (!valField) continue;
+        const nameField = fields.find((f) => f.name === "name" || f.name === "workload");
+        const labels = frame.labels || valField.labels || {};
+        const metricName = String(labels.__name__ || frame.name || valField.name || "");
+        const isStatus = metricName.includes("flagger_canary_status") || frame.refId === "D";
+        const isWeight = metricName.includes("flagger_canary_weight") || frame.refId === "E";
+        if (!isStatus && !isWeight) continue;
+        const vals = valField.values;
+        const rowCount = vals ? typeof vals.length === "number" ? vals.length : 0 : 0;
+        const rows = nameField ? Array.from({ length: rowCount }, (_, i) => i) : rowCount ? [rowCount - 1] : [];
+        for (const row of rows) {
+          const name = String((nameField ? at(nameField, row) : "") || labels.name || labels.workload || "").toLowerCase();
+          const target = services.find((s) => name.includes(s.key));
+          if (!target || name.includes("primary")) continue;
+          const val = Number(at(valField, row));
+          if (isNaN(val)) continue;
+          acc[target.key] = acc[target.key] || {};
+          if (isStatus) {
+            acc[target.key].phase = val === 0 ? "Progressing" : val === 1 ? "Succeeded" : val === 2 ? "Failed" : "Unknown";
+          } else {
+            acc[target.key].weight = Math.max(0, Math.min(100, val));
           }
         }
       }
     }
-    return [baseMap.console, baseMap.accounts, baseMap.billing];
-  }, [resolvedEnv, data, livePayload, useMockData]);
+    return services.map((s) => toView(s, acc[s.key]));
+  }, [data, livePayload, useMockData]);
   const [isRoutesCollapsed, setIsRoutesCollapsed] = (0, import_react.useState)(false);
   const [routesFilter, setRoutesFilter] = (0, import_react.useState)("all");
   const [routesSearchQuery, setRoutesSearchQuery] = (0, import_react.useState)("");
   const fullRoutesAndApis = (0, import_react.useMemo)(() => {
     if (!useMockData && livePayload?.allRoutesAndApis && Array.isArray(livePayload.allRoutesAndApis) && livePayload.allRoutesAndApis.length > 0) {
-      return livePayload.allRoutesAndApis.map((item) => ({
-        id: item.id,
-        order: item.order,
-        type: item.type,
-        categoryKey: item.categoryKey,
-        categoryName: item.categoryName,
-        categoryEnName: item.categoryEnName,
-        service: item.service,
-        serviceDomain: item.serviceDomain,
-        path: item.path,
-        description: item.description,
-        method: item.method,
-        expectedHttp: item.expectedHttp,
-        observedHttp: item.observedHttp,
-        latencyMs: item.latencyMs,
-        freshnessSec: item.freshnessSec,
-        status: item.result === "PASS" ? "PASS" : "FAIL"
-      }));
+      return normalizeLiveInventory(livePayload.allRoutesAndApis);
     }
-    return RAW_ROUTES_CATALOG.map((item) => {
-      const svc = item.service.toLowerCase();
-      const epData = endpoints?.[svc]?.[item.path];
-      let observedHttp = item.expectedHttp;
-      let latencyMs = resolvedEnv.includes("PROD") ? Math.max(10, Math.round(item.latencyMs * 0.85)) : item.latencyMs;
-      let freshnessSec = 8;
-      let status = "PASS";
-      if (epData) {
-        if (epData.httpCode !== "\u2014" && epData.httpCode !== null && epData.httpCode !== void 0) {
-          observedHttp = Number(epData.httpCode);
-        }
-        if (epData.latencyMs !== "\u2014" && epData.latencyMs !== null && epData.latencyMs !== void 0) {
-          latencyMs = epData.latencyMs;
-        }
-        if (epData.freshnessSec) {
-          freshnessSec = epData.freshnessSec;
-        }
-        if (epData.status === "FAIL") {
-          status = "FAIL";
-        }
-      }
-      return {
-        id: item.id,
-        order: item.order,
-        type: item.type,
-        categoryKey: item.categoryKey,
-        categoryName: item.categoryName,
-        categoryEnName: item.categoryEnName,
-        service: item.service,
-        serviceDomain: item.serviceDomain,
-        path: item.path,
-        description: item.description,
-        method: item.method,
-        expectedHttp: item.expectedHttp,
-        observedHttp,
-        latencyMs,
-        freshnessSec,
-        status
-      };
-    });
-  }, [endpoints, resolvedEnv, livePayload, useMockData]);
+    const src = parsedData.source;
+    return mergeCatalogWithTelemetry(
+      RAW_ROUTES_CATALOG,
+      (service, path) => endpoints?.[service.toLowerCase()]?.[path],
+      src
+    );
+  }, [endpoints, livePayload, useMockData, parsedData.source]);
   const [expandedRoots, setExpandedRoots] = (0, import_react.useState)({
     frontend: true,
     api: true
@@ -3862,70 +3934,26 @@ var ProgressiveReleasePanel = (props) => {
     setExpandedCategories((prev) => ({ ...prev, [key]: prev[key] === false ? true : false }));
   };
   const treeData = (0, import_react.useMemo)(() => {
-    const list = fullRoutesAndApis;
-    const filterItem = (item) => {
-      if (routesFilter === "frontend" && item.type !== "frontend") return false;
-      if (routesFilter === "api" && item.type !== "api") return false;
-      if (routesSearchQuery.trim()) {
-        const q = routesSearchQuery.toLowerCase().trim();
-        return item.path.toLowerCase().includes(q) || item.description.toLowerCase().includes(q) || item.service.toLowerCase().includes(q) || item.serviceDomain.toLowerCase().includes(q) || (item.categoryName || "").toLowerCase().includes(q) || (item.categoryEnName || "").toLowerCase().includes(q) || (item.method || "").toLowerCase().includes(q);
-      }
-      return true;
-    };
-    const feItems = list.filter((i) => i.type === "frontend" && filterItem(i));
-    const beItems = list.filter((i) => i.type === "api" && filterItem(i));
-    const groupByCategory = (items, rootType) => {
-      const map = /* @__PURE__ */ new Map();
-      for (const item of items) {
-        const key = item.categoryKey || (rootType === "frontend" ? "fe-other" : "be-other");
-        const name = item.categoryName || key;
-        const enName = item.categoryEnName || key;
-        if (!map.has(key)) {
-          map.set(key, { key, name, enName, items: [] });
-        }
-        map.get(key).items.push(item);
-      }
-      const groups = [];
-      map.forEach((entry) => {
-        const passCount = entry.items.filter((i) => i.status === "PASS").length;
-        const failCount = entry.items.filter((i) => i.status === "FAIL").length;
-        groups.push({
-          key: entry.key,
-          name: entry.name,
-          enName: entry.enName,
-          type: rootType,
-          items: entry.items,
-          totalCount: entry.items.length,
-          passCount,
-          failCount
-        });
-      });
-      return groups;
-    };
-    const roots = [];
-    if (routesFilter === "all" || routesFilter === "frontend") {
-      roots.push({
-        type: "frontend",
-        title: "\u524D\u7AEF\u9875\u9762\u8DEF\u7531 (Frontend Pages & Routes)",
-        enTitle: "Frontend Web Console Pages",
-        categories: groupByCategory(feItems, "frontend"),
-        totalCount: feItems.length,
-        passCount: feItems.filter((i) => i.status === "PASS").length,
-        failCount: feItems.filter((i) => i.status === "FAIL").length
-      });
-    }
-    if (routesFilter === "all" || routesFilter === "api") {
-      roots.push({
-        type: "api",
-        title: "\u540E\u7AEF\u670D\u52A1\u4E0E\u5FAE\u670D\u52A1 API (Backend Services & APIs)",
-        enTitle: "Backend Microservices & Gateway Endpoints",
-        categories: groupByCategory(beItems, "api"),
-        totalCount: beItems.length,
-        passCount: beItems.filter((i) => i.status === "PASS").length,
-        failCount: beItems.filter((i) => i.status === "FAIL").length
-      });
-    }
-    return roots;
+    return buildTree(fullRoutesAndApis, routesFilter, routesSearchQuery).map((r) => ({
+      type: r.type,
+      title: r.type === "frontend" ? "\u524D\u7AEF\u9875\u9762\u8DEF\u7531 (Frontend Pages & Routes)" : "\u540E\u7AEF\u670D\u52A1\u4E0E\u5FAE\u670D\u52A1 API (Backend Services & APIs)",
+      enTitle: r.type === "frontend" ? "Frontend Pages & Portal Routes" : "Backend Microservices & Gateway Endpoints",
+      categories: r.categories.map((c) => ({
+        key: c.key,
+        name: c.name,
+        enName: c.enName,
+        type: c.type,
+        items: c.items,
+        totalCount: c.counts.total,
+        passCount: c.counts.pass,
+        failCount: c.counts.fail,
+        noDataCount: c.counts.noData + c.counts.notProbed
+      })),
+      totalCount: r.counts.total,
+      passCount: r.counts.pass,
+      failCount: r.counts.fail,
+      noDataCount: r.counts.noData + r.counts.notProbed
+    }));
   }, [fullRoutesAndApis, routesFilter, routesSearchQuery]);
   const handleExpandAll = () => {
     setExpandedRoots({ frontend: true, api: true });
@@ -3951,26 +3979,26 @@ var ProgressiveReleasePanel = (props) => {
     if (!useMockData && livePayload?.candidateSample?.requestsCount != null) {
       return {
         countStr: `${Number(livePayload.candidateSample.requestsCount).toLocaleString()} requests`,
-        summary: livePayload.candidateSample.summary || "(sufficient, \u2265 10,000)"
+        summary: livePayload.candidateSample.summary || "threshold not reported"
       };
     }
-    return {
-      countStr: "\u2014 requests",
-      summary: "(monitoring live telemetry)"
-    };
-  }, [livePayload, resolvedEnv, useMockData]);
+    return { countStr: "NO DATA", summary: useMockData ? "(preview \u2014 no sample counter)" : "(no request counter wired)" };
+  }, [livePayload, useMockData]);
   const gateInfo = (0, import_react.useMemo)(() => {
-    if (!useMockData && livePayload?.gateStatus) {
+    if (!useMockData && livePayload?.gateStatus && parsedData.source === "live") {
+      const st = String(livePayload.gateStatus.status || "").toUpperCase();
       return {
-        isBlocked: livePayload.gateStatus.status === "BLOCKED",
-        summary: livePayload.gateStatus.summary || (failedCount > 0 ? `${failedCount} / 10 checks failed` : "10 / 10 checks passed")
+        state: st === "BLOCKED" ? "BLOCKED" : st === "ALLOWED" ? "ALLOWED" : "UNKNOWN",
+        isBlocked: st !== "ALLOWED",
+        summary: livePayload.gateStatus.summary || st
       };
     }
-    return {
-      isBlocked: failedCount > 0,
-      summary: failedCount > 0 ? `${failedCount} / 10 checks failed` : "10 / 10 checks passed"
-    };
-  }, [livePayload, failedCount, useMockData]);
+    const g = evaluateGate(endpointList, parsedData.source, 10);
+    return { state: g.state, isBlocked: g.state !== "ALLOWED", summary: g.summary };
+  }, [livePayload, endpointList, useMockData, parsedData.source]);
+  const frontendCatCount = (0, import_react.useMemo)(() => new Set(fullRoutesAndApis.filter((i) => i.type === "frontend").map((i) => i.categoryKey)).size, [fullRoutesAndApis]);
+  const backendCatCount = (0, import_react.useMemo)(() => new Set(fullRoutesAndApis.filter((i) => i.type === "api").map((i) => i.categoryKey)).size, [fullRoutesAndApis]);
+  const inventoryCounts = (0, import_react.useMemo)(() => countOf(fullRoutesAndApis), [fullRoutesAndApis]);
   const feCount = (0, import_react.useMemo)(() => fullRoutesAndApis.filter((i) => i.type === "frontend").length, [fullRoutesAndApis]);
   const beCount = (0, import_react.useMemo)(() => fullRoutesAndApis.filter((i) => i.type === "api").length, [fullRoutesAndApis]);
   const renderCellBadge = (item) => {
@@ -4013,7 +4041,7 @@ var ProgressiveReleasePanel = (props) => {
         item.status
       )),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "13px", fontWeight: 700, margin: "2px 0 1px 0" } }, item.httpCode),
-      /* @__PURE__ */ import_react.default.createElement("div", { style: { color: latColor, fontSize: "10px", opacity: 0.9 } }, item.latencyMs !== "\u2014" ? `p95 ${item.latencyMs} ms` : "p95 \u2014")
+      /* @__PURE__ */ import_react.default.createElement("div", { style: { color: latColor, fontSize: "10px", opacity: 0.9 } }, `${parsedData.latencyLabel} ${item.latencyMs !== "\u2014" && item.latencyMs != null ? `${item.latencyMs} ms` : "\u2014"}`)
     );
   };
   return /* @__PURE__ */ import_react.default.createElement(
@@ -4045,7 +4073,7 @@ var ProgressiveReleasePanel = (props) => {
           borderRadius: "4px"
         }
       },
-      parsedData.isLive ? `\u25CF LIVE ${resolvedEnv} DATA` : "NO LIVE DATA"
+      parsedData.source === "mock" ? "PREVIEW MOCK DATA" : parsedData.isLive ? `\u25CF LIVE ${resolvedEnv} DATA` : "NO TELEMETRY"
     )), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1.5fr 1.5fr", gap: "12px" } }, /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
@@ -4118,7 +4146,7 @@ var ProgressiveReleasePanel = (props) => {
             color: gateInfo.isBlocked ? "#ef4444" : "#22c55e"
           }
         },
-        gateInfo.isBlocked ? "\u2715" : "\u2713"
+        gateInfo.state === "ALLOWED" ? "\u2713" : gateInfo.state === "BLOCKED" ? "\u2715" : "?"
       ),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px", fontWeight: 500 } }, "Release gate (overall)"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginTop: "3px" } }, /* @__PURE__ */ import_react.default.createElement(
         "span",
@@ -4133,7 +4161,7 @@ var ProgressiveReleasePanel = (props) => {
             letterSpacing: "0.5px"
           }
         },
-        gateInfo.isBlocked ? "BLOCKED" : "PASSED"
+        gateInfo.state
       ), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#d1d5db", fontSize: "13px", fontWeight: 500 } }, gateInfo.summary)))
     ))),
     (mode === "all" || mode === "matrix_only") && showMatrix && /* @__PURE__ */ import_react.default.createElement(
@@ -4277,7 +4305,7 @@ var ProgressiveReleasePanel = (props) => {
           marginBottom: "16px"
         }
       },
-      /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 700 } }, "Top 10 Endpoint Details (", parsedData.isLive ? `Live ${resolvedEnv} Data` : "Telemetry Baseline", ")"), /* @__PURE__ */ import_react.default.createElement(
+      /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ffffff", fontSize: "15px", fontWeight: 700 } }, "Top 10 Endpoint Details (", parsedData.source === "mock" ? "Sample Mock Data" : parsedData.isLive ? `Live ${resolvedEnv} Data` : "No telemetry", ")"), /* @__PURE__ */ import_react.default.createElement(
         "span",
         {
           style: {
@@ -4290,9 +4318,9 @@ var ProgressiveReleasePanel = (props) => {
             borderRadius: "3px"
           }
         },
-        parsedData.isLive ? "\u25CF LIVE METRICS" : "NO LIVE DATA"
+        parsedData.source === "mock" ? "SAMPLE MOCK DATA" : parsedData.isLive ? "\u25CF LIVE METRICS" : "NO TELEMETRY"
       )), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "12px" } }, "10/10 checks \u2022 ", failedCount, " failed \u2022 Updated: ", updatedTimeStr)),
-      /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #232838" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "30px" } }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Endpoint (GET)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Expected HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Observed HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "p95 Latency"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Freshness (age)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Result"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, endpointList.map((ep, idx) => {
+      /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #232838" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600, width: "30px" } }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Endpoint (GET)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Expected HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Observed HTTP"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, parsedData.latencyLabel === "p95" ? "p95 Latency" : "Duration (last sample)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Freshness (age)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#8b949e", fontSize: "12px", fontWeight: 600 } }, "Result"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, endpointList.map((ep, idx) => {
         const isConsole = ep.service === "console";
         const isAccounts = ep.service === "accounts";
         const sBg = isConsole ? "#14532d" : isAccounts ? "#1e3a8a" : "#4c1d95";
@@ -4422,7 +4450,7 @@ var ProgressiveReleasePanel = (props) => {
             }
           },
           /* @__PURE__ */ import_react.default.createElement("span", { style: { width: "6px", height: "6px", borderRadius: "50%", background: liveFetchStatus === "success" || parsedData.isLive ? "#22c55e" : "#3b82f6" } }),
-          liveFetchStatus === "success" || parsedData.isLive ? "Live Telemetry Dynamic" : "Catalog Synchronized"
+          liveFetchStatus === "success" ? "Live Inventory (BFF)" : parsedData.isLive ? "Catalog + Prometheus" : parsedData.source === "mock" ? "Catalog + Mock Preview" : "Catalog only \xB7 NO DATA"
         ), /* @__PURE__ */ import_react.default.createElement(
           "span",
           {
@@ -4438,7 +4466,9 @@ var ProgressiveReleasePanel = (props) => {
           },
           "\u{1F310} ",
           feCount,
-          " \u524D\u7AEF\u8DEF\u7531 (7 \u5927\u7C7B)"
+          " \u524D\u7AEF\u8DEF\u7531 (",
+          frontendCatCount,
+          " \u5927\u7C7B)"
         ), /* @__PURE__ */ import_react.default.createElement(
           "span",
           {
@@ -4454,7 +4484,9 @@ var ProgressiveReleasePanel = (props) => {
           },
           "\u2699 ",
           beCount,
-          " \u540E\u7AEF\u63A5\u53E3 (8 \u5927\u7C7B)"
+          " \u540E\u7AEF\u63A5\u53E3 (",
+          backendCatCount,
+          " \u5927\u7C7B)"
         ), /* @__PURE__ */ import_react.default.createElement(
           "span",
           {
@@ -4472,7 +4504,7 @@ var ProgressiveReleasePanel = (props) => {
             }
           },
           /* @__PURE__ */ import_react.default.createElement("span", { style: { width: "6px", height: "6px", borderRadius: "50%", background: "#22c55e" } }),
-          "All 100% Online"
+          inventoryCounts.total > 0 && inventoryCounts.pass === inventoryCounts.total ? "All 100% Online" : `${inventoryCounts.pass}/${inventoryCounts.total} PASS \xB7 ${inventoryCounts.fail} FAIL \xB7 ${inventoryCounts.noData + inventoryCounts.notProbed} NO DATA/NOT PROBED`
         ))
       ),
       !isRoutesCollapsed && /* @__PURE__ */ import_react.default.createElement("div", { style: { padding: "12px 16px" } }, /* @__PURE__ */ import_react.default.createElement(
@@ -4683,7 +4715,8 @@ var ProgressiveReleasePanel = (props) => {
               root.passCount,
               "/",
               root.totalCount,
-              " PASS"
+              " PASS",
+              root.noDataCount ? ` \xB7 ${root.noDataCount} NO DATA` : ""
             ))
           ),
           isRootExpanded && /* @__PURE__ */ import_react.default.createElement("div", { style: { padding: "10px", display: "flex", flexDirection: "column", gap: "10px" } }, root.categories.map((cat) => {
@@ -4730,11 +4763,12 @@ var ProgressiveReleasePanel = (props) => {
                   cat.passCount,
                   "/",
                   cat.totalCount,
-                  " PASS"
+                  " PASS",
+                  cat.noDataCount ? ` \xB7 ${cat.noDataCount} NO DATA` : ""
                 ))
               ),
               isCatExpanded && /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { width: "100%", borderCollapse: "collapse", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { borderBottom: "1px solid #1f2738", background: "#10141f" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "6px 8px", color: "#8b949e", fontSize: "10px", fontWeight: 600, width: "28px" } }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "6px 8px", color: "#8b949e", fontSize: "10px", fontWeight: 600, width: "60px" } }, "Method"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "6px 8px", color: "#8b949e", fontSize: "10px", fontWeight: 600, width: "200px" } }, "Path / Route"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "6px 8px", color: "#8b949e", fontSize: "10px", fontWeight: 600, width: "90px" } }, "Service"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "6px 8px", color: "#8b949e", fontSize: "10px", fontWeight: 600 } }, "Description"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "6px 8px", color: "#8b949e", fontSize: "10px", fontWeight: 600, width: "60px" } }, "Expected"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "6px 8px", color: "#8b949e", fontSize: "10px", fontWeight: 600, width: "60px" } }, "Observed"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "6px 8px", color: "#8b949e", fontSize: "10px", fontWeight: 600, width: "80px" } }, "Latency"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "6px 8px", color: "#8b949e", fontSize: "10px", fontWeight: 600, width: "60px" } }, "Result"))), /* @__PURE__ */ import_react.default.createElement("tbody", null, cat.items.map((item, idx) => {
-                const isPass = item.status === "PASS";
+                const isPass = item.result === "PASS";
                 const m = (item.method || "GET").split(",")[0].trim().toUpperCase();
                 const methodColor = m === "GET" ? "#38bdf8" : m === "POST" ? "#4ade80" : m === "PUT" ? "#fbbf24" : "#f87171";
                 const methodBg = m === "GET" ? "rgba(56, 189, 248, 0.15)" : m === "POST" ? "rgba(74, 222, 128, 0.15)" : m === "PUT" ? "rgba(251, 191, 36, 0.15)" : "rgba(248, 113, 113, 0.15)";
@@ -4765,12 +4799,12 @@ var ProgressiveReleasePanel = (props) => {
                   /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "6px 8px", color: "#ffffff", fontSize: "11px", fontFamily: "monospace", fontWeight: 600 } }, item.path),
                   /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "6px 8px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#ffffff", fontSize: "11px", fontWeight: 600 } }, item.service), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: "#8b949e", fontSize: "9px", fontFamily: "monospace" } }, item.serviceDomain)),
                   /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "6px 8px", color: "#cbd5e1", fontSize: "11px" } }, item.description),
-                  /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "6px 8px", color: "#94a3b8", fontSize: "11px", fontFamily: "monospace" } }, item.expectedHttp),
+                  /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "6px 8px", color: "#94a3b8", fontSize: "11px", fontFamily: "monospace" } }, item.expectedHttp ?? "\u2014"),
                   /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "6px 8px" } }, /* @__PURE__ */ import_react.default.createElement(
                     "span",
                     {
                       style: {
-                        background: item.observedHttp === item.expectedHttp ? "#15803d" : "#b91c1c",
+                        background: item.observedHttp == null ? "#374151" : item.observedHttp === item.expectedHttp ? "#15803d" : "#b91c1c",
                         color: "#ffffff",
                         fontSize: "10px",
                         fontWeight: 700,
@@ -4779,20 +4813,20 @@ var ProgressiveReleasePanel = (props) => {
                         fontFamily: "monospace"
                       }
                     },
-                    item.observedHttp
+                    item.observedHttp ?? "\u2014"
                   )),
-                  /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "6px 8px", color: "#cbd5e1", fontSize: "10px", fontFamily: "monospace" } }, item.latencyMs, " ms", /* @__PURE__ */ import_react.default.createElement("span", { style: { display: "block", color: "#64748b", fontSize: "9px" } }, item.freshnessSec || 8, "s ago")),
+                  /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "6px 8px", color: "#cbd5e1", fontSize: "10px", fontFamily: "monospace" } }, item.latencyMs != null ? `${item.latencyMs} ms` : "\u2014", /* @__PURE__ */ import_react.default.createElement("span", { style: { display: "block", color: "#64748b", fontSize: "9px" } }, item.freshnessSec != null ? `${item.freshnessSec}s ago` : item.source)),
                   /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "6px 8px" } }, /* @__PURE__ */ import_react.default.createElement(
                     "span",
                     {
                       style: {
-                        color: isPass ? "#22c55e" : "#ef4444",
+                        color: isPass ? "#22c55e" : item.result === "FAIL" ? "#ef4444" : "#9ca3af",
                         fontSize: "10px",
                         fontWeight: 700
                       }
                     },
-                    isPass ? "\u2714 PASS" : "\u2716 FAIL"
-                  ))
+                    isPass ? "\u2714 PASS" : item.result === "FAIL" ? "\u2716 FAIL" : item.result
+                  ), /* @__PURE__ */ import_react.default.createElement("span", { title: item.probeNote || "", style: { display: "block", color: "#64748b", fontSize: "9px" } }, item.probeNote || (item.source === "mock" ? "mock" : "")))
                 );
               }))))
             );
@@ -4821,13 +4855,18 @@ var plugin = new import_data.PanelPlugin(ProgressiveReleasePanel).setPanelOption
   }).addBooleanSwitch({
     path: "useMockData",
     name: "Force Design Mock Data",
-    description: "Render the exact sample dataset from the design prototype",
+    description: "Render the design sample dataset. Preview only: the gate shows PREVIEW and never ALLOWED.",
     defaultValue: false
   }).addTextInput({
     path: "environment",
     name: "Environment Label",
     description: "Default environment label (PROD, SIT, etc.)",
     defaultValue: "PROD"
+  }).addTextInput({
+    path: "telemetryUrl",
+    name: "Inventory / telemetry URL (console BFF)",
+    description: "Optional read-only GET endpoint returning allRoutesAndApis, endpoints, flaggerServices, gateStatus. Supports dashboard variables. Empty = static catalog + Prometheus series.",
+    defaultValue: ""
   }).addBooleanSwitch({
     path: "showKpis",
     name: "Show Top KPI Cards",

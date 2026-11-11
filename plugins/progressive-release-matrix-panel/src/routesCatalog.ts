@@ -1,7 +1,8 @@
 /**
- * Web Console 全量前端页面路由与后端微服务 API 接口清单目录
- * 包含代码仓库遍历得出的 65 个前端页面与 116 个后端服务/微服务 API 接口
- * 支持按照: 前端/后端 (Root) -> 功能大类 (Category) -> 接口/子组件 (Item) 三级树状分组
+ * Web Console 前端页面路由与后端微服务 API 静态资产目录（元数据）。
+ * 注意：observedHttp / latencyMs / freshnessSec / result 字段是历史设计样本，面板不再使用；
+ * 运行结果只来自遥测（BFF 或 Prometheus），缺失即 NO DATA。总数由 dataModel 动态统计，不是常量。
+ * 三级分组: 前端/后端 (Root) -> 功能大类 (Category) -> 路由/接口 (Item)
  */
 
 export interface CatalogItem {
