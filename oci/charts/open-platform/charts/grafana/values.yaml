@@ -106,10 +106,11 @@ hpa:
   targetMemoryUtilizationPercentage: 80
 
 # Optional read-only MCP server for this Grafana (grafana/mcp-grafana), as its own Deployment
-# and Service "<fullname>-mcp". Off by default. It talks to Grafana over the in-cluster Service
+# and Service "grafana-mcp-server" (mcp.name). Off by default. It talks to Grafana over the in-cluster Service
 # and reuses existingSecret/adminPasswordKey, so no extra credential is defined.
 mcp:
   enabled: false
+  name: grafana-mcp-server
   image:
     repository: grafana/mcp-grafana
     tag: "@sha256:71a3f4e6f412d253611314233df709ec2571fb50e39742d23fa2940f670646dc"
