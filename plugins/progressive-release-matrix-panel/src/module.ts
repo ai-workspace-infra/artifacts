@@ -22,7 +22,7 @@ export const plugin = new PanelPlugin<PanelOptions>(ProgressiveReleasePanel)
       .addBooleanSwitch({
         path: 'useMockData',
         name: 'Force Design Mock Data',
-        description: 'Render the exact sample dataset from the design prototype',
+        description: 'Render the design sample dataset. Preview only: the gate shows PREVIEW and never ALLOWED.',
         defaultValue: false,
       })
       .addTextInput({
@@ -30,6 +30,12 @@ export const plugin = new PanelPlugin<PanelOptions>(ProgressiveReleasePanel)
         name: 'Environment Label',
         description: 'Default environment label (PROD, SIT, etc.)',
         defaultValue: 'PROD',
+      })
+      .addTextInput({
+        path: 'telemetryUrl',
+        name: 'Inventory / telemetry URL (console BFF)',
+        description: 'Optional read-only GET endpoint returning allRoutesAndApis, endpoints, flaggerServices, gateStatus. Supports dashboard variables. Empty = static catalog + Prometheus series.',
+        defaultValue: '',
       })
       .addBooleanSwitch({
         path: 'showKpis',

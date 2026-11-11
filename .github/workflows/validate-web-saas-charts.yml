@@ -46,6 +46,14 @@ jobs:
           helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true >/tmp/grafana-mcp.yaml
           grep -q "name: grafana-mcp-server" /tmp/grafana-mcp.yaml
           grep -q -- "--disable-write" /tmp/grafana-mcp.yaml
+          # Bearer auth is on by default (Secret platform-mcp) and usage stats are off.
+          grep -q "MCP_GRAFANA_SERVER_TOKEN" /tmp/grafana-mcp.yaml
+          grep -q 'name: "platform-mcp"' /tmp/grafana-mcp.yaml
+          grep -q "GRAFANA_USAGE_STATS" /tmp/grafana-mcp.yaml
+          grep -q 'GF_ANALYTICS_REPORTING_ENABLED' /tmp/grafana-rendered.yaml
+          # Auth on with no Secret must fail to render; explicit opt-out renders without the token.
+          ! helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true --set global.mcp.bearerToken.existingSecret= >/dev/null 2>&1
+          ! helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true --set global.mcp.bearerToken.enabled=false | grep -q "MCP_GRAFANA_SERVER_TOKEN"
           # platform-mcp: each server toggles independently, backends follow the toggles, auth fails closed.
           P=oci/charts/open-platform/charts/platform-mcp
           E="--set victoriametrics.entrypoint=http://vm:8428 --set victorialogs.entrypoint=http://vl:9428 --set victoriatraces.entrypoint=http://vt:10428"
