@@ -1,6 +1,6 @@
 import os
 
-CHART_DIR = "/Users/shenlan/workspaces/ai-workspace-infra/artifacts/oci/charts/infra-platform"
+CHART_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "oci", "charts", "open-platform", "standalone", "ai-workspace")
 
 def create_file(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -9,21 +9,33 @@ def create_file(path, content):
 
 # 1. Main Chart
 create_file(f"{CHART_DIR}/Chart.yaml", """apiVersion: v2
-name: infra-platform
-description: A Helm chart for Infra Platform domain (gitea, zitadel, observability, caddy)
+name: ai-workspace
+description: A Helm chart for AI Workspace domain (console, bridge, postgres, vault, litellm, qmd, x-memory-hub, caddy)
 type: application
 version: 0.1.0
 appVersion: "1.0.0"
 dependencies:
-  - name: gitea
+  - name: xworkspace-console
     version: 0.1.0
-    repository: "file://./charts/gitea"
-  - name: zitadel
+    repository: "file://./charts/xworkspace-console"
+  - name: xworkmate-bridge
     version: 0.1.0
-    repository: "file://./charts/zitadel"
-  - name: observability
+    repository: "file://./charts/xworkmate-bridge"
+  - name: postgresql
     version: 0.1.0
-    repository: "file://./charts/observability"
+    repository: "file://./charts/postgresql"
+  - name: vault
+    version: 0.1.0
+    repository: "file://./charts/vault"
+  - name: litellm
+    version: 0.1.0
+    repository: "file://./charts/litellm"
+  - name: qmd
+    version: 0.1.0
+    repository: "file://./charts/qmd"
+  - name: x-memory-hub
+    version: 0.1.0
+    repository: "file://./charts/x-memory-hub"
   - name: caddy
     version: 0.1.0
     repository: "file://./charts/caddy"
@@ -33,17 +45,25 @@ create_file(f"{CHART_DIR}/values.yaml", """# Global values
 global:
   domain: local
 
-gitea:
+xworkspace-console:
   enabled: true
-zitadel:
+xworkmate-bridge:
   enabled: true
-observability:
+postgresql:
+  enabled: true
+vault:
+  enabled: true
+litellm:
+  enabled: true
+qmd:
+  enabled: true
+x-memory-hub:
   enabled: true
 caddy:
   enabled: true
 """)
 
-subcharts = ["gitea", "zitadel", "observability", "caddy"]
+subcharts = ["xworkspace-console", "xworkmate-bridge", "postgresql", "vault", "litellm", "qmd", "x-memory-hub", "caddy"]
 
 for sub in subcharts:
     create_file(f"{CHART_DIR}/charts/{sub}/Chart.yaml", f"""apiVersion: v2
@@ -120,4 +140,4 @@ spec:
 {{{{- end }}}}
 """)
 
-print("infra-platform Helm chart scaffolded successfully.")
+print("ai-workspace Helm chart scaffolded successfully.")

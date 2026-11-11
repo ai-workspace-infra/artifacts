@@ -1,0 +1,7 @@
+{{- if .Values.compat.enabled }}
+{{- range .Values.compat.extraObjects }}
+---
+{{ toYaml . }}
+{{- end }}
+
+{{- end }}

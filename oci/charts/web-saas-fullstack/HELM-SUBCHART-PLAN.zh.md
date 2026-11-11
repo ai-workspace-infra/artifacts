@@ -66,7 +66,7 @@ Gateway API 的 `HTTPRoute` 可以按 hostname/path 绑定 Gateway 并指向 Kub
 ## 目标目录结构
 
 ```text
-oci/charts/distributed-web-saas-fullstack/
+oci/charts/web-saas-fullstack/
 ├── Chart.yaml                         # umbrella chart，锁定子 Chart 依赖版本
 ├── values.yaml                        # 通用安全默认值，不含生产目标或凭据
 ├── values-open.yaml                   # 可公开的本地/K3s 示例，不用于 PROD

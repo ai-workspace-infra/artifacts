@@ -1,24 +1,25 @@
-{{- if .Values.agent.processExporter.enabled }}
+{{- if .Values.compat.enabled }}
+{{- if .Values.compat.agent.processExporter.enabled }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ .Values.agent.processExporter.serviceAccountName }}
-  namespace: {{ .Values.namespaces.observability }}
+  name: {{ .Values.compat.agent.processExporter.serviceAccountName }}
+  namespace: {{ .Values.compat.namespaces.observability }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: process-exporter-config
-  namespace: {{ .Values.namespaces.observability }}
+  namespace: {{ .Values.compat.namespaces.observability }}
 data:
   config.yaml: |
-    {{- .Values.agent.processExporter.config | nindent 4 }}
+    {{- .Values.compat.agent.processExporter.config | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: process-exporter
-  namespace: {{ .Values.namespaces.observability }}
+  namespace: {{ .Values.compat.namespaces.observability }}
 spec:
   selector:
     matchLabels:
@@ -29,26 +30,26 @@ spec:
         app.kubernetes.io/name: process-exporter
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "{{ .Values.agent.processExporter.port }}"
+        prometheus.io/port: "{{ .Values.compat.agent.processExporter.port }}"
     spec:
-      serviceAccountName: {{ .Values.agent.processExporter.serviceAccountName }}
+      serviceAccountName: {{ .Values.compat.agent.processExporter.serviceAccountName }}
       hostPID: true
       containers:
         - name: process-exporter
-          image: "{{ .Values.agent.processExporter.image.repository }}:{{ .Values.agent.processExporter.image.tag }}"
-          imagePullPolicy: {{ .Values.agent.processExporter.image.pullPolicy }}
+          image: "{{ .Values.compat.agent.processExporter.image.repository }}:{{ .Values.compat.agent.processExporter.image.tag }}"
+          imagePullPolicy: {{ .Values.compat.agent.processExporter.image.pullPolicy }}
           args:
             - --procfs
             - /host/proc
             - --config.path
             - /etc/process-exporter/config.yaml
-            - --web.listen-address=:{{ .Values.agent.processExporter.port }}
+            - --web.listen-address=:{{ .Values.compat.agent.processExporter.port }}
           ports:
             - name: metrics
-              containerPort: {{ .Values.agent.processExporter.port }}
+              containerPort: {{ .Values.compat.agent.processExporter.port }}
               protocol: TCP
           resources:
-            {{- toYaml .Values.agent.processExporter.resources | nindent 12 }}
+            {{- toYaml .Values.compat.agent.processExporter.resources | nindent 12 }}
           volumeMounts:
             - name: config
               mountPath: /etc/process-exporter
@@ -62,4 +63,6 @@ spec:
         - name: proc
           hostPath:
             path: /proc
+{{- end }}
+
 {{- end }}

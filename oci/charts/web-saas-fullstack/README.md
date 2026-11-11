@@ -109,16 +109,16 @@ services' approved runtime contract in it.
 .github/scripts/check-web-saas-charts.sh
 
 # reviewed-images.yaml and reviewed-secrets.yaml are environment-owned overlays.
-helm template example oci/charts/distributed-web-saas-fullstack \
+helm template example oci/charts/web-saas-fullstack \
   --namespace example-sit --kube-version 1.32.0 \
-  -f oci/charts/distributed-web-saas-fullstack/values-open.yaml \
+  -f oci/charts/web-saas-fullstack/values-open.yaml \
   -f reviewed-images.yaml -f reviewed-secrets.yaml
 
 # Append values-grouped.yaml or values-single-container.yaml when desired.
 # Install only after the rendered resources and runtime image contracts are accepted.
-helm upgrade --install example oci/charts/distributed-web-saas-fullstack \
+helm upgrade --install example oci/charts/web-saas-fullstack \
   --namespace example-sit --create-namespace \
-  -f oci/charts/distributed-web-saas-fullstack/values-open.yaml \
+  -f oci/charts/web-saas-fullstack/values-open.yaml \
   -f reviewed-images.yaml -f reviewed-secrets.yaml
 ```
 
