@@ -122,7 +122,8 @@ victorialogs:
   entrypointEnv: VL_INSTANCE_ENTRYPOINT
   entrypoint: ""
   extraEnv: {}
-  # mcp-victorialogs has no inbound token setting; the NetworkPolicy keeps it gateway-only.
+  # mcp-victorialogs has no inbound token setting: with auth on, authProxy fronts it and checks the
+  # bearer token; the server itself listens on 127.0.0.1 only.
   tokenEnv: ""
   backend:
     name: observability-logs
@@ -142,7 +143,7 @@ victoriatraces:
   entrypointEnv: VT_INSTANCE_ENTRYPOINT
   entrypoint: ""
   extraEnv: {}
-  # mcp-victoriatraces has no inbound token setting; the NetworkPolicy keeps it gateway-only.
+  # mcp-victoriatraces has no inbound token setting: with auth on, authProxy fronts it (see victorialogs).
   tokenEnv: ""
   backend:
     name: observability-traces
@@ -154,6 +155,19 @@ victoriatraces:
 # Workload autoscaling (helpers: templates/_autoscaling.tpl). One policy for every workload in
 # this chart; per-server starting points are the resources above. VPA renders only where the
 # VPA API exists.
+# Bearer-token check for MCP servers with no inbound auth of their own (tokenEnv ""), used when
+# global.mcp.bearerToken.enabled: a Caddy sidecar on the service port that requires
+# "Authorization: Bearer <token>" and proxies to the server on 127.0.0.1:<port + innerPortOffset>.
+authProxy:
+  image:
+    repository: caddy
+    tag: "2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d"
+    pullPolicy: IfNotPresent
+  innerPortOffset: 10000
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {cpu: 100m, memory: 64Mi}
+
 vpa:
   enabled: true
   updateMode: InPlaceOrRecreate

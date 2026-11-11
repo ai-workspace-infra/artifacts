@@ -59,7 +59,7 @@ victoriametrics victorialogs victoriatraces
 {{- $v := index $root.Values $k }}
 {{- if $v.enabled }}
 {{- $b := dict "name" $v.backend.name "capability" $v.backend.capability "transport" "streamable-http" "url" (printf "http://%s.%s.svc.cluster.local:%d/mcp" $v.name $root.Release.Namespace (int $v.port)) "enabled" true }}
-{{- if and $auth $v.tokenEnv }}{{ $_ := set $b "bearer_token_env" "MCP_SERVICE_TOKEN" }}{{ end }}
+{{- if $auth }}{{ $_ := set $b "bearer_token_env" "MCP_SERVICE_TOKEN" }}{{ end }}
 {{- $backends = append $backends $b }}
 {{- end }}
 {{- end }}
