@@ -46,7 +46,8 @@ disablePlugins:
   - zipkin
 
 # Data sources. backendFullname is the fullname of the observability-stack release that
-# owns the VictoriaMetrics/Logs/Traces services (release "observability" -> the default).
+# owns the VictoriaMetrics/Logs/Traces services (release "observability" -> the default;
+# empty -> "<this release>-observability-stack", as in the open-platform umbrella).
 backendFullname: observability-observability-stack
 datasourcesConfigMap: ""
 appsConfigMap: ""
@@ -103,3 +104,26 @@ hpa:
   maxReplicas: 3
   targetCPUUtilizationPercentage: 80
   targetMemoryUtilizationPercentage: 80
+
+# Optional read-only MCP server for this Grafana (grafana/mcp-grafana), as its own Deployment
+# and Service "<fullname>-mcp". Off by default. It talks to Grafana over the in-cluster Service
+# and reuses existingSecret/adminPasswordKey, so no extra credential is defined.
+mcp:
+  enabled: false
+  image:
+    repository: grafana/mcp-grafana
+    tag: "@sha256:71a3f4e6f412d253611314233df709ec2571fb50e39742d23fa2940f670646dc"
+    pullPolicy: IfNotPresent
+  port: 8000
+  basePath: /v1/grafana
+  # Read-only by default.
+  disableWrite: true
+  disableAdmin: true
+  # Empty: http://<fullname>:<service.port>/ (in-cluster).
+  grafanaUrl: ""
+  username: admin
+  # Host headers accepted besides the Service names and localhost (e.g. public hostnames).
+  extraAllowedHosts: []
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}

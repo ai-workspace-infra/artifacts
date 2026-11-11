@@ -30,3 +30,14 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- define "grafana.dataClaim" -}}
 {{- .Values.persistence.existingClaim | default (printf "%s-data" (include "grafana.fullname" .)) }}
 {{- end }}
+
+{{- define "grafana.mcpSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "grafana.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: mcp-grafana
+{{- end }}
+
+{{/* observability-stack fullname that owns the Victoria* services; empty -> "<release>-observability-stack". */}}
+{{- define "grafana.backendFullname" -}}
+{{- .Values.backendFullname | default (printf "%s-observability-stack" .Release.Name | trunc 63 | trimSuffix "-") }}
+{{- end }}
