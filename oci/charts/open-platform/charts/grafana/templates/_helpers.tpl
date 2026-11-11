@@ -31,22 +31,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- .Values.persistence.existingClaim | default (printf "%s-data" (include "grafana.fullname" .)) }}
 {{- end }}
 
-{{- define "grafana.mcpSelectorLabels" -}}
-app.kubernetes.io/name: {{ include "grafana.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: mcp-grafana
-{{- end }}
-
 {{/* observability-stack fullname that owns the Victoria* services; empty -> "<release>-observability-stack". */}}
 {{- define "grafana.backendFullname" -}}
 {{- .Values.backendFullname | default (printf "%s-observability-stack" .Release.Name | trunc 63 | trimSuffix "-") }}
-{{- end }}
-
-{{/* MCP bearer token Secret ref: mcp.bearerToken, falling back to global.mcp.bearerToken. */}}
-{{- define "grafana.mcpBearerToken" -}}
-{{- $g := dig "mcp" "bearerToken" dict (.Values.global | default dict) -}}
-{{- $l := .Values.mcp.bearerToken | default dict -}}
-{{- $secret := $l.existingSecret | default $g.existingSecret | default "" -}}
-{{- $key := $l.key | default $g.key | default "mcp-service-token" -}}
-{{- if $secret }}{{ dict "secret" $secret "key" $key | toJson }}{{ end -}}
 {{- end }}

@@ -3,7 +3,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 package_dir="${RUNNER_TEMP:-$repo_root/dist}/oci-charts-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
-legacy_charts=(oci/charts/open-platform/charts/observability-agent oci/charts/open-platform oci/charts/open-platform/charts/observability-stack oci/charts/open-platform/charts/grafana oci/charts/web-saas-fullstack/standalone/apps/app-service)
+legacy_charts=(oci/charts/open-platform/charts/observability-agent oci/charts/open-platform oci/charts/open-platform/charts/observability-stack oci/charts/open-platform/charts/grafana oci/charts/open-platform/charts/platform-mcp oci/charts/web-saas-fullstack/standalone/apps/app-service)
 case "${1:-}" in
   validate)
     python3 scripts/sync_autoscaling_helper.py --check

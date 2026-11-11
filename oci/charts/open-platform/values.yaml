@@ -3,11 +3,13 @@ global:
   domain: "open-platform.local"
   storageClass: ""
   imagePullPolicy: "IfNotPresent"
-  # One bearer token shared by every MCP server (grafana-mcp-server, ssh/victoria* MCP servers)
-  # and the MCP gateway: name of a Secret in the release namespace and its key. Empty -> no auth.
+  # One bearer token shared by every MCP server (gateway, ssh/grafana/victoria* backends)
+  # and the MCP gateway: a Secret in the release namespace and its key. On by default so no MCP
+  # endpoint is served without auth; rendering fails if it is on and no Secret is named.
   mcp:
     bearerToken:
-      existingSecret: ""
+      enabled: true
+      existingSecret: platform-mcp
       key: mcp-service-token
 
 # 01 Git & CI/CD Engine
@@ -29,14 +31,12 @@ cmdb:
 # 05 Full-Stack Observability & Telemetry Central Stack
 # Grafana as its own release (charts/grafana), on by default; the Grafana bundled in
 # observability-stack is turned off below so only one Grafana runs.
-# grafana.mcp.enabled adds the optional read-only mcp-grafana Deployment/Service.
+# Grafana is served on observability.svc.plus; its MCP client is deployed in platform-mcp.
 grafana:
   enabled: true
   rootUrl: ""
   # Empty: "<release>-observability-stack", the observability-stack subchart of this release.
   backendFullname: ""
-  mcp:
-    enabled: false
 
 observability-stack:
   enabled: true
@@ -66,9 +66,11 @@ pg-backup:
 ai-gateway:
   enabled: true
 
-# 11 Infrastructure MCP Tool Gateway
-mcp-gateway:
-  enabled: true
+# 11 Platform MCP stack: infrastructure-mcp-server gateway + ssh/grafana/Victoria* MCP servers,
+# each with its own enabled toggle. Off by default; the Victoria* servers need their entrypoints,
+# Grafana MCP needs its URL and Viewer token Secret, and all backends need the shared MCP token.
+platform-mcp:
+  enabled: false
 
 # Caddy (moved from the former infra-platform group; scaffold image, off by default)
 caddy:

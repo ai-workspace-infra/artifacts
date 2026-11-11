@@ -1,0 +1,11 @@
+apiVersion: v2
+name: platform-mcp
+description: Platform MCP gateway with independently toggled SSH, Grafana, VictoriaMetrics, VictoriaLogs, and VictoriaTraces MCP backends, protected by one shared bearer token
+type: application
+version: 1.0.0
+appVersion: "0.4.0"
+keywords: [mcp, gateway, ssh, grafana, victoriametrics, victorialogs, victoriatraces, open-platform]
+home: https://github.com/ai-workspace-infra
+maintainers:
+  - name: Platform Engineering Team
+    email: platform@svc.plus

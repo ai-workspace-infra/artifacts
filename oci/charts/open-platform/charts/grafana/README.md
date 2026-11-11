@@ -16,14 +16,11 @@ sized, upgraded and rolled back on its own.
    - `service.aliases: [<fullname>, <fullname>-grafana]` so callers of the old Service names keep working.
 3. With Flux, make the Grafana HelmRelease `dependsOn` the observability-stack release so the old Deployment and Services are removed before the new release takes the names over.
 
-## Optional mcp-grafana
+## MCP access
 
-`mcp.enabled: true` adds a read-only [mcp-grafana](https://github.com/grafana/mcp-grafana) server as its
-own Deployment and Service `grafana-mcp-server` (`mcp.name`) (port 8000, SSE under `mcp.basePath`, default `/v1/grafana`).
-It reaches Grafana through the in-cluster Service and reuses `existingSecret`/`adminPasswordKey`, so no
-extra credential is defined. `--disable-write` and `--disable-admin` are on by default. It is covered by
-the chart's shared `vpa`/`hpa` settings like the Grafana Deployment.
-
-Inbound auth: set `global.mcp.bearerToken.existingSecret` (key `global.mcp.bearerToken.key`, default
-`mcp-service-token`) to require `Authorization: Bearer <token>`; the same global value is meant for
-every MCP server and the MCP gateway. `mcp.bearerToken` overrides it for this server only.
+This chart contains only the Grafana UI/API service. The read-only
+[mcp-grafana](https://github.com/grafana/mcp-grafana) server is deployed by the separate
+`platform-mcp` chart, which connects to this Grafana service with a dedicated Viewer service-account
+token and exposes the tool through its authenticated gateway. See the `platform-mcp` chart README for
+its `grafanaMcpServer` settings. The MCP service uses Streamable HTTP at `/v1/grafana/mcp` behind the
+gateway. Grafana reporting and update checks remain off by default.

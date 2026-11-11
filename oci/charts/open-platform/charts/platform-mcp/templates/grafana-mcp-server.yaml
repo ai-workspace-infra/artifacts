@@ -1,0 +1,122 @@
+{{- $g := .Values.grafanaMcpServer }}
+{{- if $g.enabled }}
+{{- $ctx := dict "root" . "component" $g.name }}
+{{- $sharedToken := include "platform-mcp.bearerToken" . }}
+{{- if not $sharedToken }}{{ fail "grafanaMcpServer requires the shared MCP bearer token; global.mcp.bearerToken must be enabled" }}{{ end }}
+{{- $tokenData := $sharedToken | fromJson }}
+{{- $viewerSecret := required "grafanaMcpServer.serviceAccountToken.existingSecret is required when enabled" $g.serviceAccountToken.existingSecret }}
+{{- $grafanaURL := required "grafanaMcpServer.grafanaUrl is required when enabled" $g.grafanaUrl }}
+{{- $hosts := list $g.name (printf "%s.%s" $g.name .Release.Namespace) (printf "%s.%s.svc" $g.name .Release.Namespace) (printf "%s.%s.svc.cluster.local" $g.name .Release.Namespace) "localhost" "127.0.0.1" }}
+{{- $allowed := list }}
+{{- range $h := $hosts }}
+{{- $allowed = append $allowed $h }}
+{{- $allowed = append $allowed (printf "%s:%d" $h (int $g.port)) }}
+{{- end }}
+{{- $allowed = concat $allowed (default list $g.extraAllowedHosts) | uniq }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $g.name }}
+  labels:
+    {{- include "platform-mcp.labels" $ctx | nindent 4 }}
+spec:
+  {{- include "platform-mcp.replicas" . | nindent 2 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      {{- include "platform-mcp.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "platform-mcp.labels" $ctx | nindent 8 }}
+        platform.svc.plus/mcp-role: backend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mcp-grafana
+          image: "{{ $g.image.repository }}{{ if not (hasPrefix "@" $g.image.tag) }}:{{ end }}{{ $g.image.tag }}"
+          imagePullPolicy: {{ $g.image.pullPolicy }}
+          args:
+            - --transport
+            - streamable-http
+            - --address
+            - {{ printf ":%d" (int $g.port) | quote }}
+            - --base-path
+            - {{ $g.basePath | quote }}
+            - --allowed-hosts
+            - {{ join "," $allowed | quote }}
+            {{- if $g.disableWrite }}
+            - --disable-write
+            {{- end }}
+            {{- if $g.disableAdmin }}
+            - --disable-admin
+            {{- end }}
+          env:
+            - name: GRAFANA_URL
+              value: {{ $grafanaURL | quote }}
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $viewerSecret | quote }}
+                  key: {{ required "grafanaMcpServer.serviceAccountToken.key is required when enabled" $g.serviceAccountToken.key | quote }}
+            - name: MCP_GRAFANA_SERVER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $tokenData.secret | quote }}
+                  key: {{ $tokenData.key | quote }}
+            {{- if not $g.usageStats }}
+            - name: GRAFANA_USAGE_STATS
+              value: "disabled"
+            - name: DO_NOT_TRACK
+              value: "1"
+            {{- end }}
+          ports:
+            - name: mcp
+              containerPort: {{ $g.port }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+              httpHeaders: [{name: Host, value: localhost}]
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+              httpHeaders: [{name: Host, value: localhost}]
+            periodSeconds: 15
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+              httpHeaders: [{name: Host, value: localhost}]
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml $g.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $g.name }}
+  labels:
+    {{- include "platform-mcp.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "platform-mcp.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: mcp
+      port: {{ $g.port }}
+      targetPort: mcp
+      protocol: TCP
+{{- end }}

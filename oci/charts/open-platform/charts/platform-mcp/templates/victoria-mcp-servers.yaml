@@ -1,0 +1,142 @@
+{{- $root := . }}
+{{- range $k := splitList " " (include "platform-mcp.victoriaKeys" .) }}
+{{- $v := index $root.Values $k }}
+{{- if $v.enabled }}
+{{- $ctx := dict "root" $root "component" $v.name }}
+{{- $proxy := and (ne (include "platform-mcp.bearerToken" $root) "") (not $v.tokenEnv) }}
+{{- $listen := ternary (printf "127.0.0.1:%d" (add (int $v.port) (int $root.Values.authProxy.innerPortOffset))) (printf "0.0.0.0:%d" (int $v.port)) $proxy }}
+{{- if $proxy }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $v.name }}-auth-proxy
+  labels:
+    {{- include "platform-mcp.labels" $ctx | nindent 4 }}
+data:
+  Caddyfile: |
+    {
+    	admin off
+    	auto_https off
+    	persist_config off
+    }
+    :{$LISTEN_PORT} {
+    	@authorized header Authorization "Bearer {$MCP_AUTH_TOKEN}"
+    	handle @authorized {
+    		reverse_proxy 127.0.0.1:{$UPSTREAM_PORT} {
+    			flush_interval -1
+    		}
+    	}
+    	handle {
+    		respond `{"error":"unauthorized"}` 401
+    	}
+    }
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $v.name }}
+  labels:
+    {{- include "platform-mcp.labels" $ctx | nindent 4 }}
+spec:
+  {{- include "platform-mcp.replicas" $root | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "platform-mcp.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "platform-mcp.labels" $ctx | nindent 8 }}
+        platform.svc.plus/mcp-role: backend
+
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $v.name }}
+          image: "{{ $v.image.repository }}{{ if not (hasPrefix "@" $v.image.tag) }}:{{ end }}{{ $v.image.tag }}"
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          env:
+            - name: {{ $v.entrypointEnv }}
+              value: {{ required (printf "%s.entrypoint is required when %s.enabled" $k $k) $v.entrypoint | quote }}
+            - name: MCP_SERVER_MODE
+              value: http
+            - name: MCP_LISTEN_ADDR
+              value: {{ $listen | quote }}
+            {{- range $ek, $ev := $v.extraEnv }}
+            - name: {{ $ek }}
+              value: {{ $ev | quote }}
+            {{- end }}
+            {{- include "platform-mcp.tokenEnv" (dict "root" $root "env" $v.tokenEnv) | trim | nindent 12 }}
+          {{- if not $proxy }}
+          ports:
+            - name: mcp
+              containerPort: {{ $v.port }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket: {port: mcp}
+            periodSeconds: 10
+          {{- end }}
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $root.Values.containerSecurityContext | nindent 12 }}
+        {{- if $proxy }}
+        - name: auth-proxy
+          image: "{{ $root.Values.authProxy.image.repository }}:{{ $root.Values.authProxy.image.tag }}"
+          imagePullPolicy: {{ $root.Values.authProxy.image.pullPolicy }}
+          args: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+          env:
+            - name: LISTEN_PORT
+              value: {{ $v.port | quote }}
+            - name: UPSTREAM_PORT
+              value: {{ add (int $v.port) (int $root.Values.authProxy.innerPortOffset) | quote }}
+            - name: XDG_DATA_HOME
+              value: /tmp/caddy
+            - name: XDG_CONFIG_HOME
+              value: /tmp/caddy
+            {{- include "platform-mcp.tokenEnv" (dict "root" $root "env" "MCP_AUTH_TOKEN") | trim | nindent 12 }}
+          ports:
+            - name: mcp
+              containerPort: {{ $v.port }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket: {port: mcp}
+            periodSeconds: 10
+          resources:
+            {{- toYaml $root.Values.authProxy.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $root.Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: auth-proxy-config
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: auth-proxy-tmp
+              mountPath: /tmp
+      volumes:
+        - name: auth-proxy-config
+          configMap:
+            name: {{ $v.name }}-auth-proxy
+        - name: auth-proxy-tmp
+          emptyDir: {}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $v.name }}
+  labels:
+    {{- include "platform-mcp.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "platform-mcp.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: mcp
+      port: {{ $v.port }}
+      targetPort: mcp
+      protocol: TCP
+{{- end }}
+{{- end }}

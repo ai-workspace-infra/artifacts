@@ -37,7 +37,7 @@ Active Core Services Endpoints:
 {{- if (index .Values "ai-gateway").enabled }}
 - 10 AI Gateway (New API/Lite):  http://new-api.{{ .Values.global.domain }}:3000 & http://litellm.{{ .Values.global.domain }}:4000
 {{- end }}
-{{- if (index .Values "mcp-gateway").enabled }}
-- 11 MCP Gateway:                http://mcp.{{ .Values.global.domain }}:8080/
+{{- if (index .Values "platform-mcp").enabled }}
+- 11 Platform MCP gateway:       infrastructure-mcp-server:8080 (Bearer auth; backends cluster-internal)
 {{- end }}
 ------------------------------------------------------------------------------
