@@ -1,0 +1,102 @@
+{{- if .Values.mcp.enabled }}
+{{- $fullname := include "grafana.fullname" . }}
+{{- $name := printf "%s-mcp" $fullname | trunc 63 | trimSuffix "-" }}
+{{- $m := .Values.mcp }}
+{{- $port := int $m.port }}
+{{- $hosts := list $name (printf "%s.%s" $name .Release.Namespace) (printf "%s.%s.svc" $name .Release.Namespace) (printf "%s.%s.svc.cluster.local" $name .Release.Namespace) "localhost" "127.0.0.1" }}
+{{- $allowed := list }}
+{{- range $h := $hosts }}
+{{- $allowed = append $allowed $h }}
+{{- $allowed = append $allowed (printf "%s:%d" $h $port) }}
+{{- end }}
+{{- $allowed = concat $allowed (default list $m.extraAllowedHosts) | uniq }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "grafana.labels" . | replace "component: grafana" "component: mcp-grafana" | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "grafana.mcpSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "grafana.mcpSelectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-grafana
+          image: "{{ $m.image.repository }}{{ if not (hasPrefix "@" $m.image.tag) }}:{{ end }}{{ $m.image.tag }}"
+          imagePullPolicy: {{ $m.image.pullPolicy }}
+          args:
+            - --base-path
+            - {{ $m.basePath | quote }}
+            {{- if $m.disableWrite }}
+            - --disable-write
+            {{- end }}
+            {{- if $m.disableAdmin }}
+            - --disable-admin
+            {{- end }}
+            - --allowed-hosts
+            - {{ join "," $allowed | quote }}
+          env:
+            - name: GRAFANA_URL
+              value: {{ $m.grafanaUrl | default (printf "http://%s:%d/" $fullname (int .Values.service.port)) | quote }}
+            - name: GRAFANA_USERNAME
+              value: {{ $m.username | quote }}
+            - name: GRAFANA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "existingSecret is required" .Values.existingSecret | quote }}
+                  key: {{ .Values.adminPasswordKey | quote }}
+          ports:
+            - name: mcp
+              containerPort: {{ $port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet: {path: /healthz, port: mcp, httpHeaders: [{name: Host, value: localhost}]}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: {path: /healthz, port: mcp, httpHeaders: [{name: Host, value: localhost}]}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml $m.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "grafana.labels" . | replace "component: grafana" "component: mcp-grafana" | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-sse
+      port: {{ $port }}
+      targetPort: mcp
+      protocol: TCP
+  selector:
+    {{- include "grafana.mcpSelectorLabels" . | nindent 4 }}
+{{- end }}

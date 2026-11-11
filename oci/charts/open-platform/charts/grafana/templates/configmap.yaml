@@ -11,16 +11,16 @@ data:
       - name: VictoriaMetrics
         type: prometheus
         access: proxy
-        url: http://{{ .Values.backendFullname }}-victoria-metrics:8428
+        url: http://{{ include "grafana.backendFullname" . }}-victoria-metrics:8428
         isDefault: true
       - name: VictoriaLogs
         type: victoriametrics-logs-datasource
         access: proxy
-        url: http://{{ .Values.backendFullname }}-victoria-logs:9428
+        url: http://{{ include "grafana.backendFullname" . }}-victoria-logs:9428
       - name: VictoriaTraces
         type: jaeger
         access: proxy
-        url: http://{{ .Values.backendFullname }}-victoria-traces:10428/select/jaeger
+        url: http://{{ include "grafana.backendFullname" . }}-victoria-traces:10428/select/jaeger
   {{- if or .Values.dashboardsConfigMap .Values.dashboardProviders }}
   dashboards.yaml: |
     apiVersion: 1
