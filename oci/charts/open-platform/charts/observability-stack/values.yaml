@@ -96,6 +96,8 @@ blackboxExporter:
       memory: 128Mi
 
 grafana:
+  # Set false when Grafana runs as its own release (open-platform/charts/grafana).
+  enabled: true
   image:
     repository: grafana/grafana
     tag: "13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f"
@@ -165,3 +167,366 @@ telemetry:
       units:
         - k3s.service
         - k3s-agent.service
+
+# ------------------------------------------------------------------------------
+# Model Context Protocol (MCP) Server Gateways
+# Exposes MCP interfaces for VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana
+# ------------------------------------------------------------------------------
+mcp:
+  enabled: false
+  victoriaMetrics:
+    enabled: true
+    image:
+      repository: ghcr.io/victoriametrics/mcp-victoriametrics
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 8088
+    # When empty, defaults to http://<fullname>-victoria-metrics:<service.metricsPort>
+    entrypoint: ""
+    instanceType: single
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  victoriaLogs:
+    enabled: true
+    image:
+      repository: ghcr.io/victoriametrics/mcp-victorialogs
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 8083
+    # When empty, defaults to http://<fullname>-victoria-logs:<service.logsPort>
+    entrypoint: ""
+    readOnly: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  victoriaTraces:
+    enabled: true
+    image:
+      repository: ghcr.io/victoriametrics-community/mcp-victoriatraces
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 8082
+    # When empty, defaults to http://<fullname>-victoria-traces:<service.tracesPort>
+    entrypoint: ""
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  grafana:
+    enabled: true
+    image:
+      repository: grafana/mcp-grafana
+      tag: "latest@sha256:71a3f4e6f412d253611314233df709ec2571fb50e39742d23fa2940f670646dc"
+      pullPolicy: IfNotPresent
+    port: 8000
+    basePath: "/v1/grafana"
+    disableWrite: true
+    disableAdmin: true
+    # When empty, defaults to http://<fullname>-grafana:<service.grafanaPort>/
+    grafanaUrl: ""
+    tokenSecret:
+      name: "infra-mcp-auth"
+      key: "grafana-service-account-token"
+      optional: true
+    extraAllowedHosts: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ------------------------------------------------------------------------------
+# Traefik IngressRoutes and Middlewares
+# Exposes shared observability routes (/mcp/v1/*, /ingest/*, /api/v1/*, and root)
+# ------------------------------------------------------------------------------
+traefik:
+  ingressRoute:
+    enabled: false
+    entryPoints:
+      - websecure
+    # When empty, defaults to observability.<domain>
+    host: ""
+    extraHosts: []
+    priorities:
+      ingest: 1000
+      query: 1100
+      mcpGrafana: 1200
+      mcpMetrics: 1200
+      mcpLogs: 1200
+      mcpTraces: 1200
+      grafana: 1
+    tls:
+      enabled: true
+      secretName: "shared-observability-tls"
+    # Target service for /ingest/metrics/api/v1/write, /ingest/logs/, /ingest/otlp/
+    ingestService:
+      name: "observability-ingest-auth"
+      port: 8427
+      namespace: ""
+    # Target service for /api/v1/query and /api/v1/query_range
+    queryService:
+      name: ""
+      port: 0
+      namespace: ""
+    middleware:
+      ingestPrefix: ""
+      stripMcpPrefix: ""
+      metricsPrefix: ""
+      logsPrefix: ""
+      tracesPrefix: ""
+
+# Workload autoscaling (helpers: templates/_autoscaling.tpl, canonical in
+# oci/charts/library/workload-autoscaling). VPA renders only where the VPA API exists.
+vpa:
+  enabled: true
+  updateMode: InPlaceOrRecreate
+  minReplicas: 1
+  controlledValues: RequestsAndLimits
+  minAllowed:
+    cpu: 10m
+    memory: 32Mi
+  maxAllowed:
+    cpu: "1"
+    memory: 1Gi
+# HPA template, disabled by default. When enabled with CPU/memory targets the VPA
+# switches to recommendations only (updateMode Off) and `replicas` is omitted.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Compatibility composition (formerly the standalone oci/charts/observability chart, OCI
+# name `observability`): Flux HelmReleases for upstream components plus native Vector and
+# process-exporter. Off by default, so the canonical stack render is unchanged. New features
+# belong in the canonical stack/agent, not here (docs/observability-chart-convergence.md).
+compat:
+  enabled: false
+  # Former infra-platform/charts/observability scaffold (placeholder Deployment+Service).
+  # Independent of compat.enabled; off by default.
+  infraPlatformScaffold:
+    enabled: false
+    image:
+      repository: my-repo/observability
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+  namespaces:
+    observability: observability
+
+  server:
+    prometheus:
+      enabled: true
+      releaseName: prometheus
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      chart:
+        name: prometheus
+        version: ">=25.0.0 <26.0.0"
+      values:
+        server:
+          persistentVolume:
+            enabled: true
+            size: 20Gi
+        prometheus-node-exporter:
+          enabled: false
+    victoriaMetrics:
+      enabled: true
+      releaseName: victoria-metrics
+      sourceRef:
+        kind: HelmRepository
+        name: victoria-metrics
+        namespace: flux-system
+      chart:
+        name: victoria-metrics-single
+        version: ">=0.13.0 <1.0.0"
+      values:
+        server:
+          persistentVolume:
+            enabled: true
+            size: 50Gi
+    victoriaLogs:
+      enabled: true
+      releaseName: victoria-logs
+      sourceRef:
+        kind: HelmRepository
+        name: victoria-metrics
+        namespace: flux-system
+      chart:
+        name: victoria-logs-single
+        version: ">=0.9.0 <1.0.0"
+      values:
+        server:
+          persistentVolume:
+            enabled: true
+            size: 50Gi
+    victoriaTraces:
+      enabled: true
+      releaseName: victoria-traces
+      sourceRef:
+        kind: HelmRepository
+        name: victoria-metrics
+        namespace: flux-system
+      chart:
+        name: victoria-traces-single
+        version: ">=0.0.1 <1.0.0"
+      values: {}
+    grafana:
+      enabled: false
+      releaseName: grafana
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+      chart:
+        name: grafana
+        version: ">=8.0.0 <9.0.0"
+      values:
+        initChownData:
+          enabled: false
+        podSecurityContext:
+          fsGroup: 472
+        securityContext:
+          runAsUser: 472
+          runAsGroup: 472
+        persistence:
+          enabled: true
+          size: 10Gi
+    otelConnector:
+      enabled: false
+      releaseName: otel-connector
+      sourceRef:
+        kind: HelmRepository
+        name: open-telemetry
+        namespace: flux-system
+      chart:
+        name: opentelemetry-collector
+        version: ">=0.104.0 <1.0.0"
+      values:
+        image:
+          repository: otel/opentelemetry-collector-contrib
+        mode: deployment
+        config:
+          receivers:
+            otlp:
+              protocols:
+                grpc: {}
+                http: {}
+          processors:
+            batch: {}
+          exporters:
+            debug: {}
+          service:
+            pipelines:
+              traces:
+                receivers: [otlp]
+                processors: [batch]
+                exporters: [debug]
+              metrics:
+                receivers: [otlp]
+                processors: [batch]
+                exporters: [debug]
+              logs:
+                receivers: [otlp]
+                processors: [batch]
+                exporters: [debug]
+
+  agent:
+    nodeExporter:
+      enabled: true
+      releaseName: node-exporter
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      chart:
+        name: prometheus-node-exporter
+        version: ">=4.30.0 <5.0.0"
+      values: {}
+    vector:
+      enabled: true
+      image:
+        repository: timberio/vector
+        tag: "0.36.0-distroless-libc"
+        pullPolicy: IfNotPresent
+      serviceAccountName: vector-agent
+      vlogsEndpoint: http://victoria-logs-victoria-logs-single-server.observability.svc.cluster.local:9428
+      config: |
+        data_dir: /vector-data-dir
+
+        sources:
+          journald:
+            type: journald
+
+        transforms:
+          normalize:
+            type: remap
+            inputs: ["journald"]
+            source: |
+              .cluster = "k3s"
+              .origin = "vector-agent"
+
+        sinks:
+          vlogs:
+            type: elasticsearch
+            inputs: ["normalize"]
+            endpoints:
+              - http://victoria-logs-victoria-logs-single-server.observability.svc.cluster.local:9428/insert/elasticsearch/
+            mode: bulk
+            compression: gzip
+      resources:
+        limits:
+          cpu: 300m
+          memory: 512Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      volume:
+        enabled: true
+        name: vector-data-dir
+        mountPath: /vector-data-dir
+        sizeLimit: 1Gi
+    processExporter:
+      enabled: true
+      image:
+        repository: ncabatoff/process-exporter
+        tag: v0.8.3
+        pullPolicy: IfNotPresent
+      serviceAccountName: process-exporter
+      port: 9256
+      config: |
+        process_names:
+          - name: "{{.Comm}}"
+            cmdline:
+              - '.+'
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 25m
+          memory: 64Mi
+
+  extraObjects: []

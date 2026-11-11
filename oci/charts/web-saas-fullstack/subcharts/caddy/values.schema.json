@@ -1,0 +1,297 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "global": {
+      "type": "object"
+    },
+    "podAnnotations": {
+      "type": "object"
+    },
+    "podSecurityContext": {
+      "type": "object"
+    },
+    "nodeSelector": {
+      "type": "object"
+    },
+    "tolerations": {
+      "type": "array"
+    },
+    "affinity": {
+      "type": "object"
+    },
+    "volumes": {
+      "type": "array"
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ]
+    },
+    "image": {
+      "type": "string",
+      "pattern": "^([^ @]+@sha256:[a-f0-9]{64})?$"
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prometheus": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ]
+        }
+      },
+      "required": [
+        "prometheus"
+      ]
+    },
+    "externalBackends": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "accounts": {
+          "type": "string",
+          "pattern": "^([A-Za-z0-9.-]+:[0-9]{1,5})?$"
+        },
+        "billing": {
+          "type": "string",
+          "pattern": "^([A-Za-z0-9.-]+:[0-9]{1,5})?$"
+        },
+        "frontend": {
+          "type": "string",
+          "pattern": "^([A-Za-z0-9.-]+:[0-9]{1,5})?$"
+        }
+      },
+      "required": [
+        "enabled",
+        "accounts",
+        "billing",
+        "frontend"
+      ]
+    },
+    "frontendService": {
+      "enum": [
+        "frontend-router",
+        "console"
+      ]
+    },
+    "gatewayEnabled": {
+      "type": "boolean"
+    },
+    "httpOnly": {
+      "type": "boolean"
+    },
+    "replicas": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "ClusterIP",
+            "LoadBalancer"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "consoleHost": {
+          "type": "string",
+          "pattern": "^$|^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+        },
+        "consoleAliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+          },
+          "uniqueItems": true
+        },
+        "accountsHost": {
+          "type": "string",
+          "pattern": "^$|^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+        },
+        "accountsAliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+          },
+          "uniqueItems": true
+        },
+        "billingHost": {
+          "type": "string",
+          "pattern": "^$|^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+        },
+        "billingAliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "consoleHost",
+        "accountsHost",
+        "billingHost"
+      ]
+    },
+    "tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "consoleSecret": {
+          "type": "string"
+        },
+        "accountsSecret": {
+          "type": "string"
+        },
+        "billingSecret": {
+          "type": "string"
+        }
+      }
+    },
+    "resources": {
+      "type": "object"
+    },
+    "web-saas-common": {
+      "type": "object"
+    },
+    "additionalHosts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "serviceRole"
+            ],
+            "properties": {
+              "serviceRole": {
+                "const": "console"
+              }
+            }
+          },
+          {
+            "required": [
+              "upstream"
+            ]
+          }
+        ],
+        "required": [
+          "name",
+          "host",
+          "tlsSecret"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "host": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9.-]*[a-z0-9]$"
+          },
+          "upstream": {
+            "type": "string",
+            "pattern": "^https?://[a-z0-9.-]+:[0-9]+$"
+          },
+          "serviceRole": {
+            "enum": [
+              "console"
+            ]
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+            },
+            "uniqueItems": true
+          },
+          "tlsSecret": {
+            "type": "string",
+            "minLength": 1
+          },
+          "upstreamCAConfigMap": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9.-]*$"
+          }
+        }
+      }
+    },
+    "vpa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "updateMode": {
+          "type": "string",
+          "enum": [
+            "Off",
+            "Initial",
+            "Recreate",
+            "InPlaceOrRecreate",
+            "Auto"
+          ]
+        },
+        "minReplicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "controlledValues": {
+          "type": "string",
+          "enum": [
+            "RequestsAndLimits",
+            "RequestsOnly"
+          ]
+        },
+        "minAllowed": {
+          "type": "object"
+        },
+        "maxAllowed": {
+          "type": "object"
+        },
+        "workloads": {
+          "type": "array"
+        }
+      }
+    }
+  }
+}

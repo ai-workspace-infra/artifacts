@@ -1,0 +1,11 @@
+apiVersion: v2
+name: rag-server-chart
+description: RAG server chart backed by the shared app-service subchart
+type: application
+version: 0.1.1
+appVersion: "1.0.0"
+dependencies:
+  - name: app-service
+    version: 0.1.1
+    repository: file://../app-service
+    alias: service

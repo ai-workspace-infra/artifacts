@@ -2,5 +2,5 @@ apiVersion: v2
 name: harbor
 description: Harbor Cloud-Native Enterprise Artifact Registry Subchart
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "v2.15.4"

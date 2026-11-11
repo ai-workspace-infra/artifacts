@@ -1,0 +1,29 @@
+{{- if .Values.compat.enabled }}
+{{- if .Values.compat.server.prometheus.enabled }}
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: {{ .Values.compat.server.prometheus.releaseName }}
+  namespace: {{ .Values.compat.namespaces.observability }}
+spec:
+  interval: 10m0s
+  releaseName: {{ .Values.compat.server.prometheus.releaseName }}
+  chart:
+    spec:
+      chart: {{ .Values.compat.server.prometheus.chart.name }}
+      version: {{ .Values.compat.server.prometheus.chart.version | quote }}
+      sourceRef:
+        kind: {{ .Values.compat.server.prometheus.sourceRef.kind }}
+        name: {{ .Values.compat.server.prometheus.sourceRef.name }}
+        namespace: {{ .Values.compat.server.prometheus.sourceRef.namespace }}
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    {{- toYaml .Values.compat.server.prometheus.values | nindent 4 }}
+{{- end }}
+
+{{- end }}

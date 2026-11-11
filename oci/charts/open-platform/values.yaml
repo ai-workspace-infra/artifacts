@@ -21,11 +21,22 @@ cmdb:
   enabled: true
 
 # 05 Full-Stack Observability & Telemetry Central Stack
+# Grafana as its own release (charts/grafana), on by default; the Grafana bundled in
+# observability-stack is turned off below so only one Grafana runs.
+# grafana.mcp.enabled adds the optional read-only mcp-grafana Deployment/Service.
+grafana:
+  enabled: true
+  rootUrl: ""
+  # Empty: "<release>-observability-stack", the observability-stack subchart of this release.
+  backendFullname: ""
+  mcp:
+    enabled: false
+
 observability-stack:
   enabled: true
   domain: "open-platform.local"
   grafana:
-    rootUrl: ""
+    enabled: false
 
 # 05 Host & Node Telemetry Agent
 observability-agent:
@@ -36,10 +47,6 @@ vault-zitadel:
   enabled: true
   vault:
     apiAddr: ""
-
-# 07 Declarative GitOps Controller
-doco-cd:
-  enabled: true
 
 # 08 Cloud-Neutral Container & Vector DB
 pgvector:
@@ -56,3 +63,7 @@ ai-gateway:
 # 11 Infrastructure MCP Tool Gateway
 mcp-gateway:
   enabled: true
+
+# Caddy (moved from the former infra-platform group; scaffold image, off by default)
+caddy:
+  enabled: false

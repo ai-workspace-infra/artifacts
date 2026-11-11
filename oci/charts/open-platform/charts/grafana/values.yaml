@@ -1,0 +1,130 @@
+replicaCount: 1
+serviceAccountName: default
+nameOverride: ""
+fullnameOverride: ""
+domain: "open-platform.local"
+
+image:
+  repository: grafana/grafana
+  tag: "13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f"
+  pullPolicy: IfNotPresent
+port: 3000
+existingSecret: grafana-admin
+adminPasswordKey: password
+rootUrl: ""
+runtimeSecret: ""
+bundleChecksum: ""
+
+# Signed catalog plugins (id@version) and custom verified archives.
+plugins: []
+unsignedPlugins: []
+pluginArchives: []
+pluginInstallerImage: python:3.14.0-alpine3.22@sha256:8373231e1e906ddfb457748bfc032c4c06ada8c759b7b62d9c73ec2a3c56e710
+pluginInstallerResources:
+  requests: {cpu: 25m, memory: 64Mi}
+  limits: {cpu: 100m, memory: 128Mi}
+
+# Built-in backend plugins that are not used by the platform. Each one otherwise runs as
+# its own gpx_* process inside the container and counts against the memory limit.
+# Keep prometheus (VictoriaMetrics) and jaeger (VictoriaTraces) enabled.
+disablePlugins:
+  - cloudwatch
+  - elasticsearch
+  - grafana-azure-monitor-datasource
+  - grafana-postgresql-datasource
+  - grafana-pyroscope-datasource
+  - grafana-testdata-datasource
+  - graphite
+  - influxdb
+  - loki
+  - mssql
+  - mysql
+  - opentsdb
+  - parca
+  - stackdriver
+  - tempo
+  - zipkin
+
+# Data sources. backendFullname is the fullname of the observability-stack release that
+# owns the VictoriaMetrics/Logs/Traces services (release "observability" -> the default;
+# empty -> "<this release>-observability-stack", as in the open-platform umbrella).
+backendFullname: observability-observability-stack
+datasourcesConfigMap: ""
+appsConfigMap: ""
+dashboardsConfigMap: ""
+dashboardProviders: []
+
+# Requests stay modest; the limit leaves headroom for plugin processes and query spikes.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+probes:
+  timeoutSeconds: 5
+
+service:
+  type: ClusterIP
+  port: 3000
+  # Extra Service names that select this Grafana, for callers that still use the names
+  # observability-stack used to create (e.g. <release>-observability-stack[-grafana]).
+  aliases: []
+
+persistence:
+  enabled: true
+  # Reuse an existing claim (e.g. the observability-stack data PVC) instead of creating one.
+  existingClaim: ""
+  subPath: grafana
+  size: 5Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""
+
+# Workload autoscaling (helpers: templates/_autoscaling.tpl, canonical in
+# oci/charts/open-platform/library/workload-autoscaling). VPA renders only where the VPA API exists.
+# RequestsOnly keeps the configured limit; minAllowed keeps the request at or above 256Mi.
+vpa:
+  enabled: true
+  updateMode: InPlaceOrRecreate
+  minReplicas: 1
+  controlledValues: RequestsOnly
+  minAllowed:
+    cpu: 50m
+    memory: 256Mi
+  maxAllowed:
+    cpu: "1"
+    memory: 1Gi
+# HPA template, disabled by default. When enabled with CPU/memory targets the VPA
+# switches to recommendations only (updateMode Off) and `replicas` is omitted.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Optional read-only MCP server for this Grafana (grafana/mcp-grafana), as its own Deployment
+# and Service "grafana-mcp-server" (mcp.name). Off by default. It talks to Grafana over the in-cluster Service
+# and reuses existingSecret/adminPasswordKey, so no extra credential is defined.
+mcp:
+  enabled: false
+  name: grafana-mcp-server
+  image:
+    repository: grafana/mcp-grafana
+    tag: "@sha256:71a3f4e6f412d253611314233df709ec2571fb50e39742d23fa2940f670646dc"
+    pullPolicy: IfNotPresent
+  port: 8000
+  basePath: /v1/grafana
+  # Read-only by default.
+  disableWrite: true
+  disableAdmin: true
+  # Empty: http://<fullname>:<service.port>/ (in-cluster).
+  grafanaUrl: ""
+  username: admin
+  # Host headers accepted besides the Service names and localhost (e.g. public hostnames).
+  extraAllowedHosts: []
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}

@@ -476,29 +476,47 @@ export const ProgressiveReleasePanel: FC<PanelProps<PanelOptions>> = (props) => 
       });
     }
 
-    // Prometheus: flagger_canary_status / flagger_canary_weight
+    // Prometheus: flagger_canary_status / flagger_canary_weight.
+    // A frame may be a single series (labels on the value field) or a table with one row per
+    // canary (name/workload column), so every row is read (multi-row parsing from #275).
+    // Query kind comes from the metric name or refId (D = status, E = weight). Nothing is derived:
+    // a missing weight stays unknown, it is never filled with a guessed percentage.
     const acc: Record<string, any> = {};
     if (data?.series && data.series.length > 0) {
+      const at = (fld: any, idx: number) => {
+        const vals: any = fld && fld.values;
+        if (!vals) return null;
+        return typeof vals.get === 'function' ? vals.get(idx) : vals[idx];
+      };
       for (const frame of data.series) {
-        const field = frame.fields?.find(
+        const fields: any[] = frame.fields || [];
+        const valField = fields.find(
           (f: any) => f.name === 'Value' || f.type === 'number' || (f.labels && Object.keys(f.labels).length > 0)
         );
-        const labels: Record<string, string> = frame.labels || (field && (field as any).labels) || {};
-        const metricName = labels.__name__ || frame.name || (field && (field as any).name) || '';
-        const name = (labels.name || labels.workload || '').toLowerCase();
-        const target = services.find((s) => name.includes(s.key));
-        if (!target || name.includes('primary')) continue;
-        const vals: any = field && field.values;
-        const len = vals ? (typeof vals.length === 'number' ? vals.length : 0) : 0;
-        if (!len) continue;
-        const val = Number(typeof vals.get === 'function' ? vals.get(len - 1) : vals[len - 1]);
-        if (isNaN(val)) continue;
-        acc[target.key] = acc[target.key] || {};
-        if (metricName.includes('flagger_canary_status')) {
-          // exporter mapping (verify against deployed Flagger version): 0 progressing, 1 succeeded, 2 failed
-          acc[target.key].phase = val === 0 ? 'Progressing' : val === 1 ? 'Succeeded' : val === 2 ? 'Failed' : 'Unknown';
-        } else if (metricName.includes('flagger_canary_weight')) {
-          acc[target.key].weight = Math.max(0, Math.min(100, val));
+        if (!valField) continue;
+        const nameField = fields.find((f: any) => f.name === 'name' || f.name === 'workload');
+        const labels: Record<string, string> = frame.labels || (valField as any).labels || {};
+        const metricName = String(labels.__name__ || frame.name || (valField as any).name || '');
+        const isStatus = metricName.includes('flagger_canary_status') || frame.refId === 'D';
+        const isWeight = metricName.includes('flagger_canary_weight') || frame.refId === 'E';
+        if (!isStatus && !isWeight) continue;
+        const vals: any = valField.values;
+        const rowCount = vals ? (typeof vals.length === 'number' ? vals.length : 0) : 0;
+        // Single series: only the latest sample counts. Table: every row is its own canary.
+        const rows = nameField ? Array.from({ length: rowCount }, (_, i) => i) : rowCount ? [rowCount - 1] : [];
+        for (const row of rows) {
+          const name = String((nameField ? at(nameField, row) : '') || labels.name || labels.workload || '').toLowerCase();
+          const target = services.find((s) => name.includes(s.key));
+          if (!target || name.includes('primary')) continue;
+          const val = Number(at(valField, row));
+          if (isNaN(val)) continue;
+          acc[target.key] = acc[target.key] || {};
+          if (isStatus) {
+            // exporter mapping (verify against deployed Flagger version): 0 progressing, 1 succeeded, 2 failed
+            acc[target.key].phase = val === 0 ? 'Progressing' : val === 1 ? 'Succeeded' : val === 2 ? 'Failed' : 'Unknown';
+          } else {
+            acc[target.key].weight = Math.max(0, Math.min(100, val));
+          }
         }
       }
     }

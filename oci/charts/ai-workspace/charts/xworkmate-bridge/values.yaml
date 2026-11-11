@@ -1,8 +1,0 @@
-replicaCount: 1
-image:
-  repository: my-repo/xworkmate-bridge
-  tag: "latest"
-  pullPolicy: IfNotPresent
-service:
-  type: ClusterIP
-  port: 80

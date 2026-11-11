@@ -1,17 +1,36 @@
 # OCI Charts
 
-This repository stores reusable Helm charts published to `ghcr.io/x-evor`.
+Single source for all Helm charts. Charts are published to `ghcr.io/ai-workspace-infra`
+by `.github/workflows/release-oci-charts.yml` (immutable versions; bump a chart's
+version when its contents change).
 
-## Layout
+## Layout: two groups
 
-- `open-platform`: Cloud-Neutral Open Platform umbrella chart aggregating 10 core infrastructure services (Gitea, Harbor, Silo, CMDB, Vault/Zitadel, Doco CD, pgvector, PG Backup, AI Gateway, MCP Gateway)
-- `distributed-web-saas-fullstack`: Caddy ingress, versioned service subcharts and independent/grouped/single-container frontend profiles; [implementation and plan](distributed-web-saas-fullstack/HELM-SUBCHART-PLAN.zh.md)
-- `apps/app-service`: reusable runtime chart for application services
-- `postgresql`: PostgreSQL service chart with optional `stunnel` server/client
-- `observability`: observability composition chart for server and agent components
+| Group | Umbrella chart | Also contains |
+| --- | --- | --- |
+| `open-platform/` | `open-platform` (gitea, harbor, silo, cmdb, observability-stack, observability-agent, vault-zitadel incl. optional Zitadel server, pgvector, pg-backup, ai-gateway, mcp-gateway, optional caddy) | `library/workload-autoscaling` (canonical VPA/HPA helper), `standalone/postgresql`, `standalone/ai-workspace` |
+| `web-saas-fullstack/` | `web-saas-fullstack` (Caddy/Traefik ingress, versioned service subcharts in `subcharts/`; [plan](web-saas-fullstack/HELM-SUBCHART-PLAN.zh.md)) | `standalone/web-saas`, `standalone/apps/{app-service,accounts,console,rag-server}` |
 
-## Release Model
+`library/` and `standalone/` hold separate charts; each umbrella's `.helmignore`
+excludes them, so they are not packaged into the umbrella.
 
-- Registry: `oci://ghcr.io/x-evor`
-- Each chart is versioned independently
-- Runtime image tags are managed by GitOps values rather than chart versions
+`observability-stack` also carries the former `observability` compatibility
+composition (`compat.enabled`) and the former infra-platform observability scaffold
+(`compat.infraPlatformScaffold.enabled`), both off by default; see `docs/observability-chart-convergence.md`.
+
+The former `infra-platform` group was merged into `open-platform` (its gitea duplicated
+open-platform's gitea and was dropped). `doco-cd` is a single-host Docker Compose tool and is
+deployed by playbooks `roles/vhosts/Doco-CD`, not by a Helm chart.
+
+## Published OCI names
+
+- `observability-stack`, `observability-agent`, `open-platform`, `app-service`
+- `web-saas-fullstack` plus compatibility names with identical contents:
+  `distributed-web-saas-fullstack` (pre-rename name, still pinned by GitOps until it
+  migrates) and `web-saas-platform`.
+
+## Shared autoscaling
+
+`scripts/sync_autoscaling_helper.py` copies the canonical helper from
+`open-platform/library/workload-autoscaling` into every chart (VPA where the API
+exists, single replica, HPA template disabled); CI runs it with `--check`.

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: app-service
+description: Reusable chart for core HTTP application services
+type: application
+version: 0.1.1
+appVersion: "1.0.0"

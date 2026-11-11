@@ -1,0 +1,257 @@
+{{- if and .Values.traefik (and .Values.traefik.ingressRoute .Values.traefik.ingressRoute.enabled) }}
+{{- $host := .Values.traefik.ingressRoute.host | default (printf "observability.%s" .Values.domain) -}}
+{{- $hosts := list $host -}}
+{{- if .Values.traefik.ingressRoute.extraHosts -}}
+  {{- range .Values.traefik.ingressRoute.extraHosts -}}
+    {{- $hosts = append $hosts . -}}
+  {{- end -}}
+{{- end -}}
+{{- $hostMatches := list -}}
+{{- range $h := $hosts -}}
+  {{- $hostMatches = append $hostMatches (printf "Host(`%s`)" $h) -}}
+{{- end -}}
+{{- $hostMatchExpr := join " || " $hostMatches -}}
+{{- $hostRule := ternary (printf "(%s)" $hostMatchExpr) (printf "Host(`%s`)" $host) (gt (len $hosts) 1) -}}
+{{- $entryPoints := .Values.traefik.ingressRoute.entryPoints | default (list "websecure") -}}
+{{- $tlsSecret := .Values.traefik.ingressRoute.tls.secretName | default "shared-observability-tls" -}}
+{{- $ingestPrefixMw := .Values.traefik.ingressRoute.middleware.ingestPrefix | default (printf "%s-ingest-prefix" (include "observability-stack.fullname" .)) -}}
+{{- $stripMcpMw := .Values.traefik.ingressRoute.middleware.stripMcpPrefix | default (printf "%s-strip-mcp-prefix" (include "observability-stack.fullname" .)) -}}
+{{- $metricsMw := .Values.traefik.ingressRoute.middleware.metricsPrefix | default (printf "%s-metrics-prefix" (include "observability-stack.fullname" .)) -}}
+{{- $logsMw := .Values.traefik.ingressRoute.middleware.logsPrefix | default (printf "%s-logs-prefix" (include "observability-stack.fullname" .)) -}}
+{{- $tracesMw := .Values.traefik.ingressRoute.middleware.tracesPrefix | default (printf "%s-traces-prefix" (include "observability-stack.fullname" .)) -}}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $ingestPrefixMw }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  stripPrefix:
+    prefixes:
+      - /ingest/metrics
+      - /ingest/logs
+      - /ingest/otlp
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $stripMcpMw }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  stripPrefix:
+    prefixes:
+      - /mcp
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $metricsMw }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  stripPrefix:
+    prefixes:
+      - /mcp/v1/metrics
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $logsMw }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  stripPrefix:
+    prefixes:
+      - /mcp/v1/logs
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $tracesMw }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  stripPrefix:
+    prefixes:
+      - /mcp/v1/traces
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ printf "%s-ingest" (include "observability-stack.fullname" .) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $entryPoints | nindent 4 }}
+  routes:
+    - match: >-
+        {{ $hostRule }} &&
+        (Path(`/ingest/metrics/api/v1/write`) || PathPrefix(`/ingest/logs/`) || PathPrefix(`/ingest/otlp/`))
+      kind: Rule
+      priority: {{ .Values.traefik.ingressRoute.priorities.ingest | default 1000 }}
+      middlewares:
+        - name: {{ $ingestPrefixMw }}
+      services:
+        - name: {{ .Values.traefik.ingressRoute.ingestService.name | default "observability-ingest-auth" }}
+          {{- if .Values.traefik.ingressRoute.ingestService.namespace }}
+          namespace: {{ .Values.traefik.ingressRoute.ingestService.namespace }}
+          {{- end }}
+          port: {{ .Values.traefik.ingressRoute.ingestService.port | default 8427 }}
+  {{- if .Values.traefik.ingressRoute.tls.enabled }}
+  tls:
+    secretName: {{ $tlsSecret }}
+  {{- end }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ printf "%s-query" (include "observability-stack.fullname" .) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $entryPoints | nindent 4 }}
+  routes:
+    - match: >-
+        {{ $hostRule }} &&
+        (Path(`/api/v1/query`) || Path(`/api/v1/query_range`))
+      kind: Rule
+      priority: {{ .Values.traefik.ingressRoute.priorities.query | default 1100 }}
+      services:
+        - name: {{ .Values.traefik.ingressRoute.queryService.name | default (.Values.traefik.ingressRoute.ingestService.name | default "observability-ingest-auth") }}
+          {{- if .Values.traefik.ingressRoute.queryService.namespace }}
+          namespace: {{ .Values.traefik.ingressRoute.queryService.namespace }}
+          {{- else if .Values.traefik.ingressRoute.ingestService.namespace }}
+          namespace: {{ .Values.traefik.ingressRoute.ingestService.namespace }}
+          {{- end }}
+          port: {{ .Values.traefik.ingressRoute.queryService.port | default (.Values.traefik.ingressRoute.ingestService.port | default 8427) }}
+  {{- if .Values.traefik.ingressRoute.tls.enabled }}
+  tls:
+    secretName: {{ $tlsSecret }}
+  {{- end }}
+{{- if and .Values.mcp.enabled .Values.mcp.grafana.enabled }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ printf "%s-mcp-grafana" (include "observability-stack.fullname" .) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $entryPoints | nindent 4 }}
+  routes:
+    - match: {{ $hostRule }} && PathPrefix(`/mcp/v1/grafana`)
+      kind: Rule
+      priority: {{ .Values.traefik.ingressRoute.priorities.mcpGrafana | default 1200 }}
+      middlewares:
+        - name: {{ $stripMcpMw }}
+      services:
+        - name: {{ .Values.mcp.grafana.serviceName | default (printf "%s-mcp-grafana" (include "observability-stack.fullname" .)) }}
+          port: {{ .Values.mcp.grafana.port | default 8000 }}
+  {{- if .Values.traefik.ingressRoute.tls.enabled }}
+  tls:
+    secretName: {{ $tlsSecret }}
+  {{- end }}
+{{- end }}
+{{- if and .Values.mcp.enabled .Values.mcp.victoriaMetrics.enabled }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ printf "%s-mcp-metrics" (include "observability-stack.fullname" .) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $entryPoints | nindent 4 }}
+  routes:
+    - match: {{ $hostRule }} && PathPrefix(`/mcp/v1/metrics`)
+      kind: Rule
+      priority: {{ .Values.traefik.ingressRoute.priorities.mcpMetrics | default 1200 }}
+      middlewares:
+        - name: {{ $metricsMw }}
+      services:
+        - name: {{ .Values.mcp.victoriaMetrics.serviceName | default (printf "%s-mcp-victoriametrics" (include "observability-stack.fullname" .)) }}
+          port: {{ .Values.mcp.victoriaMetrics.port | default 8088 }}
+  {{- if .Values.traefik.ingressRoute.tls.enabled }}
+  tls:
+    secretName: {{ $tlsSecret }}
+  {{- end }}
+{{- end }}
+{{- if and .Values.mcp.enabled .Values.mcp.victoriaLogs.enabled }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ printf "%s-mcp-logs" (include "observability-stack.fullname" .) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $entryPoints | nindent 4 }}
+  routes:
+    - match: {{ $hostRule }} && PathPrefix(`/mcp/v1/logs`)
+      kind: Rule
+      priority: {{ .Values.traefik.ingressRoute.priorities.mcpLogs | default 1200 }}
+      middlewares:
+        - name: {{ $logsMw }}
+      services:
+        - name: {{ .Values.mcp.victoriaLogs.serviceName | default (printf "%s-mcp-victorialogs" (include "observability-stack.fullname" .)) }}
+          port: {{ .Values.mcp.victoriaLogs.port | default 8083 }}
+  {{- if .Values.traefik.ingressRoute.tls.enabled }}
+  tls:
+    secretName: {{ $tlsSecret }}
+  {{- end }}
+{{- end }}
+{{- if and .Values.mcp.enabled .Values.mcp.victoriaTraces.enabled }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ printf "%s-mcp-traces" (include "observability-stack.fullname" .) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $entryPoints | nindent 4 }}
+  routes:
+    - match: {{ $hostRule }} && PathPrefix(`/mcp/v1/traces`)
+      kind: Rule
+      priority: {{ .Values.traefik.ingressRoute.priorities.mcpTraces | default 1200 }}
+      middlewares:
+        - name: {{ $tracesMw }}
+      services:
+        - name: {{ .Values.mcp.victoriaTraces.serviceName | default (printf "%s-mcp-victoriatraces" (include "observability-stack.fullname" .)) }}
+          port: {{ .Values.mcp.victoriaTraces.port | default 8082 }}
+  {{- if .Values.traefik.ingressRoute.tls.enabled }}
+  tls:
+    secretName: {{ $tlsSecret }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ printf "%s-grafana" (include "observability-stack.fullname" .) }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $entryPoints | nindent 4 }}
+  routes:
+    - match: {{ $hostRule }}
+      kind: Rule
+      {{- if .Values.traefik.ingressRoute.priorities.grafana }}
+      priority: {{ .Values.traefik.ingressRoute.priorities.grafana }}
+      {{- end }}
+      services:
+        - name: {{ include "observability-stack.fullname" . }}-grafana
+          port: {{ .Values.service.grafanaPort }}
+  {{- if .Values.traefik.ingressRoute.tls.enabled }}
+  tls:
+    secretName: {{ $tlsSecret }}
+  {{- end }}
+{{- end }}

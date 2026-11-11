@@ -6,10 +6,11 @@ on:
       - main
     paths:
       - "oci/charts/open-platform/**"
-      - "oci/charts/apps/app-service/**"
-      - "oci/charts/postgresql/**"
-      - "oci/charts/observability/**"
-      - "oci/charts/distributed-web-saas-fullstack/**"
+      - "oci/charts/web-saas-fullstack/standalone/apps/app-service/**"
+      - "oci/charts/open-platform/standalone/postgresql/**"
+      - "oci/charts/web-saas-fullstack/**"
+      - "oci/charts/open-platform/library/**"
+      - "scripts/sync_autoscaling_helper.py"
       - ".github/scripts/*web-saas-*.sh"
       - ".github/scripts/release-oci-charts.sh"
       - ".github/tests/test_observability_agent_chart.py"

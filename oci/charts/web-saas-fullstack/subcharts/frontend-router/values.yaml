@@ -1,0 +1,61 @@
+enabled: false
+global:
+  imagePullSecrets: []
+  podLabels: {}
+podAnnotations: {}
+podSecurityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumes: []
+networkPolicy:
+  enabled: true
+workload:
+  image: ''
+  port: 8080
+  replicas: 1
+  env: {}
+  secretRefs: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  probes:
+    readinessProbe:
+      httpGet:
+        path: /healthz
+        port: primary
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: primary
+      initialDelaySeconds: 20
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+# Workload autoscaling (helpers: templates/_autoscaling.tpl, canonical in
+# oci/charts/library/workload-autoscaling). VPA renders only where the VPA API exists.
+# HPA: per-workload `workload.autoscaling` (disabled by default); the VPA yields to it.
+vpa:
+  enabled: true
+  updateMode: InPlaceOrRecreate
+  minReplicas: 1
+  controlledValues: RequestsAndLimits
+  minAllowed:
+    cpu: 10m
+    memory: 32Mi
+  maxAllowed:
+    cpu: "1"
+    memory: 1Gi

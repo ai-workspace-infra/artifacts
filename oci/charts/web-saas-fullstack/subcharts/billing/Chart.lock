@@ -1,0 +1,6 @@
+dependencies:
+- name: web-saas-common
+  repository: file://../web-saas-common
+  version: 0.1.2
+digest: sha256:bc190c72165f38de8f9ce9363df2a06ee6602c614a3a83ec76efd1d743ace98f
+generated: "2026-11-11T13:05:51.115736946+08:00"

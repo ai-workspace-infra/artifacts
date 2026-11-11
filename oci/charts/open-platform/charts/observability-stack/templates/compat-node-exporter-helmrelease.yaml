@@ -1,0 +1,29 @@
+{{- if .Values.compat.enabled }}
+{{- if .Values.compat.agent.nodeExporter.enabled }}
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: {{ .Values.compat.agent.nodeExporter.releaseName }}
+  namespace: {{ .Values.compat.namespaces.observability }}
+spec:
+  interval: 10m0s
+  releaseName: {{ .Values.compat.agent.nodeExporter.releaseName }}
+  chart:
+    spec:
+      chart: {{ .Values.compat.agent.nodeExporter.chart.name }}
+      version: {{ .Values.compat.agent.nodeExporter.chart.version | quote }}
+      sourceRef:
+        kind: {{ .Values.compat.agent.nodeExporter.sourceRef.kind }}
+        name: {{ .Values.compat.agent.nodeExporter.sourceRef.name }}
+        namespace: {{ .Values.compat.agent.nodeExporter.sourceRef.namespace }}
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    {{- toYaml .Values.compat.agent.nodeExporter.values | nindent 4 }}
+{{- end }}
+
+{{- end }}

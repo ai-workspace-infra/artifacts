@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "silo.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  {{- include "workload-autoscaling.replicas" . | nindent 2 }}
   selector:
     matchLabels:
       {{- include "silo.selectorLabels" . | nindent 6 }}

@@ -3871,25 +3871,38 @@ var ProgressiveReleasePanel = (props) => {
     }
     const acc = {};
     if (data?.series && data.series.length > 0) {
+      const at = (fld, idx) => {
+        const vals = fld && fld.values;
+        if (!vals) return null;
+        return typeof vals.get === "function" ? vals.get(idx) : vals[idx];
+      };
       for (const frame of data.series) {
-        const field = frame.fields?.find(
+        const fields = frame.fields || [];
+        const valField = fields.find(
           (f) => f.name === "Value" || f.type === "number" || f.labels && Object.keys(f.labels).length > 0
         );
-        const labels = frame.labels || field && field.labels || {};
-        const metricName = labels.__name__ || frame.name || field && field.name || "";
-        const name = (labels.name || labels.workload || "").toLowerCase();
-        const target = services.find((s) => name.includes(s.key));
-        if (!target || name.includes("primary")) continue;
-        const vals = field && field.values;
-        const len = vals ? typeof vals.length === "number" ? vals.length : 0 : 0;
-        if (!len) continue;
-        const val = Number(typeof vals.get === "function" ? vals.get(len - 1) : vals[len - 1]);
-        if (isNaN(val)) continue;
-        acc[target.key] = acc[target.key] || {};
-        if (metricName.includes("flagger_canary_status")) {
-          acc[target.key].phase = val === 0 ? "Progressing" : val === 1 ? "Succeeded" : val === 2 ? "Failed" : "Unknown";
-        } else if (metricName.includes("flagger_canary_weight")) {
-          acc[target.key].weight = Math.max(0, Math.min(100, val));
+        if (!valField) continue;
+        const nameField = fields.find((f) => f.name === "name" || f.name === "workload");
+        const labels = frame.labels || valField.labels || {};
+        const metricName = String(labels.__name__ || frame.name || valField.name || "");
+        const isStatus = metricName.includes("flagger_canary_status") || frame.refId === "D";
+        const isWeight = metricName.includes("flagger_canary_weight") || frame.refId === "E";
+        if (!isStatus && !isWeight) continue;
+        const vals = valField.values;
+        const rowCount = vals ? typeof vals.length === "number" ? vals.length : 0 : 0;
+        const rows = nameField ? Array.from({ length: rowCount }, (_, i) => i) : rowCount ? [rowCount - 1] : [];
+        for (const row of rows) {
+          const name = String((nameField ? at(nameField, row) : "") || labels.name || labels.workload || "").toLowerCase();
+          const target = services.find((s) => name.includes(s.key));
+          if (!target || name.includes("primary")) continue;
+          const val = Number(at(valField, row));
+          if (isNaN(val)) continue;
+          acc[target.key] = acc[target.key] || {};
+          if (isStatus) {
+            acc[target.key].phase = val === 0 ? "Progressing" : val === 1 ? "Succeeded" : val === 2 ? "Failed" : "Unknown";
+          } else {
+            acc[target.key].weight = Math.max(0, Math.min(100, val));
+          }
         }
       }
     }

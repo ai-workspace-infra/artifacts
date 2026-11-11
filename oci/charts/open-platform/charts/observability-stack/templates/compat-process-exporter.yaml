@@ -1,0 +1,68 @@
+{{- if .Values.compat.enabled }}
+{{- if .Values.compat.agent.processExporter.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.compat.agent.processExporter.serviceAccountName }}
+  namespace: {{ .Values.compat.namespaces.observability }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: process-exporter-config
+  namespace: {{ .Values.compat.namespaces.observability }}
+data:
+  config.yaml: |
+    {{- .Values.compat.agent.processExporter.config | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: process-exporter
+  namespace: {{ .Values.compat.namespaces.observability }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: process-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: process-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.compat.agent.processExporter.port }}"
+    spec:
+      serviceAccountName: {{ .Values.compat.agent.processExporter.serviceAccountName }}
+      hostPID: true
+      containers:
+        - name: process-exporter
+          image: "{{ .Values.compat.agent.processExporter.image.repository }}:{{ .Values.compat.agent.processExporter.image.tag }}"
+          imagePullPolicy: {{ .Values.compat.agent.processExporter.image.pullPolicy }}
+          args:
+            - --procfs
+            - /host/proc
+            - --config.path
+            - /etc/process-exporter/config.yaml
+            - --web.listen-address=:{{ .Values.compat.agent.processExporter.port }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.compat.agent.processExporter.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.compat.agent.processExporter.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/process-exporter
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: process-exporter-config
+        - name: proc
+          hostPath:
+            path: /proc
+{{- end }}
+
+{{- end }}

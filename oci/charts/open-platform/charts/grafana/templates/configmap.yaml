@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grafana.fullname" . }}-config
+  labels:
+    {{- include "grafana.labels" . | nindent 4 }}
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: VictoriaMetrics
+        type: prometheus
+        access: proxy
+        url: http://{{ include "grafana.backendFullname" . }}-victoria-metrics:8428
+        isDefault: true
+      - name: VictoriaLogs
+        type: victoriametrics-logs-datasource
+        access: proxy
+        url: http://{{ include "grafana.backendFullname" . }}-victoria-logs:9428
+      - name: VictoriaTraces
+        type: jaeger
+        access: proxy
+        url: http://{{ include "grafana.backendFullname" . }}-victoria-traces:10428/select/jaeger
+  {{- if or .Values.dashboardsConfigMap .Values.dashboardProviders }}
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      {{- if .Values.dashboardsConfigMap }}
+      - name: platform
+        orgId: 1
+        folder: Platform
+        type: file
+        disableDeletion: false
+        allowUiUpdates: false
+        updateIntervalSeconds: 15
+        options:
+          path: /etc/grafana/platform-dashboards
+      {{- end }}
+      {{- range .Values.dashboardProviders }}
+      - name: {{ .name | quote }}
+        orgId: 1
+        folder: {{ .folder | quote }}
+        folderUid: {{ .folderUid | quote }}
+        type: file
+        disableDeletion: false
+        allowUiUpdates: false
+        updateIntervalSeconds: 15
+        options:
+          path: /etc/grafana/imported-dashboards/{{ .path }}
+      {{- end }}
+  {{- end }}
