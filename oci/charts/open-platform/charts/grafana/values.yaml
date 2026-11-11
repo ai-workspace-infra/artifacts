@@ -1,16 +1,3 @@
-# Shared by all MCP servers in open-platform (and the umbrella's subcharts via global).
-# bearerToken.existingSecret: Secret in the release namespace holding the shared MCP bearer
-# token under bearerToken.key. Empty -> MCP servers run without inbound auth.
-global:
-  mcp:
-    # One bearer token shared by every MCP server and the MCP gateway. On by default so no MCP
-    # endpoint is ever served without auth: rendering fails when it is on and no Secret is named.
-    # Turn off only for a throwaway local cluster (global.mcp.bearerToken.enabled=false).
-    bearerToken:
-      enabled: true
-      existingSecret: platform-mcp
-      key: mcp-service-token
-
 replicaCount: 1
 serviceAccountName: default
 nameOverride: ""
@@ -118,38 +105,8 @@ hpa:
   targetCPUUtilizationPercentage: 80
   targetMemoryUtilizationPercentage: 80
 
-# Optional read-only MCP server for this Grafana (grafana/mcp-grafana), as its own Deployment
-# and Service "grafana-mcp-server" (mcp.name). Off by default. It talks to Grafana over the in-cluster Service
-# and reuses existingSecret/adminPasswordKey, so no extra credential is defined.
-# Grafana server phone-home: anonymous usage reporting and update checks to grafana.com. Off by default.
+# Grafana is only the UI/API service here. The Grafana MCP server is owned by platform-mcp so it
+# shares the authenticated gateway with the other MCP backends.
 analytics:
   reportingEnabled: false
   checkForUpdates: false
-
-mcp:
-  enabled: false
-  name: grafana-mcp-server
-  image:
-    repository: grafana/mcp-grafana
-    tag: "@sha256:71a3f4e6f412d253611314233df709ec2571fb50e39742d23fa2940f670646dc"
-    pullPolicy: IfNotPresent
-  port: 8000
-  basePath: /v1/grafana
-  # Read-only by default.
-  disableWrite: true
-  disableAdmin: true
-  # Empty: http://<fullname>:<service.port>/ (in-cluster).
-  grafanaUrl: ""
-  username: admin
-  # Host headers accepted besides the Service names and localhost (e.g. public hostnames).
-  extraAllowedHosts: []
-  # Inbound bearer token for this MCP server (MCP_GRAFANA_SERVER_TOKEN). Empty fields fall back
-  # to global.mcp.bearerToken, the one token shared by every MCP server and the MCP gateway.
-  bearerToken:
-    existingSecret: ""
-    key: ""
-  # Anonymous usage statistics mcp-grafana sends to Grafana Labs. Off by default.
-  usageStats: false
-  resources:
-    requests: {cpu: 50m, memory: 64Mi}
-    limits: {cpu: 200m, memory: 256Mi}

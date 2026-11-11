@@ -42,37 +42,39 @@ jobs:
           helm template platform-grafana oci/charts/open-platform/charts/grafana >/tmp/grafana-rendered.yaml
           helm template platform-observability oci/charts/open-platform/charts/observability-stack --set grafana.enabled=false >/tmp/observability-no-grafana.yaml
           ! grep -q "component: grafana" /tmp/observability-no-grafana.yaml
-          ! grep -q "component: mcp-grafana" /tmp/grafana-rendered.yaml
-          helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true >/tmp/grafana-mcp.yaml
-          grep -q "name: grafana-mcp-server" /tmp/grafana-mcp.yaml
-          grep -q -- "--disable-write" /tmp/grafana-mcp.yaml
-          # Bearer auth is on by default (Secret platform-mcp) and usage stats are off.
-          grep -q "MCP_GRAFANA_SERVER_TOKEN" /tmp/grafana-mcp.yaml
-          grep -q 'name: "platform-mcp"' /tmp/grafana-mcp.yaml
-          grep -q "GRAFANA_USAGE_STATS" /tmp/grafana-mcp.yaml
+          ! grep -qi "mcp" /tmp/grafana-rendered.yaml
           grep -q 'GF_ANALYTICS_REPORTING_ENABLED' /tmp/grafana-rendered.yaml
-          # Auth on with no Secret must fail to render; explicit opt-out renders without the token.
-          ! helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true --set global.mcp.bearerToken.existingSecret= >/dev/null 2>&1
-          ! helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true --set global.mcp.bearerToken.enabled=false | grep -q "MCP_GRAFANA_SERVER_TOKEN"
-          # platform-mcp: each server toggles independently, backends follow the toggles, auth fails closed.
+          # platform-mcp: every backend has its own toggle and checks the shared token.
           P=oci/charts/open-platform/charts/platform-mcp
           E="--set victoriametrics.entrypoint=http://vm:8428 --set victorialogs.entrypoint=http://vl:9428 --set victoriatraces.entrypoint=http://vt:10428"
-          helm lint $P $E
-          helm template p $P $E >/tmp/pmcp.yaml
-          for n in infrastructure-mcp-server ssh-mcp-server victoriametrics-mcp-server victorialogs-mcp-server victoriatraces-mcp-server; do grep -q "name: $n$" /tmp/pmcp.yaml; done
+          G="--set grafanaMcpServer.enabled=true --set grafanaMcpServer.grafanaUrl=http://grafana.observability.svc.cluster.local:3000 --set grafanaMcpServer.serviceAccountToken.existingSecret=grafana-viewer"
+          helm lint $P $E $G
+          helm template p --namespace p $P $E $G >/tmp/pmcp.yaml
+          for n in infrastructure-mcp-server ssh-mcp-server victoriametrics-mcp-server victorialogs-mcp-server victoriatraces-mcp-server grafana-mcp-server; do grep -q "name: $n$" /tmp/pmcp.yaml; done
           grep -q '"name": "observability-metrics"' /tmp/pmcp.yaml
+          grep -q '"url": "http://grafana-mcp-server.p.svc.cluster.local:8000/v1/grafana/mcp"' /tmp/pmcp.yaml
+          grep -q '"transport": "streamable-http"' /tmp/pmcp.yaml
+          grep -q '"name": "observability-grafana"' /tmp/pmcp.yaml
+          grep -q 'GRAFANA_SERVICE_ACCOUNT_TOKEN' /tmp/pmcp.yaml
+          grep -q 'MCP_GRAFANA_SERVER_TOKEN' /tmp/pmcp.yaml
+          grep -q 'name: "platform-mcp"' /tmp/pmcp.yaml
+          grep -q -- "--disable-write" /tmp/pmcp.yaml
+          grep -q -- "--disable-admin" /tmp/pmcp.yaml
+          grep -q "GRAFANA_USAGE_STATS" /tmp/pmcp.yaml
           helm template p $P $E --set victorialogs.enabled=false --set sshMcpServer.enabled=false >/tmp/pmcp-off.yaml
           ! grep -q "name: victorialogs-mcp-server$" /tmp/pmcp-off.yaml
           ! grep -q '"name": "observability-logs"' /tmp/pmcp-off.yaml
           ! grep -q "name: ssh-mcp-server$" /tmp/pmcp-off.yaml
           ! helm template p $P $E --set global.mcp.bearerToken.existingSecret= >/dev/null 2>&1
           ! helm template p $P $E --set global.mcp.bearerToken.enabled=false >/dev/null 2>&1
+          ! helm template p $P $E --set grafanaMcpServer.enabled=true >/dev/null 2>&1
+          ! helm template p $P $E $G --set global.mcp.bearerToken.enabled=false --set sshMcpServer.enabled=false >/dev/null 2>&1
           helm template p $P $E --set global.mcp.bearerToken.enabled=false --set sshMcpServer.enabled=false >/tmp/pmcp-noauth.yaml
           ! grep -q "MCP_SERVICE_TOKEN" /tmp/pmcp-noauth.yaml
           ! grep -q "name: auth-proxy" /tmp/pmcp-noauth.yaml
-          # Every backend checks the bearer token: VictoriaLogs/Traces MCP via the auth-proxy sidecar.
+          # Every configured backend checks the bearer token: VictoriaLogs/Traces via auth-proxy.
           test "$(grep -c 'name: auth-proxy$' /tmp/pmcp.yaml)" = 2
-          test "$(grep -c '"bearer_token_env": "MCP_SERVICE_TOKEN"' /tmp/pmcp.yaml)" = 4
+          test "$(grep -c '"bearer_token_env": "MCP_SERVICE_TOKEN"' /tmp/pmcp.yaml)" = 5
           grep -q '127.0.0.1:18083' /tmp/pmcp.yaml
           helm template platform-observability oci/charts/open-platform/charts/observability-stack --set telemetry.cluster=validation --set telemetry.environment=prod >/tmp/observability-rendered.yaml
       - name: Verify Grafana external configuration and rejection cases

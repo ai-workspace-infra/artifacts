@@ -1,6 +1,6 @@
 # Platform MCP stack. Every MCP server is its own Deployment + Service with its own `enabled`
 # toggle; the gateway's backend list is generated from those toggles (plus gateway.extraBackends
-# for MCP servers released by other charts, e.g. grafana-mcp-server from the grafana chart).
+# for MCP servers not shipped by this chart).
 
 global:
   mcp:
@@ -147,6 +147,33 @@ victoriatraces:
   tokenEnv: ""
   backend:
     name: observability-traces
+    capability: observability
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}
+
+# Grafana MCP runs alongside this stack but talks to a separately released Grafana service.
+# The read-only service-account token is provisioned by GitOps from the environment's Vault record.
+grafanaMcpServer:
+  enabled: false
+  name: grafana-mcp-server
+  image:
+    repository: grafana/mcp-grafana
+    tag: "@sha256:71a3f4e6f412d253611314233df709ec2571fb50e39742d23fa2940f670646dc"
+    pullPolicy: IfNotPresent
+  port: 8000
+  basePath: /v1/grafana
+  endpointPath: /mcp
+  grafanaUrl: "" # required when enabled; GitOps points to the in-cluster Grafana Service
+  disableWrite: true
+  disableAdmin: true
+  usageStats: false
+  extraAllowedHosts: []
+  serviceAccountToken:
+    existingSecret: "" # required when enabled; populated by GitOps/ESO from Vault
+    key: grafana-service-account-token
+  backend:
+    name: observability-grafana
     capability: observability
   resources:
     requests: {cpu: 50m, memory: 64Mi}

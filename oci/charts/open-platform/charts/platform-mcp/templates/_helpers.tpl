@@ -69,6 +69,13 @@ victoriametrics victorialogs victoriatraces
 {{- if $auth }}{{ $_ := set $b "bearer_token_env" "MCP_SERVICE_TOKEN" }}{{ end }}
 {{- $backends = append $backends $b }}
 {{- end }}
+{{- $grafana := .Values.grafanaMcpServer }}
+{{- if $grafana.enabled }}
+{{- $url := printf "http://%s.%s.svc.cluster.local:%d%s%s" $grafana.name .Release.Namespace (int $grafana.port) $grafana.basePath $grafana.endpointPath }}
+{{- $b := dict "name" $grafana.backend.name "capability" $grafana.backend.capability "transport" "streamable-http" "url" $url "enabled" true }}
+{{- if $auth }}{{ $_ := set $b "bearer_token_env" "MCP_SERVICE_TOKEN" }}{{ end }}
+{{- $backends = append $backends $b }}
+{{- end }}
 {{- $backends = concat .Values.gateway.extraBackends $backends }}
 {{- dict "server" (dict "name" .Values.gateway.name "version" .Values.gateway.serverVersion) "backends" $backends | toPrettyJson }}
 {{- end }}

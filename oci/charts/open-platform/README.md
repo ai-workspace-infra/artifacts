@@ -4,7 +4,7 @@ The `open-platform` Helm chart is a production-grade umbrella chart packaging al
 
 ## Architecture & Subcharts
 
-The Vault and observability subcharts remain independently configurable. Grafana runs as its own `grafana` subchart (on by default; the Grafana bundled in `observability-stack` is off) and its externally visible URL is set with `grafana.rootUrl`; `grafana.mcp.enabled` adds an optional read-only mcp-grafana Deployment and Service; the Vault subchart accepts an optional `vault-zitadel.vault.apiAddr`. Neither subchart creates DNS records or an ingress. Public host routing is managed by the separately released `distributed-web-saas-fullstack` Caddy chart. The bundled Vault/Zitadel chart is development-oriented and is not the PROD Raft Vault deployment.
+The Vault and observability subcharts remain independently configurable. Grafana runs as its own `grafana` subchart (on by default; the Grafana bundled in `observability-stack` is off) and its externally visible URL is set with `grafana.rootUrl`; the optional read-only Grafana MCP client is deployed by `platform-mcp` and connects to the Grafana service using a Viewer token. The Vault subchart accepts an optional `vault-zitadel.vault.apiAddr`. Neither subchart creates DNS records or an ingress. Public host routing is managed by the separately released `distributed-web-saas-fullstack` Caddy chart. The bundled Vault/Zitadel chart is development-oriented and is not the PROD Raft Vault deployment.
 
 Example external URL values (supply environment-specific hostnames in GitOps):
 
@@ -23,7 +23,7 @@ vault-zitadel:
 | 03 | `silo` | S3 Object Storage | `pgsty/silo:RELEASE.2026-10-18T00-00-00Z` | 9000 (S3 API), 9001 (Console) | S3-compatible persistent state and blob storage |
 | 04 | `cmdb` | CMDB Inventory | `python:3.11-alpine` | 8000 (REST) | Dynamic inventory API daemon for Ansible and agents |
 | 05 | `observability-stack` | Observability Server | `victoriametrics/victoria-metrics:v1.101.0`, `victoria-logs:v1.52.0`, `victoria-traces:v0.1.0` | 8428 (VM), 9428 (VL), 10428 (VT) | Full-stack metrics, logs, traces storage |
-| 05 | `grafana` | Dashboards | `grafana:13.2.4` | 3000 | Grafana as its own release, on by default (bundled observability-stack Grafana off); optional `grafana.mcp.enabled` for mcp-grafana |
+| 05 | `grafana` | Dashboards | `grafana:13.2.4` | 3000 | Grafana as its own release, on by default (bundled observability-stack Grafana off); MCP server runs in `platform-mcp` |
 | 05 | `observability-agent` | Observability Agent | `prom/node-exporter:v1.8.2`, `timberio/vector:0.41.1-alpine` | 9100 (Node), 8686 (Vector) | Host metrics and system journald log pipeline agent |
 | 06 | `vault-zitadel` | Identity & Secrets | `hashicorp/vault:1.17.6`, `postgres:16-alpine` | 8200 (Vault), 5432 (Zitadel DB) | HashiCorp Vault secrets engine + Zitadel IAM database |
 | — | `doco-cd` | GitOps Delivery | — | — | Removed from this chart: single-host Docker Compose tool, deployed by playbooks `roles/vhosts/Doco-CD` (`setup-Doco-CD.yaml`) |
