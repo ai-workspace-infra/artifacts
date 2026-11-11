@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  {{- include "workload-autoscaling.replicas" . | nindent 2 }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" . | nindent 6 }}

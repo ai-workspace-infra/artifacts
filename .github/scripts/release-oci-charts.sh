@@ -6,6 +6,7 @@ package_dir="${RUNNER_TEMP:-$repo_root/dist}/oci-charts-${GITHUB_RUN_ID:-local}-
 legacy_charts=(oci/charts/open-platform/charts/observability-agent oci/charts/open-platform oci/charts/open-platform/charts/observability-stack oci/charts/apps/app-service oci/charts/observability)
 case "${1:-}" in
   validate)
+    python3 scripts/sync_autoscaling_helper.py --check
     for chart in "${legacy_charts[@]}"; do helm lint "$chart"; done
     python3 .github/tests/test_observability_agent_chart.py
     .github/scripts/check-web-saas-charts.sh

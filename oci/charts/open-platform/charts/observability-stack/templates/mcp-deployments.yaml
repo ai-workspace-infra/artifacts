@@ -8,7 +8,9 @@ metadata:
     {{- include "observability-stack.labels" . | nindent 4 }}
     app.kubernetes.io/component: mcp-victoriametrics
 spec:
+  {{- if not $.Values.hpa.enabled }}
   replicas: {{ .Values.mcp.victoriaMetrics.replicas | default .Values.replicaCount }}
+  {{- end }}
   strategy:
     type: Recreate
   selector:
@@ -53,7 +55,9 @@ metadata:
     {{- include "observability-stack.labels" . | nindent 4 }}
     app.kubernetes.io/component: mcp-victorialogs
 spec:
+  {{- if not $.Values.hpa.enabled }}
   replicas: {{ .Values.mcp.victoriaLogs.replicas | default .Values.replicaCount }}
+  {{- end }}
   strategy:
     type: Recreate
   selector:
@@ -100,7 +104,9 @@ metadata:
     {{- include "observability-stack.labels" . | nindent 4 }}
     app.kubernetes.io/component: mcp-victoriatraces
 spec:
+  {{- if not $.Values.hpa.enabled }}
   replicas: {{ .Values.mcp.victoriaTraces.replicas | default .Values.replicaCount }}
+  {{- end }}
   strategy:
     type: Recreate
   selector:
@@ -145,7 +151,9 @@ metadata:
     {{- include "observability-stack.labels" . | nindent 4 }}
     app.kubernetes.io/component: mcp-grafana
 spec:
+  {{- if not $.Values.hpa.enabled }}
   replicas: {{ .Values.mcp.grafana.replicas | default .Values.replicaCount }}
+  {{- end }}
   strategy:
     type: Recreate
   selector:

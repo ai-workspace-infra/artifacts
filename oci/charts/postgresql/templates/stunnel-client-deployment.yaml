@@ -6,7 +6,9 @@ metadata:
   labels:
     {{- include "postgresql.labels" . | nindent 4 }}
 spec:
+  {{- if not $.Values.hpa.enabled }}
   replicas: {{ .Values.stunnelClient.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "postgresql.name" . }}

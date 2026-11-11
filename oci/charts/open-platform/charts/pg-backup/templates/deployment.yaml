@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "pg-backup.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  {{- include "workload-autoscaling.replicas" . | nindent 2 }}
   selector:
     matchLabels:
       {{- include "pg-backup.selectorLabels" . | nindent 6 }}

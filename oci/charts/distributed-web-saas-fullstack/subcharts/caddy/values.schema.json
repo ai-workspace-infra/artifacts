@@ -51,12 +51,18 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": {"type": "boolean"}
+            "enabled": {
+              "type": "boolean"
+            }
           },
-          "required": ["enabled"]
+          "required": [
+            "enabled"
+          ]
         }
       },
-      "required": ["prometheus"]
+      "required": [
+        "prometheus"
+      ]
     },
     "externalBackends": {
       "type": "object",
@@ -191,13 +197,19 @@
         "additionalProperties": false,
         "oneOf": [
           {
-            "required": ["serviceRole"],
+            "required": [
+              "serviceRole"
+            ],
             "properties": {
-              "serviceRole": {"const": "console"}
+              "serviceRole": {
+                "const": "console"
+              }
             }
           },
           {
-            "required": ["upstream"]
+            "required": [
+              "upstream"
+            ]
           }
         ],
         "required": [
@@ -239,6 +251,45 @@
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9.-]*$"
           }
+        }
+      }
+    },
+    "vpa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "updateMode": {
+          "type": "string",
+          "enum": [
+            "Off",
+            "Initial",
+            "Recreate",
+            "InPlaceOrRecreate",
+            "Auto"
+          ]
+        },
+        "minReplicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "controlledValues": {
+          "type": "string",
+          "enum": [
+            "RequestsAndLimits",
+            "RequestsOnly"
+          ]
+        },
+        "minAllowed": {
+          "type": "object"
+        },
+        "maxAllowed": {
+          "type": "object"
+        },
+        "workloads": {
+          "type": "array"
         }
       }
     }

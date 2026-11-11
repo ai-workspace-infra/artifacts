@@ -6,7 +6,7 @@ metadata:
     {{- include "observability-stack.labels" . | nindent 4 }}
     app.kubernetes.io/component: victoria-traces
 spec:
-  replicas: {{ .Values.replicaCount }}
+  {{- include "workload-autoscaling.replicas" . | nindent 2 }}
   {{- if .Values.persistence.enabled }}
   strategy:
     type: Recreate

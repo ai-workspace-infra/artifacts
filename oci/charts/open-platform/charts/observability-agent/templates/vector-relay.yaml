@@ -4,7 +4,9 @@ kind: Deployment
 metadata:
   name: {{ include "observability-agent.fullname" . }}-relay
 spec:
+  {{- if not $.Values.hpa.enabled }}
   replicas: 1
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: vector-relay

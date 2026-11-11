@@ -1,0 +1,5 @@
+apiVersion: v2
+name: workload-autoscaling
+description: Canonical VPA/HPA helpers. Source of truth for templates/_autoscaling.tpl, synced into every chart by scripts/sync-autoscaling-helper.sh (CI --check keeps copies identical).
+type: library
+version: 0.1.0

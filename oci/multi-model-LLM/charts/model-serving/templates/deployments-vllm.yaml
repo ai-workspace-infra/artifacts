@@ -9,7 +9,9 @@ metadata:
     app.kubernetes.io/name: {{ $m.name }}
     app.kubernetes.io/engine: vllm
 spec:
+  {{- if not $.Values.hpa.enabled }}
   replicas: {{ $m.replicas | default 1 }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ $m.name }}

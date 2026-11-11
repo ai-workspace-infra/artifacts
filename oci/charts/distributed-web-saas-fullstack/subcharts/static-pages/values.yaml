@@ -44,3 +44,18 @@ workload:
         target:
           type: Utilization
           averageUtilization: 70
+
+# Workload autoscaling (helpers: templates/_autoscaling.tpl, canonical in
+# oci/charts/library/workload-autoscaling). VPA renders only where the VPA API exists.
+# HPA: per-workload `workload.autoscaling` (disabled by default); the VPA yields to it.
+vpa:
+  enabled: true
+  updateMode: InPlaceOrRecreate
+  minReplicas: 1
+  controlledValues: RequestsAndLimits
+  minAllowed:
+    cpu: 10m
+    memory: 32Mi
+  maxAllowed:
+    cpu: "1"
+    memory: 1Gi

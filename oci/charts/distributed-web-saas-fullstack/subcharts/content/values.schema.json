@@ -44,6 +44,45 @@
     },
     "web-saas-common": {
       "type": "object"
+    },
+    "vpa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "updateMode": {
+          "type": "string",
+          "enum": [
+            "Off",
+            "Initial",
+            "Recreate",
+            "InPlaceOrRecreate",
+            "Auto"
+          ]
+        },
+        "minReplicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "controlledValues": {
+          "type": "string",
+          "enum": [
+            "RequestsAndLimits",
+            "RequestsOnly"
+          ]
+        },
+        "minAllowed": {
+          "type": "object"
+        },
+        "maxAllowed": {
+          "type": "object"
+        },
+        "workloads": {
+          "type": "array"
+        }
+      }
     }
   },
   "definitions": {
