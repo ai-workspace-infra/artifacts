@@ -15,29 +15,16 @@ The Deployment assigns explicit Kubernetes requests and limits to VictoriaMetric
 
 When another canonical scraper collects raw `/metrics/cadvisor`, select `[node, pod, volume]` to avoid receiving container metrics twice. In the pinned OTel receiver, `container.memory.working_set` is enabled with byte units and exports as `container_memory_working_set_bytes`, also present in raw cAdvisor. Keep the `node` group and the kubeletstats receiver in the metrics pipeline so existing `k8s_node_*` overview queries retain their source. This configuration contract is not evidence of fresh runtime metrics; confirm series identity/counts and freshness after the separately authorized rollout.
 
-## Model Context Protocol (MCP) Server Gateways
+## MCP
 
-The chart includes optional Model Context Protocol (MCP) server endpoints for AI agent telemetry integration:
-- `mcp.victoriaMetrics`: HTTP MCP gateway for VictoriaMetrics (PromQL / metrics query).
-- `mcp.victoriaLogs`: HTTP MCP gateway for VictoriaLogs (LogsQL / log inspection).
-- `mcp.victoriaTraces`: HTTP MCP gateway for VictoriaTraces (Trace exploration).
-- `mcp.grafana`: MCP SSE gateway for Grafana dashboard/datasource integration with dynamic `--allowed-hosts` derivation.
-
-To enable MCP servers:
-```yaml
-mcp:
-  enabled: true
-```
-
-The `--allowed-hosts` argument for `mcp-grafana` automatically injects `localhost`, service names, FQDN cluster endpoints, platform domain (`{{ .Values.domain }}`), and Traefik ingress hosts to prevent 403 Forbidden errors when proxied.
+This chart serves no MCP endpoints. The MCP servers (VictoriaMetrics/Logs/Traces, SSH) and their
+authenticated gateway come from the `platform-mcp` chart; grafana-mcp-server comes from the `grafana` chart.
 
 ## Traefik IngressRoute & Middleware Integration
 
 For environments utilizing Traefik (e.g. SIT-K3S-V6, PROD-K3S-V6), the chart can optionally create Traefik `Middleware` (stripPrefix) and `IngressRoute` resources for:
 - `/ingest/metrics/api/v1/write`, `/ingest/logs/`, `/ingest/otlp/` (Ingest route with `observability-ingest-prefix`)
 - `/api/v1/query`, `/api/v1/query_range` (Metrics query route)
-- `/mcp/v1/grafana` (MCP Grafana route stripping `/mcp`)
-- `/mcp/v1/metrics`, `/mcp/v1/logs`, `/mcp/v1/traces` (MCP Victoria routes stripping `/mcp/v1/*`)
 - `/` (Grafana UI root)
 
 To enable Traefik IngressRoutes:
