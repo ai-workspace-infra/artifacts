@@ -20,6 +20,16 @@ zitadelDb:
   user: "zitadel"
   password: "ZitadelPassword2026!"
 
+# Zitadel server (merged from the former infra-platform/charts/zitadel scaffold).
+# Off by default; the image is the scaffold placeholder and must be set before enabling.
+zitadel:
+  enabled: false
+  image:
+    repository: my-repo/zitadel
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  port: 80
+
 service:
   type: ClusterIP
 

@@ -7,9 +7,9 @@ on:
     paths:
       - "oci/charts/open-platform/**"
       - "oci/charts/web-saas-fullstack/standalone/apps/app-service/**"
-      - "oci/charts/infra-platform/standalone/postgresql/**"
+      - "oci/charts/open-platform/standalone/postgresql/**"
       - "oci/charts/web-saas-fullstack/**"
-      - "oci/charts/infra-platform/library/**"
+      - "oci/charts/open-platform/library/**"
       - "scripts/sync_autoscaling_helper.py"
       - ".github/scripts/*web-saas-*.sh"
       - ".github/scripts/release-oci-charts.sh"

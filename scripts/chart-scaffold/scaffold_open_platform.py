@@ -9,7 +9,6 @@ Aggregates 11 Core Service Categories (12 modular subcharts):
   05. observability-stack  - Full-Stack Observability Central Service (VictoriaMetrics + Logs + Traces + Grafana)
       observability-agent  - Host & Node Telemetry Agent (Node Exporter + Vector)
   06. vault-zitadel        - Secret Engine & IAM Backend (hashicorp/vault:1.17.6 + postgres:16-alpine)
-  07. doco-cd              - Declarative GitOps Controller (ghcr.io/kimdre/doco-cd:0.1.28)
   08. pgvector             - Cloud-Neutral Container & Vector DB (pgvector/pgvector:pg16)
   09. pg-backup            - Database Backup & Restore Sandbox (postgres:16-alpine)
   10. ai-gateway           - Dual-Tier AI Gateway (calciumion/new-api:v0.4.10 + ghcr.io/berriai/litellm:v1.51.0)
@@ -52,7 +51,6 @@ keywords:
   - vector
   - vault
   - zitadel
-  - doco-cd
   - pgvector
   - ai-gateway
   - mcp
@@ -89,10 +87,6 @@ dependencies:
     version: 1.0.0
     repository: "file://./charts/vault-zitadel"
     condition: vault-zitadel.enabled
-  - name: doco-cd
-    version: 1.0.0
-    repository: "file://./charts/doco-cd"
-    condition: doco-cd.enabled
   - name: pgvector
     version: 1.0.0
     repository: "file://./charts/pgvector"
@@ -144,10 +138,6 @@ observability-agent:
 
 # 06 Secret Engine & IAM Backend
 vault-zitadel:
-  enabled: true
-
-# 07 Declarative GitOps Controller
-doco-cd:
   enabled: true
 
 # 08 Cloud-Neutral Container & Vector DB
@@ -234,9 +224,6 @@ Active Core Services Endpoints:
 {{- if (index .Values "vault-zitadel").enabled }}
 - 06 Identity (Vault/Zitadel):   http://vault.{{ .Values.global.domain }}:8200 (PG :5432)
 {{- end }}
-{{- if (index .Values "doco-cd").enabled }}
-- 07 GitOps (Doco CD):           http://doco.{{ .Values.global.domain }}:80 (Metrics :9120)
-{{- end }}
 {{- if .Values.pgvector.enabled }}
 - 08 Vector DB (pgvector):       postgresql://k3s@pgvector.{{ .Values.global.domain }}:5432/k3s_vector
 {{- end }}
@@ -268,7 +255,6 @@ The `open-platform` Helm chart is a production-grade umbrella chart packaging al
 | 05 | `observability-stack` | Observability Server | `victoriametrics/victoria-metrics:v1.101.0`, `victoria-logs:v1.52.0`, `victoria-traces:v0.1.0`, `grafana:11.3.0` | 3000 (Grafana), 8428 (VM), 9428 (VL), 10428 (VT) | Full-stack metrics, logs, traces storage & dashboards |
 | 05 | `observability-agent` | Observability Agent | `prom/node-exporter:v1.8.2`, `timberio/vector:0.41.1-alpine` | 9100 (Node), 8686 (Vector) | Host metrics and system journald log pipeline agent |
 | 06 | `vault-zitadel` | Identity & Secrets | `hashicorp/vault:1.17.6`, `postgres:16-alpine` | 8200 (Vault), 5432 (Zitadel DB) | HashiCorp Vault secrets engine + Zitadel IAM database |
-| 07 | `doco-cd` | GitOps Delivery | `ghcr.io/kimdre/doco-cd:0.1.28` | 80 (HTTP), 9120 (Metrics) | Declarative single-node GitOps controller |
 | 08 | `pgvector` | Vector & Containers | `pgvector/pgvector:pg16` | 5432 (Postgres) | PostgreSQL 16 with pgvector extension for RAG / memory |
 | 09 | `pg-backup` | DB Backup Sandbox | `postgres:16-alpine` | 5432 (Postgres) | Automated snapshot backup and restore drill sandbox |
 | 10 | `ai-gateway` | AI Gateway | `calciumion/new-api:v0.4.10`, `ghcr.io/berriai/litellm:v1.51.0` | 3000 (New API), 4000 (LiteLLM) | Dual-tier AI routing gateway with auth & rate limits |
@@ -1611,131 +1597,6 @@ spec:
   selector:
     {{- include "vault-zitadel.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/subcomponent: zitadel-db
-""")
-
-# ==============================================================================
-# Subchart 07: doco-cd
-# ==============================================================================
-doco_dir = BASE_DIR / "charts" / "doco-cd"
-write(doco_dir / "Chart.yaml", """
-apiVersion: v2
-name: doco-cd
-description: Doco CD Declarative GitOps Controller Subchart
-type: application
-version: 1.0.0
-appVersion: "0.1.28"
-""")
-
-write(doco_dir / "values.yaml", """
-replicaCount: 1
-image:
-  repository: ghcr.io/kimdre/doco-cd
-  tag: "0.1.28"
-  pullPolicy: IfNotPresent
-
-domain: "open-platform.local"
-
-service:
-  type: ClusterIP
-  httpPort: 80
-  metricsPort: 9120
-
-persistence:
-  enabled: true
-  size: 5Gi
-  accessMode: ReadWriteOnce
-  storageClass: ""
-""")
-
-write_subchart_helpers(doco_dir, "doco-cd")
-
-write(doco_dir / "templates" / "pvc.yaml", """
-{{- if .Values.persistence.enabled -}}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "doco-cd.fullname" . }}-data
-  labels:
-    {{- include "doco-cd.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - {{ .Values.persistence.accessMode }}
-  resources:
-    requests:
-      storage: {{ .Values.persistence.size }}
-  {{- if .Values.persistence.storageClass }}
-  storageClassName: {{ .Values.persistence.storageClass }}
-  {{- end }}
-{{- end }}
-""")
-
-write(doco_dir / "templates" / "deployment.yaml", """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "doco-cd.fullname" . }}
-  labels:
-    {{- include "doco-cd.labels" . | nindent 4 }}
-spec:
-  replicas: {{ .Values.replicaCount }}
-  selector:
-    matchLabels:
-      {{- include "doco-cd.selectorLabels" . | nindent 6 }}
-  template:
-    metadata:
-      labels:
-        {{- include "doco-cd.selectorLabels" . | nindent 8 }}
-    spec:
-      containers:
-        - name: doco-cd
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: 80
-              protocol: TCP
-            - name: metrics
-              containerPort: 9120
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /v1/health
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          volumeMounts:
-            - name: data
-              mountPath: /data
-      volumes:
-        - name: data
-          {{- if .Values.persistence.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "doco-cd.fullname" . }}-data
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
-""")
-
-write(doco_dir / "templates" / "service.yaml", """
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "doco-cd.fullname" . }}
-  labels:
-    {{- include "doco-cd.labels" . | nindent 4 }}
-spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - name: http
-      port: {{ .Values.service.httpPort }}
-      targetPort: http
-      protocol: TCP
-    - name: metrics
-      port: {{ .Values.service.metricsPort }}
-      targetPort: metrics
-      protocol: TCP
-  selector:
-    {{- include "doco-cd.selectorLabels" . | nindent 4 }}
 """)
 
 # ==============================================================================

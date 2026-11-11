@@ -26,7 +26,7 @@ vault-zitadel:
 | 05 | `observability-stack` | Observability Server | `victoriametrics/victoria-metrics:v1.101.0`, `victoria-logs:v1.52.0`, `victoria-traces:v0.1.0`, `grafana:13.2.4` | 3000 (Grafana), 8428 (VM), 9428 (VL), 10428 (VT) | Full-stack metrics, logs, traces storage & dashboards |
 | 05 | `observability-agent` | Observability Agent | `prom/node-exporter:v1.8.2`, `timberio/vector:0.41.1-alpine` | 9100 (Node), 8686 (Vector) | Host metrics and system journald log pipeline agent |
 | 06 | `vault-zitadel` | Identity & Secrets | `hashicorp/vault:1.17.6`, `postgres:16-alpine` | 8200 (Vault), 5432 (Zitadel DB) | HashiCorp Vault secrets engine + Zitadel IAM database |
-| 07 | `doco-cd` | GitOps Delivery | `ghcr.io/kimdre/doco-cd:0.1.28` | 80 (HTTP), 9120 (Metrics) | Declarative single-node GitOps controller |
+| — | `doco-cd` | GitOps Delivery | — | — | Removed from this chart: single-host Docker Compose tool, deployed by playbooks `roles/vhosts/Doco-CD` (`setup-Doco-CD.yaml`) |
 | 08 | `pgvector` | Vector & Containers | `pgvector/pgvector:pg16` | 5432 (Postgres) | PostgreSQL 16 with pgvector extension for RAG / memory |
 | 09 | `pg-backup` | DB Backup Sandbox | `postgres:16-alpine` | 5432 (Postgres) | Automated snapshot backup and restore drill sandbox |
 | 10 | `ai-gateway` | AI Gateway | `calciumion/new-api:v0.4.10`, `ghcr.io/berriai/litellm:v1.51.0` | 3000 (New API), 4000 (LiteLLM) | Dual-tier AI routing gateway with auth & rate limits |

@@ -4,19 +4,23 @@ Single source for all Helm charts. Charts are published to `ghcr.io/ai-workspace
 by `.github/workflows/release-oci-charts.yml` (immutable versions; bump a chart's
 version when its contents change).
 
-## Layout: three groups
+## Layout: two groups
 
 | Group | Umbrella chart | Also contains |
 | --- | --- | --- |
-| `infra-platform/` | `infra-platform` (gitea, zitadel, observability scaffold, caddy) | `library/workload-autoscaling` (canonical VPA/HPA helper), `standalone/postgresql` |
-| `open-platform/` | `open-platform` (gitea, harbor, silo, cmdb, observability-stack, observability-agent, vault-zitadel, doco-cd, pgvector, pg-backup, ai-gateway, mcp-gateway) | `standalone/ai-workspace` |
+| `open-platform/` | `open-platform` (gitea, harbor, silo, cmdb, observability-stack, observability-agent, vault-zitadel incl. optional Zitadel server, pgvector, pg-backup, ai-gateway, mcp-gateway, optional caddy) | `library/workload-autoscaling` (canonical VPA/HPA helper), `standalone/postgresql`, `standalone/ai-workspace` |
 | `web-saas-fullstack/` | `web-saas-fullstack` (Caddy/Traefik ingress, versioned service subcharts in `subcharts/`; [plan](web-saas-fullstack/HELM-SUBCHART-PLAN.zh.md)) | `standalone/web-saas`, `standalone/apps/{app-service,accounts,console,rag-server}` |
 
 `library/` and `standalone/` hold separate charts; each umbrella's `.helmignore`
 excludes them, so they are not packaged into the umbrella.
 
 `observability-stack` also carries the former `observability` compatibility
-composition (`compat.enabled`, off by default); see `docs/observability-chart-convergence.md`.
+composition (`compat.enabled`) and the former infra-platform observability scaffold
+(`compat.infraPlatformScaffold.enabled`), both off by default; see `docs/observability-chart-convergence.md`.
+
+The former `infra-platform` group was merged into `open-platform` (its gitea duplicated
+open-platform's gitea and was dropped). `doco-cd` is a single-host Docker Compose tool and is
+deployed by playbooks `roles/vhosts/Doco-CD`, not by a Helm chart.
 
 ## Published OCI names
 
@@ -28,5 +32,5 @@ composition (`compat.enabled`, off by default); see `docs/observability-chart-co
 ## Shared autoscaling
 
 `scripts/sync_autoscaling_helper.py` copies the canonical helper from
-`infra-platform/library/workload-autoscaling` into every chart (VPA where the API
+`open-platform/library/workload-autoscaling` into every chart (VPA where the API
 exists, single replica, HPA template disabled); CI runs it with `--check`.

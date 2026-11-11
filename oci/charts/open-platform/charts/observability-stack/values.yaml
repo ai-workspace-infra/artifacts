@@ -318,6 +318,17 @@ hpa:
 # belong in the canonical stack/agent, not here (docs/observability-chart-convergence.md).
 compat:
   enabled: false
+  # Former infra-platform/charts/observability scaffold (placeholder Deployment+Service).
+  # Independent of compat.enabled; off by default.
+  infraPlatformScaffold:
+    enabled: false
+    image:
+      repository: my-repo/observability
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
   namespaces:
     observability: observability
 
