@@ -1,0 +1,179 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "grafana.fullname" . }}
+  labels:
+    {{- include "grafana.labels" . | nindent 4 }}
+spec:
+  {{- include "workload-autoscaling.replicas" . | nindent 2 }}
+  {{- if .Values.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "grafana.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/grafana-bundle: {{ .Values.bundleChecksum | quote }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "grafana.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName | quote }}
+      {{- if .Values.pluginArchives }}
+      initContainers:
+        - name: verified-grafana-plugins
+          image: {{ .Values.pluginInstallerImage | quote }}
+          command: [python3, /installer/install-plugins.py]
+          env:
+            - name: PLUGIN_ARCHIVES
+              value: {{ .Values.pluginArchives | toJson | quote }}
+          securityContext:
+            runAsUser: 472
+            runAsGroup: 472
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.pluginInstallerResources | nindent 12 }}
+          volumeMounts:
+            - name: grafana-plugins
+              mountPath: /plugins
+            - name: grafana-plugin-installer
+              mountPath: /installer
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: grafana
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- if .Values.pluginArchives }}
+            - name: GF_PATHS_PLUGINS
+              value: /opt/grafana/plugins
+            {{- end }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "existingSecret is required" .Values.existingSecret | quote }}
+                  key: {{ .Values.adminPasswordKey | quote }}
+            - name: GF_SERVER_ROOT_URL
+              value: {{ .Values.rootUrl | default (printf "http://grafana.%s:3000/" ((and .Values.global .Values.global.domain) | default .Values.domain)) | quote }}
+            {{- if .Values.plugins }}
+            - name: GF_PLUGINS_PREINSTALL_SYNC
+              value: {{ join "," .Values.plugins | quote }}
+            {{- end }}
+            {{- if .Values.unsignedPlugins }}
+            - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
+              value: {{ join "," .Values.unsignedPlugins | quote }}
+            {{- end }}
+            {{- if .Values.disablePlugins }}
+            - name: GF_PLUGINS_DISABLE_PLUGINS
+              value: {{ join "," .Values.disablePlugins | quote }}
+            {{- end }}
+          {{- if .Values.runtimeSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.runtimeSecret | quote }}
+          {{- end }}
+          ports:
+            - name: grafana
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          startupProbe:
+            httpGet: {path: /api/health, port: grafana}
+            periodSeconds: 10
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: {path: /api/health, port: grafana}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /api/health, port: grafana}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+              {{- with .Values.persistence.subPath }}
+              subPath: {{ . }}
+              {{- end }}
+            {{- if .Values.pluginArchives }}
+            - name: grafana-plugins
+              mountPath: /opt/grafana/plugins
+            {{- end }}
+            - name: {{ if .Values.datasourcesConfigMap }}grafana-datasources{{ else }}config{{ end }}
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+              subPath: datasources.yaml
+            {{- if .Values.appsConfigMap }}
+            - name: grafana-apps
+              mountPath: /etc/grafana/provisioning/plugins/apps.yaml
+              subPath: apps.yaml
+              readOnly: true
+            {{- end }}
+            {{- range $i, $provider := .Values.dashboardProviders }}
+            - name: grafana-provider-{{ $i }}
+              mountPath: /etc/grafana/imported-dashboards/{{ $provider.path }}
+              readOnly: true
+            {{- end }}
+            {{- if or .Values.dashboardsConfigMap .Values.dashboardProviders }}
+            - name: config
+              mountPath: /etc/grafana/provisioning/dashboards/platform.yaml
+              subPath: dashboards.yaml
+            {{- end }}
+            {{- if .Values.dashboardsConfigMap }}
+            - name: dashboards
+              mountPath: /etc/grafana/platform-dashboards
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.pluginArchives }}
+        - name: grafana-plugins
+          emptyDir: {}
+        - name: grafana-plugin-installer
+          configMap:
+            name: {{ include "grafana.fullname" . }}-plugin-installer
+        {{- end }}
+        {{- if .Values.datasourcesConfigMap }}
+        - name: grafana-datasources
+          configMap:
+            name: {{ .Values.datasourcesConfigMap | quote }}
+        {{- end }}
+        {{- if .Values.appsConfigMap }}
+        - name: grafana-apps
+          configMap:
+            name: {{ .Values.appsConfigMap | quote }}
+        {{- end }}
+        {{- range $i, $provider := .Values.dashboardProviders }}
+        - name: grafana-provider-{{ $i }}
+          projected:
+            sources:
+              {{- range $provider.configMaps }}
+              - configMap:
+                  name: {{ . | quote }}
+              {{- end }}
+        {{- end }}
+        {{- if .Values.dashboardsConfigMap }}
+        - name: dashboards
+          configMap:
+            name: {{ .Values.dashboardsConfigMap }}
+        {{- end }}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "grafana.dataClaim" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: config
+          configMap:
+            name: {{ include "grafana.fullname" . }}-config

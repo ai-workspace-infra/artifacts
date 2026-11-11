@@ -1,0 +1,11 @@
+{{- if .Values.pluginArchives }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grafana.fullname" . }}-plugin-installer
+  labels:
+    {{- include "grafana.labels" . | nindent 4 }}
+data:
+  install-plugins.py: |
+{{ .Files.Get "files/install-plugins.py" | indent 4 }}
+{{- end }}

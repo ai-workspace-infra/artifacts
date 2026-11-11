@@ -1,4 +1,4 @@
-{{- if .Values.grafana.pluginArchives }}
+{{- if and .Values.grafana.enabled .Values.grafana.pluginArchives }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

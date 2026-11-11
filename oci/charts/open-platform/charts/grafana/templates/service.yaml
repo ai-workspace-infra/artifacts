@@ -1,0 +1,21 @@
+{{- $names := prepend (default list .Values.service.aliases) (include "grafana.fullname" .) | uniq }}
+{{- range $i, $name := $names }}
+{{- if $i }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "grafana.labels" $ | nindent 4 }}
+spec:
+  type: {{ $.Values.service.type }}
+  ports:
+    - name: grafana
+      port: {{ $.Values.service.port }}
+      targetPort: grafana
+      protocol: TCP
+  selector:
+    {{- include "grafana.selectorLabels" $ | nindent 4 }}
+{{- end }}

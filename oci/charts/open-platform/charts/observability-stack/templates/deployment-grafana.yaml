@@ -1,3 +1,4 @@
+{{- if .Values.grafana.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -183,3 +184,4 @@ spec:
         - name: config
           configMap:
             name: {{ include "observability-stack.fullname" . }}-config
+{{- end }}
