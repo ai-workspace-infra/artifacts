@@ -1,6 +1,0 @@
-apiVersion: v2
-name: mcp-gateway
-description: Infrastructure Model Context Protocol Gateway Subchart
-type: application
-version: 1.0.1
-appVersion: "0.1.0"

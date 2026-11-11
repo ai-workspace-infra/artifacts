@@ -8,7 +8,7 @@ version when its contents change).
 
 | Group | Umbrella chart | Also contains |
 | --- | --- | --- |
-| `open-platform/` | `open-platform` (gitea, harbor, silo, cmdb, observability-stack, observability-agent, vault-zitadel incl. optional Zitadel server, pgvector, pg-backup, ai-gateway, mcp-gateway, optional caddy) | `library/workload-autoscaling` (canonical VPA/HPA helper), `standalone/postgresql`, `standalone/ai-workspace` |
+| `open-platform/` | `open-platform` (gitea, harbor, silo, cmdb, observability-stack, observability-agent, vault-zitadel incl. optional Zitadel server, pgvector, pg-backup, ai-gateway, platform-mcp, optional caddy) | `library/workload-autoscaling` (canonical VPA/HPA helper), `standalone/postgresql`, `standalone/ai-workspace` |
 | `web-saas-fullstack/` | `web-saas-fullstack` (Caddy/Traefik ingress, versioned service subcharts in `subcharts/`; [plan](web-saas-fullstack/HELM-SUBCHART-PLAN.zh.md)) | `standalone/web-saas`, `standalone/apps/{app-service,accounts,console,rag-server}` |
 
 `library/` and `standalone/` hold separate charts; each umbrella's `.helmignore`

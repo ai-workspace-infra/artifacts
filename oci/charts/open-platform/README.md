@@ -30,7 +30,7 @@ vault-zitadel:
 | 08 | `pgvector` | Vector & Containers | `pgvector/pgvector:pg16` | 5432 (Postgres) | PostgreSQL 16 with pgvector extension for RAG / memory |
 | 09 | `pg-backup` | DB Backup Sandbox | `postgres:16-alpine` | 5432 (Postgres) | Automated snapshot backup and restore drill sandbox |
 | 10 | `ai-gateway` | AI Gateway | `calciumion/new-api:v0.4.10`, `ghcr.io/berriai/litellm:v1.51.0` | 3000 (New API), 4000 (LiteLLM) | Dual-tier AI routing gateway with auth & rate limits |
-| 11 | `mcp-gateway` | MCP Tool Gateway | `alpine:3.20` | 8080 (HTTP) | Model Context Protocol gateway exposing infra tools |
+| 11 | `platform-mcp` | Platform MCP stack | `infrastructure-mcp-server`, `node` (ssh-mcp-server), `mcp-victoria*` | 8080 (gateway) | Gateway plus ssh-mcp-server and VictoriaMetrics/Logs/Traces MCP servers, each its own Deployment/Service with an `enabled` toggle; off by default |
 
 ## Quickstart
 

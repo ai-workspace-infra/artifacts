@@ -46,6 +46,20 @@ jobs:
           helm template platform-grafana oci/charts/open-platform/charts/grafana --set mcp.enabled=true >/tmp/grafana-mcp.yaml
           grep -q "name: grafana-mcp-server" /tmp/grafana-mcp.yaml
           grep -q -- "--disable-write" /tmp/grafana-mcp.yaml
+          # platform-mcp: each server toggles independently, backends follow the toggles, auth fails closed.
+          P=oci/charts/open-platform/charts/platform-mcp
+          E="--set victoriametrics.entrypoint=http://vm:8428 --set victorialogs.entrypoint=http://vl:9428 --set victoriatraces.entrypoint=http://vt:10428"
+          helm lint $P $E
+          helm template p $P $E >/tmp/pmcp.yaml
+          for n in infrastructure-mcp-server ssh-mcp-server victoriametrics-mcp-server victorialogs-mcp-server victoriatraces-mcp-server; do grep -q "name: $n$" /tmp/pmcp.yaml; done
+          grep -q '"name": "observability-metrics"' /tmp/pmcp.yaml
+          helm template p $P $E --set victorialogs.enabled=false --set sshMcpServer.enabled=false >/tmp/pmcp-off.yaml
+          ! grep -q "name: victorialogs-mcp-server$" /tmp/pmcp-off.yaml
+          ! grep -q '"name": "observability-logs"' /tmp/pmcp-off.yaml
+          ! grep -q "name: ssh-mcp-server$" /tmp/pmcp-off.yaml
+          ! helm template p $P $E --set global.mcp.bearerToken.existingSecret= >/dev/null 2>&1
+          ! helm template p $P $E --set global.mcp.bearerToken.enabled=false >/dev/null 2>&1
+          ! helm template p $P $E --set global.mcp.bearerToken.enabled=false --set sshMcpServer.enabled=false | grep -q "MCP_SERVICE_TOKEN"
           helm template platform-observability oci/charts/open-platform/charts/observability-stack --set telemetry.cluster=validation --set telemetry.environment=prod >/tmp/observability-rendered.yaml
       - name: Verify Grafana external configuration and rejection cases
         run: python3 .github/tests/test_grafana_config_render.py

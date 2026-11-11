@@ -60,9 +60,12 @@ pg-backup:
 ai-gateway:
   enabled: true
 
-# 11 Infrastructure MCP Tool Gateway
-mcp-gateway:
-  enabled: true
+# 11 Platform MCP stack: infrastructure-mcp-server gateway + ssh-mcp-server +
+# victoriametrics/victorialogs/victoriatraces-mcp-server, each with its own enabled toggle.
+# Off by default: the Victoria* servers need their entrypoints and every server needs the
+# platform-mcp bearer token Secret (see charts/platform-mcp/README.md).
+platform-mcp:
+  enabled: false
 
 # Caddy (moved from the former infra-platform group; scaffold image, off by default)
 caddy:

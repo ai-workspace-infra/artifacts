@@ -1,0 +1,126 @@
+{{- if .Values.sshMcpServer.enabled }}
+{{- $s := .Values.sshMcpServer }}
+{{- $ctx := dict "root" . "component" $s.name }}
+{{- $tok := include "platform-mcp.bearerToken" . }}
+{{- if not $tok }}{{ fail "ssh-mcp-server runs commands on hosts and always needs the bearer token; global.mcp.bearerToken must be enabled" }}{{ end }}
+{{- $keySecret := $s.privateKey.existingSecret | default (($tok | fromJson).secret) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $s.name }}
+  labels:
+    {{- include "platform-mcp.labels" $ctx | nindent 4 }}
+spec:
+  {{- include "platform-mcp.replicas" . | nindent 2 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      {{- include "platform-mcp.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "platform-mcp.labels" $ctx | nindent 8 }}
+        platform.svc.plus/mcp-role: backend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        # Render the ssh-mcp-server config from CMDB host resources (GitOps-declared
+        # hostnames/FQDNs + auditor; no addresses from Vault).
+        - name: render-ssh-config
+          image: {{ $s.renderConfig.image | default (printf "%s:%s" .Values.gateway.image.repository .Values.gateway.image.tag) | quote }}
+          imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
+          args: ["-render-ssh-config", "/run/ssh-mcp/ssh-config.json", "-ssh-env", {{ $s.renderConfig.sshEnv | quote }}]
+          env:
+            - name: SSH_MCP_PRIVATE_KEY_PATH
+              value: /var/run/secrets/ssh-mcp/ssh-private-key
+            - name: INFRA_CMDB_BASE_DIR
+              value: {{ $s.renderConfig.cmdbBaseDir | quote }}
+          resources:
+            {{- toYaml $s.renderConfig.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: ssh-mcp-config
+              mountPath: /run/ssh-mcp
+      containers:
+        # Read-only command whitelist comes from the rendered config; file tools are hidden
+        # by the gateway (allowed_tools/disabled_tools).
+        - name: {{ $s.name }}
+          image: "{{ $s.image.repository }}{{ if not (hasPrefix "@" $s.image.tag) }}:{{ end }}{{ $s.image.tag }}"
+          imagePullPolicy: {{ $s.image.pullPolicy }}
+          command:
+            - npx
+            - "-y"
+            - {{ $s.package | quote }}
+            - "--config-file"
+            - "/run/ssh-mcp/ssh-config.json"
+            - "--mcp-transport"
+            - "http"
+            - "--http-host"
+            - "0.0.0.0"
+            - "--http-port"
+            - {{ $s.port | quote }}
+            - "--pty"
+            - "false"
+          env:
+            - name: HOME
+              value: /tmp/home
+            - name: npm_config_cache
+              value: /tmp/npm-cache
+            - name: npm_config_update_notifier
+              value: "false"
+            {{- include "platform-mcp.tokenEnv" (dict "root" . "env" $s.tokenEnv) | trim | nindent 12 }}
+          ports:
+            - name: mcp
+              containerPort: {{ $s.port }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket: {port: mcp}
+            periodSeconds: 10
+          resources:
+            {{- toYaml $s.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: ssh-mcp-config
+              mountPath: /run/ssh-mcp
+              readOnly: true
+            - name: ssh-mcp-key
+              mountPath: /var/run/secrets/ssh-mcp
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: ssh-mcp-config
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        - name: ssh-mcp-key
+          secret:
+            secretName: {{ $keySecret | quote }}
+            defaultMode: 0600
+            items:
+              - key: {{ $s.privateKey.key | quote }}
+                path: ssh-private-key
+                mode: 0600
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $s.name }}
+  labels:
+    {{- include "platform-mcp.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "platform-mcp.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: mcp
+      port: {{ $s.port }}
+      targetPort: mcp
+      protocol: TCP
+{{- end }}

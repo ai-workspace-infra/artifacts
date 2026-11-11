@@ -1,0 +1,71 @@
+{{- $root := . }}
+{{- range $k := splitList " " (include "platform-mcp.victoriaKeys" .) }}
+{{- $v := index $root.Values $k }}
+{{- if $v.enabled }}
+{{- $ctx := dict "root" $root "component" $v.name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $v.name }}
+  labels:
+    {{- include "platform-mcp.labels" $ctx | nindent 4 }}
+spec:
+  {{- include "platform-mcp.replicas" $root | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "platform-mcp.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "platform-mcp.labels" $ctx | nindent 8 }}
+        platform.svc.plus/mcp-role: backend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $v.name }}
+          image: "{{ $v.image.repository }}{{ if not (hasPrefix "@" $v.image.tag) }}:{{ end }}{{ $v.image.tag }}"
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          env:
+            - name: {{ $v.entrypointEnv }}
+              value: {{ required (printf "%s.entrypoint is required when %s.enabled" $k $k) $v.entrypoint | quote }}
+            - name: MCP_SERVER_MODE
+              value: http
+            - name: MCP_LISTEN_ADDR
+              value: {{ printf "0.0.0.0:%d" (int $v.port) | quote }}
+            {{- range $ek, $ev := $v.extraEnv }}
+            - name: {{ $ek }}
+              value: {{ $ev | quote }}
+            {{- end }}
+            {{- include "platform-mcp.tokenEnv" (dict "root" $root "env" $v.tokenEnv) | trim | nindent 12 }}
+          ports:
+            - name: mcp
+              containerPort: {{ $v.port }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket: {port: mcp}
+            periodSeconds: 10
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $root.Values.containerSecurityContext | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $v.name }}
+  labels:
+    {{- include "platform-mcp.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "platform-mcp.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: mcp
+      port: {{ $v.port }}
+      targetPort: mcp
+      protocol: TCP
+{{- end }}
+{{- end }}

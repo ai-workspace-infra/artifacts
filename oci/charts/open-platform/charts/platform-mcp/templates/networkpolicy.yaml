@@ -1,0 +1,42 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- if .Values.gateway.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.gateway.name }}-ingress
+  labels:
+    {{- include "platform-mcp.labels" (dict "root" . "component" .Values.gateway.name) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      platform.svc.plus/mcp-role: gateway
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  {{- toYaml (uniq (append .Values.networkPolicy.allowedNamespaces .Release.Namespace)) | nindent 18 }}
+---
+{{- end }}
+# Backend MCP servers accept traffic from the gateway only. Egress stays open: ssh-mcp-server
+# dials SSH to CMDB hosts and npx fetches its pinned package at start.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-mcp-backends-ingress
+  labels:
+    {{- include "platform-mcp.labels" (dict "root" . "component" "platform-mcp-backends") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      platform.svc.plus/mcp-role: backend
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              platform.svc.plus/mcp-role: gateway
+{{- end }}

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: platform-mcp
+description: Platform MCP stack - the infrastructure-mcp-server gateway plus ssh-mcp-server and the VictoriaMetrics/Logs/Traces MCP servers, each an independent Deployment and Service with its own enabled toggle, behind one shared bearer token
+type: application
+version: 1.0.0
+appVersion: "0.4.0"
+keywords: [mcp, gateway, ssh, victoriametrics, victorialogs, victoriatraces, open-platform]
+home: https://github.com/ai-workspace-infra
+maintainers:
+  - name: Platform Engineering Team
+    email: platform@svc.plus

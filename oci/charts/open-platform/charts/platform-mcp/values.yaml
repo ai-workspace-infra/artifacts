@@ -1,0 +1,170 @@
+# Platform MCP stack. Every MCP server is its own Deployment + Service with its own `enabled`
+# toggle; the gateway's backend list is generated from those toggles (plus gateway.extraBackends
+# for MCP servers released by other charts, e.g. grafana-mcp-server from the grafana chart).
+
+global:
+  mcp:
+    # One bearer token shared by every MCP server and the gateway. On by default so no MCP
+    # endpoint is served without auth: rendering fails when it is on and no Secret is named.
+    # Turn off only for a throwaway local cluster (global.mcp.bearerToken.enabled=false).
+    bearerToken:
+      enabled: true
+      existingSecret: platform-mcp
+      key: mcp-service-token
+
+replicaCount: 1
+nameOverride: ""
+
+# Pod Security "restricted" baseline, defined once for every workload in this chart.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# Ingress NetworkPolicies. Gateway: from allowedNamespaces (plus its own namespace). Backend MCP
+# servers: from gateway pods only. VictoriaLogs/Traces MCP have no inbound token support, so
+# this policy is what keeps them private; keep it on.
+networkPolicy:
+  enabled: true
+  allowedNamespaces: []
+
+gateway:
+  enabled: true
+  name: infrastructure-mcp-server
+  image:
+    repository: ghcr.io/ai-workspace-infra/infrastructure-mcp-server
+    tag: v0.4.0-sit
+    pullPolicy: IfNotPresent
+  port: 8080
+  serverVersion: "0.3.0"
+  # Extra env for the gateway container (name: value), e.g. VICTORIAMETRICS_URL.
+  env: {}
+  # Backends served by other releases, appended verbatim to the generated list.
+  extraBackends: []
+  ingress:
+    enabled: false
+    className: caddy
+    hosts: []
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}
+
+sshMcpServer:
+  enabled: true
+  name: ssh-mcp-server
+  image:
+    repository: node
+    tag: "22.23.4-alpine3.24@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202"
+    pullPolicy: IfNotPresent
+  package: "@fangjunjie/ssh-mcp-server@1.11.0"
+  port: 3000
+  # Env the server reads its inbound bearer token from (value: global.mcp.bearerToken).
+  tokenEnv: SSH_MCP_HTTP_TOKEN
+  # SSH private key: Secret (empty -> the global bearer token Secret) and key.
+  privateKey:
+    existingSecret: ""
+    key: ssh-private-key
+  # Init container rendering the ssh config from CMDB host resources (hostnames + auditor,
+  # no addresses). Empty image -> the gateway image.
+  renderConfig:
+    image: ""
+    sshEnv: "sit,prod"
+    cmdbBaseDir: /etc/infrastructure-mcp-server/cmdb
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {cpu: 100m, memory: 128Mi}
+  backend:
+    name: ssh
+    capability: runtime
+    timeoutSeconds: 30
+    allowedTools: ["list-servers", "execute-command"]
+    disabledTools: ["write-file", "upload", "download", "read-file", "job-*"]
+  resources:
+    requests: {cpu: 20m, memory: 96Mi}
+    limits: {cpu: 300m, memory: 384Mi}
+
+victoriametrics:
+  enabled: true
+  name: victoriametrics-mcp-server
+  image:
+    repository: ghcr.io/victoriametrics/mcp-victoriametrics
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8088
+  entrypointEnv: VM_INSTANCE_ENTRYPOINT
+  entrypoint: ""          # required when enabled, e.g. http://<vm-service>.<ns>.svc:8428
+  extraEnv:
+    VM_INSTANCE_TYPE: single
+  tokenEnv: MCP_AUTH_TOKEN
+  backend:
+    name: observability-metrics
+    capability: observability
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+victorialogs:
+  enabled: true
+  name: victorialogs-mcp-server
+  image:
+    repository: ghcr.io/victoriametrics/mcp-victorialogs
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8083
+  entrypointEnv: VL_INSTANCE_ENTRYPOINT
+  entrypoint: ""
+  extraEnv: {}
+  # mcp-victorialogs has no inbound token setting; the NetworkPolicy keeps it gateway-only.
+  tokenEnv: ""
+  backend:
+    name: observability-logs
+    capability: observability
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}
+
+victoriatraces:
+  enabled: true
+  name: victoriatraces-mcp-server
+  image:
+    repository: ghcr.io/victoriametrics-community/mcp-victoriatraces
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8082
+  entrypointEnv: VT_INSTANCE_ENTRYPOINT
+  entrypoint: ""
+  extraEnv: {}
+  # mcp-victoriatraces has no inbound token setting; the NetworkPolicy keeps it gateway-only.
+  tokenEnv: ""
+  backend:
+    name: observability-traces
+    capability: observability
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}
+
+# Workload autoscaling (helpers: templates/_autoscaling.tpl). One policy for every workload in
+# this chart; per-server starting points are the resources above. VPA renders only where the
+# VPA API exists.
+vpa:
+  enabled: true
+  updateMode: InPlaceOrRecreate
+  minReplicas: 1
+  controlledValues: RequestsAndLimits
+  minAllowed: {cpu: 10m, memory: 32Mi}
+  maxAllowed: {cpu: "1", memory: 1Gi}
+# HPA template, disabled by default.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
