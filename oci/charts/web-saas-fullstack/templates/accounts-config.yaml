@@ -1,0 +1,60 @@
+{{- if .Values.accountsConfig.enabled }}
+{{- $cfg := .Values.accountsConfig }}
+{{- if not .Values.accounts.enabled }}
+{{- fail "accountsConfig.enabled requires accounts.enabled" }}
+{{- end }}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ required "accountsConfig.secretName is required" $cfg.secretName | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    kind: SecretStore
+    name: {{ required "accountsConfig.templateStore is required" $cfg.templateStore | quote }}
+  target:
+    name: {{ required "accountsConfig.secretName is required" $cfg.secretName | quote }}
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      mergePolicy: Replace
+      data:
+        account.yaml: |
+          {{ `{{- $config := fromYaml .accountConfig -}}` }}
+          {{ `{{- $smtp := get $config "smtp" | default (dict) -}}` }}
+          {{ `{{- $tls := get $smtp "tls" | default (dict) -}}` }}
+          {{ `{{- $_ := unset $smtp "p" -}}` }}
+          {{ `{{- $_ := set $smtp "host" ` }}{{ required "accountsConfig.smtp.host is required" $cfg.smtp.host | quote }} {{ `-}}` }}
+          {{ `{{- $_ := set $smtp "port" ` }}{{ $cfg.smtp.port | int }} {{ `-}}` }}
+          {{ `{{- $_ := set $smtp "username" .smtpUsername -}}` }}
+          {{ `{{- $_ := set $smtp "password" .smtpPassword -}}` }}
+          {{ `{{- $_ := set $smtp "from" ` }}(printf "%s <%s>" {{ required "accountsConfig.smtp.senderName is required" $cfg.smtp.senderName | quote }} .smtpUsername) {{ `-}}` }}
+          {{ `{{- $_ := set $tls "mode" "starttls" -}}` }}
+          {{ `{{- $_ := set $tls "insecureSkipVerify" false -}}` }}
+          {{ `{{- $_ := set $smtp "tls" $tls -}}` }}
+          {{ `{{- $_ := set $config "smtp" $smtp -}}` }}
+          {{ `{{ toYaml $config }}` }}
+  data:
+  - secretKey: accountConfig
+    remoteRef:
+      key: {{ required "accountsConfig.templateKey is required" $cfg.templateKey | quote }}
+      property: {{ required "accountsConfig.templateProperty is required" $cfg.templateProperty | quote }}
+  - secretKey: smtpUsername
+    sourceRef:
+      storeRef:
+        kind: SecretStore
+        name: {{ required "accountsConfig.smtp.store is required" $cfg.smtp.store | quote }}
+    remoteRef:
+      key: {{ required "accountsConfig.smtp.key is required" $cfg.smtp.key | quote }}
+      property: username
+  - secretKey: smtpPassword
+    sourceRef:
+      storeRef:
+        kind: SecretStore
+        name: {{ required "accountsConfig.smtp.store is required" $cfg.smtp.store | quote }}
+    remoteRef:
+      key: {{ required "accountsConfig.smtp.key is required" $cfg.smtp.key | quote }}
+      property: password
+{{- end }}

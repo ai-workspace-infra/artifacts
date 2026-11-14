@@ -39,3 +39,17 @@ flagger:
     install: false
   crd:
     create: false
+
+# Optional ESO-backed Accounts configuration. Environment references come from GitOps.
+accountsConfig:
+  enabled: false
+  secretName: ""
+  templateStore: ""
+  templateKey: ""
+  templateProperty: ""
+  smtp:
+    store: ""
+    key: ""
+    host: ""
+    port: 587
+    senderName: ""

@@ -29,6 +29,9 @@
     "console": {
       "type": "object"
     },
+    "accountsConfig": {
+      "type": "object"
+    },
     "accounts": {
       "type": "object"
     },
