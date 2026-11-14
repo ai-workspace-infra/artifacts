@@ -3,7 +3,7 @@ name: web-saas-fullstack
 description: Composable Web SaaS services with a Caddy HTTPS ingress
 type: application
 kubeVersion: '>=1.32.0-0'
-version: 0.2.18
+version: 0.2.19
 appVersion: 0.2.12
 dependencies:
 - name: web-saas-console

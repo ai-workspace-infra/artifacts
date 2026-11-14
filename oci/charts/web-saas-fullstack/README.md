@@ -1,4 +1,4 @@
-# Distributed Web SaaS Fullstack — 0.2.10
+# Distributed Web SaaS Fullstack — 0.2.19
 
 The same chart package can be installed as three independent Helm releases: enable
 only PostgreSQL for a database release; only Caddy for an ingress release; and only
@@ -12,6 +12,51 @@ disabled. The default `false` retains the existing combined-release validation a
 local upstream names. This is a Caddy reverse proxy, not an Ingress API controller.
 Cross-namespace network access, TLS Secret delivery and resource budgets are deployment
 contracts owned by the consumer. No production topology or secret values are defaults.
+
+## Accounts controller configuration from External Secrets
+
+`accountsConfig.enabled` optionally renders an `ExternalSecret` that builds
+`account.yaml` from a separately stored Accounts configuration template and SMTP
+credentials. The SMTP block is parsed as YAML and set field-by-field so the host,
+port, username, password, sender and STARTTLS settings cannot drift through broad
+text replacements. Secret store names, Vault keys/properties, host and sender name
+are consumer values; the chart ships no environment-specific references or secrets.
+
+The consumer must also mount the generated Secret into the Accounts workload using
+the existing `accounts.volumes` and `accounts.workload.volumeMounts` values, and set
+`CONFIG_TEMPLATE` and `CONFIG_PATH` to the mounted file and writable output path.
+Keep the Secret name identical in `accountsConfig.secretName` and the volume's
+`secretName`. An example shape is:
+
+```yaml
+accountsConfig:
+  enabled: true
+  secretName: accounts-controller-config
+  templateStore: application-config-reader
+  templateKey: accounts/runtime
+  templateProperty: CONFIG_TEMPLATE
+  smtp:
+    store: platform-secrets-reader
+    key: platform/smtp/google
+    host: smtp.gmail.com
+    port: 587
+    senderName: XWorkmate
+
+accounts:
+  volumes:
+    - name: accounts-controller-config
+      secret:
+        secretName: accounts-controller-config
+        defaultMode: 0400
+  workload:
+    env:
+      CONFIG_TEMPLATE: /var/run/accounts-controller-config/account.yaml
+      CONFIG_PATH: /tmp/accounts-controller-config.yaml
+    volumeMounts:
+      - name: accounts-controller-config
+        mountPath: /var/run/accounts-controller-config
+        readOnly: true
+```
 
 Composable Helm charts for Kubernetes 1.32+ with Caddy as the public HTTPS
 ingress entry point. The implemented ingress mode uses a Caddy Deployment and
