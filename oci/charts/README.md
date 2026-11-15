@@ -24,7 +24,7 @@ deployed by playbooks `roles/vhosts/Doco-CD`, not by a Helm chart.
 
 ## Published OCI names
 
-- `observability-stack`, `observability-agent`, `open-platform`, `app-service`
+- `observability-stack`, `observability-agent`, `open-platform`, `app-service`, `xconnect-gateway`
 - `web-saas-fullstack` plus compatibility names with identical contents:
   `distributed-web-saas-fullstack` (pre-rename name, still pinned by GitOps until it
   migrates) and `web-saas-platform`.
