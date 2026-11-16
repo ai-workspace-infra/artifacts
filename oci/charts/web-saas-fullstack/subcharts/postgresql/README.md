@@ -50,3 +50,14 @@ When metrics are enabled, configure `metrics.username`, `metrics.existingSecret`
 ## Mapping contract with host and cluster identities
 
 The stable mapping keys `root`, `operator`, and `auditor` match the OS and K3s identity names so operations can trace a request across layers. Credentials, owners, and authorization remain separate: Linux SSH keys do not authenticate to PostgreSQL; K3s kubeconfigs/RBAC do not grant DB access; PostgreSQL roles do not grant host or Kubernetes privileges. The Vault record alias `admin` maps to the chart's `root` role explicitly; it is not renamed or treated as the Linux/Kubernetes root credential.
+
+## Server Parameters & Session Timeout Governance
+
+`serverParameters` configures PostgreSQL server flags rendered directly into container startup `args` via `-c key=value`. By default, session timeout governance is enabled to prevent idle backends and uncommitted transactions from holding connection pools and memory indefinitely:
+- `idle_session_timeout: 10min`: Terminates connections that remain idle outside of a transaction for longer than 10 minutes.
+- `idle_in_transaction_session_timeout: 30s`: Aborts transactions left open and idle for longer than 30 seconds.
+
+## Workload Autoscaling (VPA)
+
+For lightweight single-node / 2C4G environments (such as edge and k3s nodes), `vpa.enabled` is defaulted to `false` to guarantee 100% static resource control and eliminate VPA admission/recommender overhead.
+

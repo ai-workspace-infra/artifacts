@@ -49,7 +49,7 @@ workload:
 # oci/charts/library/workload-autoscaling). VPA renders only where the VPA API exists.
 # HPA: per-workload `workload.autoscaling` (disabled by default); the VPA yields to it.
 vpa:
-  enabled: true
+  enabled: false
   updateMode: InPlaceOrRecreate
   minReplicas: 1
   controlledValues: RequestsAndLimits
