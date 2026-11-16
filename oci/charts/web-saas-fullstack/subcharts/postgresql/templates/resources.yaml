@@ -80,6 +80,16 @@ spec:
       containers:
         - name: postgresql
           image: {{ include "websaas.image" .Values.image | quote }}
+          {{- if or .Values.args .Values.serverParameters }}
+          args:
+            {{- range $arg := .Values.args }}
+            - {{ $arg | quote }}
+            {{- end }}
+            {{- range $key := keys (.Values.serverParameters | default dict) | sortAlpha }}
+            - -c
+            - {{ printf "%s=%s" $key (index $.Values.serverParameters $key | toString) | quote }}
+            {{- end }}
+          {{- end }}
           ports:
             - name: postgresql
               containerPort: 5432

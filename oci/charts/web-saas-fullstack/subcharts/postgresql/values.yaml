@@ -77,11 +77,18 @@ metrics:
       prometheus.io/path: '/metrics'
   env: []
 
+# PostgreSQL server parameters (rendered into container args as -c key=val)
+# Governs idle sessions and uncommitted transaction timeout to prevent backend memory leaks.
+serverParameters:
+  idle_session_timeout: '10min'
+  idle_in_transaction_session_timeout: '30s'
+args: []
+
 # Workload autoscaling (helpers: templates/_autoscaling.tpl, canonical in
-# oci/charts/library/workload-autoscaling). VPA renders only where the VPA API exists.
-# HPA: per-workload `workload.autoscaling` (disabled by default); the VPA yields to it.
+# oci/charts/library/workload-autoscaling).
+# Default to false for lightweight/single-node clusters (2C4G) to ensure 100% static control.
 vpa:
-  enabled: true
+  enabled: false
   updateMode: InPlaceOrRecreate
   minReplicas: 1
   controlledValues: RequestsAndLimits

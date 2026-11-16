@@ -228,6 +228,18 @@
     "web-saas-common": {
       "type": "object"
     },
+    "serverParameters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "vpa": {
       "type": "object",
       "additionalProperties": false,

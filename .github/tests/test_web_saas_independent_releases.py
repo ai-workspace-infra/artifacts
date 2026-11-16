@@ -44,6 +44,10 @@ class Releases(unittest.TestCase):
         docs = self.render({'postgresql': {'enabled': True, 'image': IMAGE, 'existingSecret': 'db-admin', 'storage': {'className': 'data'}}})
         workloads = [doc for doc in docs if doc and doc['kind'] in ('StatefulSet', 'Deployment')]
         self.assertEqual([(doc['kind'], doc['metadata']['name']) for doc in workloads], [('StatefulSet', 'release-postgresql')])
+        pg_container = next(c for c in workloads[0]['spec']['template']['spec']['containers'] if c['name'] == 'postgresql')
+        self.assertIn('-c', pg_container['args'])
+        self.assertIn('idle_session_timeout=10min', pg_container['args'])
+        self.assertIn('idle_in_transaction_session_timeout=30s', pg_container['args'])
 
     def test_postgresql_metrics_requires_and_uses_a_distinct_secret(self):
         values = {
