@@ -1,0 +1,19 @@
+apiVersion: v2
+name: xconnect-edge-proxy
+description: Production-grade Helm chart for XConnect Edge Proxy node with 4 selectable global ingress engines (Fluxgate, HAProxy, Caddy, K3s Traefik), containerized edge agent, UDS IPC, and zero-leak credential management.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: AI Workspace XStream Team
+    email: infra@svc.plus
+keywords:
+  - xconnect
+  - edge
+  - proxy
+  - fluxgate
+  - haproxy
+  - caddy
+  - traefik
+  - pingora
+  - k3s

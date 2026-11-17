@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "xconnect-edge-proxy.fullname" . }}-agent-config
+  labels:
+    {{- include "xconnect-edge-proxy.labels" . | nindent 4 }}
+data:
+  account-agent.yaml: |
+    controller:
+      auth_url: {{ .Values.security.authUrl | quote }}
+      billing_url: {{ .Values.security.billingServiceUrl | quote }}
+      sync_interval: {{ .Values.agent.syncInterval | quote }}
+    node:
+      domain: {{ .Values.global.nodeDomain | quote }}
+      entry_point: {{ .Values.global.entryPoint | quote }}
+      region: {{ .Values.global.region | quote }}
+      pool: {{ .Values.global.pool | quote }}
+      resource_class: {{ .Values.global.resourceClass | quote }}
+      team_id: {{ .Values.global.teamId | quote }}
+    ipc:
+      uds_socket: {{ .Values.core.udsSocketPath | quote }}
+      uds_tcp_socket: {{ .Values.core.tcpSocketPath | quote }}
+    state:
+      data_dir: {{ .Values.agent.stateDir | quote }}
+
+  xray.xhttp.template.json: |
+    {
+      "log": {
+        "loglevel": "warning"
+      },
+      "inbounds": [
+        {
+          "listen": "{{ .Values.core.udsSocketPath }}",
+          "protocol": "vless",
+          "settings": {
+            "clients": [],
+            "decryption": "none"
+          },
+          "streamSettings": {
+            "network": "xhttp",
+            "xhttpSettings": {
+              "path": "/xhttp"
+            }
+          }
+        }
+      ],
+      "outbounds": [
+        {
+          "protocol": "freedom"
+        }
+      ]
+    }

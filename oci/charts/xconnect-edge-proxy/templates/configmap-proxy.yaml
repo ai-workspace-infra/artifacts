@@ -1,0 +1,85 @@
+{{- if ne .Values.ingress.provider "traefik" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "xconnect-edge-proxy.fullname" . }}-proxy-config
+  labels:
+    {{- include "xconnect-edge-proxy.labels" . | nindent 4 }}
+data:
+  {{- if eq .Values.ingress.provider "fluxgate" }}
+  Fluxgatefile: |
+    {
+      admin 0.0.0.0:{{ .Values.engines.fluxgate.metricsPort }}
+      log {
+        level info
+        format json
+      }
+      http2 {
+        suppress_client_cancel {{ .Values.engines.fluxgate.suppressH2Cancel499 | default true }}
+      }
+    }
+
+    https://{{ .Values.global.nodeDomain }}:{{ .Values.ingress.httpsPort }} {
+      tls {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.certFileName }} {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.keyFileName }}
+      reverse_proxy unix/{{ .Values.core.udsSocketPath }} {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto https
+      }
+    }
+  {{- else if eq .Values.ingress.provider "haproxy" }}
+  haproxy.cfg: |
+    global
+      maxconn {{ .Values.engines.haproxy.maxconn | default 10000 }}
+      log stdout format raw local0 info
+      stats socket /dev/shm/haproxy.sock mode 660 level admin
+      stats timeout 30s
+
+    defaults
+      mode http
+      log global
+      option httplog
+      option dontlognull
+      timeout connect 5000ms
+      timeout client 50000ms
+      timeout server 50000ms
+
+    frontend https_in
+      bind :{{ .Values.ingress.httpsPort }} ssl crt {{ .Values.ingress.tls.mountPath }}/combined.pem alpn h2,http/1.1
+      http-request set-header X-Forwarded-Proto https
+      http-request set-header X-Real-IP %[src]
+      default_backend xray_backend
+
+    frontend stats_in
+      bind :{{ .Values.engines.haproxy.metricsPort }}
+      mode http
+      stats enable
+      stats uri /stats
+      stats refresh 10s
+      http-request use-service prometheus-exporter if { path /metrics }
+
+    backend xray_backend
+      mode http
+      server xray unix@{{ .Values.core.udsSocketPath }} send-proxy-v2
+  {{- else if eq .Values.ingress.provider "caddy" }}
+  Caddyfile: |
+    {
+      admin 0.0.0.0:{{ .Values.engines.caddy.metricsPort }}
+      auto_https off
+      servers {
+        trusted_proxies static private_ranges
+      }
+    }
+
+    :{{ .Values.ingress.httpsPort }} {
+      tls {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.certFileName }} {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.keyFileName }}
+      reverse_proxy unix/{{ .Values.core.udsSocketPath }} {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto https
+      }
+    }
+  {{- end }}
+{{- end }}

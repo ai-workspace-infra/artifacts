@@ -1,0 +1,205 @@
+# Default values for xconnect-edge-proxy.
+# Production-ready Helm chart supporting 4 selectable ingress engines:
+# fluxgate (default) | haproxy | caddy | traefik (K3s native IngressRoute)
+
+replicaCount: 1
+
+# Node & Topology Configuration
+global:
+  nodeDomain: "jp-xconnect-01.svc.plus"
+  entryPoint: "jp-xconnect-01.svc.plus"
+  region: "JP"
+  pool: "jp-main"
+  teamId: ""
+  resourceClass: "plus"
+  customEmails: []
+
+# Ingress Engine Selection
+# Options: fluxgate | haproxy | caddy | traefik
+# - fluxgate: Rust + Pingora engine (~25MB RSS, zero-GC, ultra low latency, native 499 suppression) [DEFAULT]
+# - haproxy: HAProxy 3.0-alpine (C epoll, single-process battle-tested)
+# - caddy: Caddy 2.8-alpine (Go runtime, extensible)
+# - traefik: K3s native Traefik IngressRoute (integrated edge cluster ingress)
+ingress:
+  provider: "fluxgate" # fluxgate | haproxy | caddy | traefik
+  hostNetwork: true # Recommended true for standalone edge nodes to preserve client source IPs
+  httpPort: 80
+  httpsPort: 443
+  tls:
+    secretName: "xconnect-tls-secret"
+    mountPath: "/etc/ssl/certs/xconnect"
+    # When using self-managed certs in Secret:
+    certFileName: "tls.crt"
+    keyFileName: "tls.key"
+
+# Engines Specific Configurations
+engines:
+  fluxgate:
+    image:
+      repository: ghcr.io/ai-workspace-xstream/fluxgate
+      tag: "0.1.0"
+      pullPolicy: IfNotPresent
+    metricsPort: 9102
+    suppressH2Cancel499: true
+    workerThreads: 2
+    resources:
+      limits:
+        cpu: "1000m"
+        memory: "128Mi"
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+
+  haproxy:
+    image:
+      repository: haproxy
+      tag: "3.0-alpine"
+      pullPolicy: IfNotPresent
+    metricsPort: 8404
+    maxconn: 10000
+    resources:
+      limits:
+        cpu: "1000m"
+        memory: "256Mi"
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+
+  caddy:
+    image:
+      repository: caddy
+      tag: "2.8-alpine"
+      pullPolicy: IfNotPresent
+    metricsPort: 2019
+    resources:
+      limits:
+        cpu: "1000m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+
+  traefik:
+    # Used when ingress.provider == "traefik" (K3s native)
+    entryPoints:
+      - websecure
+    scheme: "h2c"
+    flushInterval: "-1ms"
+    labels:
+      external-dns: "contabo-sit"
+    annotations:
+      external-dns.alpha.kubernetes.io/ttl: "300"
+      traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+
+# Credentials & Security Plane (Zero-leak contract)
+security:
+  # Best practice: inject tokens via pre-existing Kubernetes Secret or Vault Secret Operator
+  existingSecret: ""
+  authUrl: "https://accounts.svc.plus"
+  billingServiceUrl: "https://billing.svc.plus"
+  vaultEnvPath: "prod"
+  vaultAddr: "https://vault.svc.plus"
+  vaultTlsSecretPath: "kv/data/CICD/domains/svc.plus"
+  observabilityVaultPath: "kv/data/CICD/observability"
+  # Sensitive tokens: only populate if not using existingSecret (will be rendered into a Secret)
+  vaultToken: ""
+  internalServiceToken: ""
+
+# Edge Controller Agent (xconnect-edge-agent)
+agent:
+  enabled: true
+  image:
+    repository: ghcr.io/ai-workspace-xstream/xconnect-edge-agent
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  syncInterval: "60s"
+  stateDir: "/var/lib/xconnect-edge-agent"
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "128Mi"
+    requests:
+      cpu: "20m"
+      memory: "32Mi"
+
+# Core Network Service (Xray Backend over UDS)
+core:
+  enabled: true
+  image:
+    repository: ghcr.io/xtls/xray-core
+    tag: "26.2.6"
+    pullPolicy: IfNotPresent
+  udsSocketPath: "/dev/shm/xray.sock"
+  tcpSocketPath: "/dev/shm/xray-tcp.sock"
+  resources:
+    limits:
+      cpu: "1000m"
+      memory: "256Mi"
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+
+# Observability Plane (Vector & Exporters)
+observability:
+  enabled: true
+  vector:
+    enabled: true
+    image:
+      repository: timberio/vector
+      tag: "0.41.0-alpine"
+      pullPolicy: IfNotPresent
+    sinkUrl: "http://observability-server.svc.plus:8428"
+    metricsPort: 8686
+    resources:
+      limits:
+        cpu: "300m"
+        memory: "128Mi"
+      requests:
+        cpu: "20m"
+        memory: "32Mi"
+  exporters:
+    enabled: true
+    xhttpPort: 9100
+    tcpPort: 9101
+
+# Periodic Drift Convergence & Sync (Ansible Pull / Sync CronJob)
+syncTimer:
+  enabled: true
+  # Runs every 15 minutes to reconcile configuration drift from Playbooks / GitOps
+  schedule: "*/15 * * * *"
+  image:
+    repository: alpine/git
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  playbooksRepo: "https://github.com/ai-workspace-infra/playbooks.git"
+  gitopsRepo: "https://github.com/ai-workspace-infra/gitops.git"
+  branch: "main"
+
+# Standard Kubernetes Metadata
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext:
+  fsGroup: 0
+
+securityContext:
+  privileged: false
+  capabilities:
+    add:
+      - NET_ADMIN
+      - NET_BIND_SERVICE
+  runAsUser: 0
+  runAsGroup: 0
+
+service:
+  type: ClusterIP
+  httpPort: 80
+  httpsPort: 443
+  annotations: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

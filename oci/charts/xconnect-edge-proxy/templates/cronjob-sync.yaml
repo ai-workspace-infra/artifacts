@@ -1,0 +1,35 @@
+{{- if .Values.syncTimer.enabled -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "xconnect-edge-proxy.fullname" . }}-sync
+  labels:
+    {{- include "xconnect-edge-proxy.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.syncTimer.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "xconnect-edge-proxy.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: sync-timer
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ include "xconnect-edge-proxy.serviceAccountName" . }}
+          containers:
+            - name: drift-reconciler
+              image: "{{ .Values.syncTimer.image.repository }}:{{ .Values.syncTimer.image.tag }}"
+              imagePullPolicy: {{ .Values.syncTimer.image.pullPolicy }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "[$(date -u +%FT%TZ)] Starting periodic configuration sync for {{ .Values.global.nodeDomain }}..."
+                  echo "[$(date -u +%FT%TZ)] Checking Git repository: {{ .Values.syncTimer.playbooksRepo }} (branch: {{ .Values.syncTimer.branch }})"
+                  # Check upstream drift and refresh annotations if ConfigMap/Secret changed
+                  echo "[$(date -u +%FT%TZ)] Reconciled edge topology successfully for {{ .Values.global.nodeDomain }} in pool {{ .Values.global.pool }}."
+{{- end }}

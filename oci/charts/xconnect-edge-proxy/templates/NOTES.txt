@@ -1,0 +1,39 @@
+========================================================================
+  XConnect Edge Proxy (Containerized Multi-Engine Ingress) Deployed!
+========================================================================
+
+1. Ingress Engine Details:
+   - Provider:       {{ .Values.ingress.provider | upper }}
+   {{- if eq .Values.ingress.provider "fluxgate" }}
+   - Engine Details: Fluxgate 0.1.0 (Rust + Cloudflare Pingora, ~25MB RSS, zero-GC, native 499 cancel suppression)
+   - Metrics Port:   {{ .Values.engines.fluxgate.metricsPort }} (/metrics)
+   {{- else if eq .Values.ingress.provider "haproxy" }}
+   - Engine Details: HAProxy 3.0-alpine (C epoll, multi-threaded proxy)
+   - Metrics Port:   {{ .Values.engines.haproxy.metricsPort }} (/metrics)
+   {{- else if eq .Values.ingress.provider "caddy" }}
+   - Engine Details: Caddy 2.8-alpine (Go runtime, automatic certificate fallbacks)
+   - Metrics Port:   {{ .Values.engines.caddy.metricsPort }} (/metrics)
+   {{- else if eq .Values.ingress.provider "traefik" }}
+   - Engine Details: K3s Native Traefik IngressRoute (Traefik CRD integrated)
+   {{- end }}
+
+2. Node Topology & Routing:
+   - Node Domain:    {{ .Values.global.nodeDomain }}
+   - Entry Point:    {{ .Values.global.entryPoint }}
+   - Region / Pool:  {{ .Values.global.region }} / {{ .Values.global.pool }}
+   - Resource Class: {{ .Values.global.resourceClass }}
+
+3. Containerized IPC Architecture:
+   - Core Socket:    {{ .Values.core.udsSocketPath }} (Shared /dev/shm memory emptyDir)
+   - TCP Socket:     {{ .Values.core.tcpSocketPath }}
+
+4. Security & Zero-leak Compliance:
+   - Secrets Source: {{ include "xconnect-edge-proxy.secretName" . }}
+   - Vault/Token:    Injected safely via secretKeyRef; NO plaintext tokens in values or history.
+
+5. Periodic Synchronization & Drift Convergence:
+   - CronJob Sync:   {{ if .Values.syncTimer.enabled }}Enabled ({{ .Values.syncTimer.schedule }}){{ else }}Disabled{{ end }}
+   - Systemd Timer:  Can be paired with ansible-pull.timer on edge hosts:
+     curl -fsSL https://raw.githubusercontent.com/ai-workspace-xstream/xconnect-edge-agent/main/scripts/setup-proxy.sh | \
+       AGENT_PROXY_ENGINE={{ .Values.ingress.provider }} bash -s -- --node {{ .Values.global.nodeDomain }}
+========================================================================

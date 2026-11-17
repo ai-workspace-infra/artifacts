@@ -1,0 +1,220 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "xconnect-edge-proxy.fullname" . }}
+  labels:
+    {{- include "xconnect-edge-proxy.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "xconnect-edge-proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "xconnect-edge-proxy.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      hostNetwork: {{ .Values.ingress.hostNetwork }}
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: {{ include "xconnect-edge-proxy.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        {{- if ne .Values.ingress.provider "traefik" }}
+        # Reverse Proxy Engine Container (Fluxgate | HAProxy | Caddy)
+        - name: reverse-proxy
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if eq .Values.ingress.provider "fluxgate" }}
+          image: "{{ .Values.engines.fluxgate.image.repository }}:{{ .Values.engines.fluxgate.image.tag }}"
+          imagePullPolicy: {{ .Values.engines.fluxgate.image.pullPolicy }}
+          command: ["/usr/local/bin/fluxgate", "run", "--config", "/etc/fluxgate/Fluxgatefile"]
+          resources:
+            {{- toYaml .Values.engines.fluxgate.resources | nindent 12 }}
+          volumeMounts:
+            - name: shm-uds
+              mountPath: /dev/shm
+            - name: tls-certs
+              mountPath: {{ .Values.ingress.tls.mountPath }}
+              readOnly: true
+            - name: proxy-config
+              mountPath: /etc/fluxgate/Fluxgatefile
+              subPath: Fluxgatefile
+              readOnly: true
+          {{- else if eq .Values.ingress.provider "haproxy" }}
+          image: "{{ .Values.engines.haproxy.image.repository }}:{{ .Values.engines.haproxy.image.tag }}"
+          imagePullPolicy: {{ .Values.engines.haproxy.image.pullPolicy }}
+          command: ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+          resources:
+            {{- toYaml .Values.engines.haproxy.resources | nindent 12 }}
+          volumeMounts:
+            - name: shm-uds
+              mountPath: /dev/shm
+            - name: tls-certs
+              mountPath: {{ .Values.ingress.tls.mountPath }}
+              readOnly: true
+            - name: proxy-config
+              mountPath: /usr/local/etc/haproxy/haproxy.cfg
+              subPath: haproxy.cfg
+              readOnly: true
+          {{- else if eq .Values.ingress.provider "caddy" }}
+          image: "{{ .Values.engines.caddy.image.repository }}:{{ .Values.engines.caddy.image.tag }}"
+          imagePullPolicy: {{ .Values.engines.caddy.image.pullPolicy }}
+          command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile"]
+          resources:
+            {{- toYaml .Values.engines.caddy.resources | nindent 12 }}
+          volumeMounts:
+            - name: shm-uds
+              mountPath: /dev/shm
+            - name: tls-certs
+              mountPath: {{ .Values.ingress.tls.mountPath }}
+              readOnly: true
+            - name: proxy-config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ingress.httpPort }}
+              protocol: TCP
+            - name: https
+              containerPort: {{ .Values.ingress.httpsPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ include "xconnect-edge-proxy.metricsPort" . }}
+              protocol: TCP
+        {{- end }}
+
+        {{- if .Values.agent.enabled }}
+        # XConnect Edge Agent Container
+        - name: edge-agent
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          command: ["/app/xconnect-edge-agent", "-config", "/etc/agent/account-agent.yaml"]
+          env:
+            - name: AUTH_URL
+              value: {{ .Values.security.authUrl | quote }}
+            - name: BILLING_SERVICE_URL
+              value: {{ .Values.security.billingServiceUrl | quote }}
+            - name: AGENT_PROXY_DOMAIN
+              value: {{ .Values.global.nodeDomain | quote }}
+            - name: AGENT_ENTRY_POINT
+              value: {{ .Values.global.entryPoint | quote }}
+            - name: AGENT_REGION
+              value: {{ .Values.global.region | quote }}
+            - name: AGENT_POOL
+              value: {{ .Values.global.pool | quote }}
+            - name: AGENT_RESOURCE_CLASS
+              value: {{ .Values.global.resourceClass | quote }}
+            - name: VAULT_ADDR
+              value: {{ .Values.security.vaultAddr | quote }}
+            - name: VAULT_ENV_PATH
+              value: {{ .Values.security.vaultEnvPath | quote }}
+            - name: VAULT_TLS_SECRET_PATH
+              value: {{ .Values.security.vaultTlsSecretPath | quote }}
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "xconnect-edge-proxy.secretName" . }}
+                  key: INTERNAL_SERVICE_TOKEN
+                  optional: true
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "xconnect-edge-proxy.secretName" . }}
+                  key: VAULT_TOKEN
+                  optional: true
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+          volumeMounts:
+            - name: shm-uds
+              mountPath: /dev/shm
+            - name: agent-config
+              mountPath: /etc/agent/account-agent.yaml
+              subPath: account-agent.yaml
+              readOnly: true
+            - name: agent-data
+              mountPath: {{ .Values.agent.stateDir }}
+        {{- end }}
+
+        {{- if .Values.core.enabled }}
+        # Core Network Protocol Server Container
+        - name: core-server
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.core.image.repository }}:{{ .Values.core.image.tag }}"
+          imagePullPolicy: {{ .Values.core.image.pullPolicy }}
+          command: ["xray", "run", "-config", "/etc/agent/xray.xhttp.template.json"]
+          resources:
+            {{- toYaml .Values.core.resources | nindent 12 }}
+          volumeMounts:
+            - name: shm-uds
+              mountPath: /dev/shm
+            - name: agent-config
+              mountPath: /etc/agent/xray.xhttp.template.json
+              subPath: xray.xhttp.template.json
+              readOnly: true
+        {{- end }}
+
+        {{- if and .Values.observability.enabled .Values.observability.vector.enabled }}
+        # Observability Vector Sidecar Container
+        - name: vector-agent
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.observability.vector.image.repository }}:{{ .Values.observability.vector.image.tag }}"
+          imagePullPolicy: {{ .Values.observability.vector.image.pullPolicy }}
+          args: ["--config", "/etc/vector/vector.toml"]
+          resources:
+            {{- toYaml .Values.observability.vector.resources | nindent 12 }}
+          volumeMounts:
+            - name: vector-config
+              mountPath: /etc/vector/vector.toml
+              subPath: vector.toml
+              readOnly: true
+        {{- end }}
+
+      volumes:
+        - name: shm-uds
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi
+        - name: tls-certs
+          secret:
+            secretName: {{ .Values.ingress.tls.secretName }}
+            optional: true
+        {{- if ne .Values.ingress.provider "traefik" }}
+        - name: proxy-config
+          configMap:
+            name: {{ include "xconnect-edge-proxy.fullname" . }}-proxy-config
+        {{- end }}
+        - name: agent-config
+          configMap:
+            name: {{ include "xconnect-edge-proxy.fullname" . }}-agent-config
+        - name: agent-data
+          emptyDir: {}
+        {{- if and .Values.observability.enabled .Values.observability.vector.enabled }}
+        - name: vector-config
+          configMap:
+            name: {{ include "xconnect-edge-proxy.fullname" . }}-vector-config
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

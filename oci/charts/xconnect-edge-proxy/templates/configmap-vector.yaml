@@ -1,0 +1,30 @@
+{{- if and .Values.observability.enabled .Values.observability.vector.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "xconnect-edge-proxy.fullname" . }}-vector-config
+  labels:
+    {{- include "xconnect-edge-proxy.labels" . | nindent 4 }}
+data:
+  vector.toml: |
+    [sources.proxy_metrics]
+    type = "prometheus_scrape"
+    endpoints = ["http://127.0.0.1:{{ include "xconnect-edge-proxy.metricsPort" . }}/metrics"]
+    scrape_interval_secs = 15
+
+    [transforms.enrich_tags]
+    type = "remap"
+    inputs = ["proxy_metrics"]
+    source = '''
+    .tags.instance = "{{ .Values.global.nodeDomain }}"
+    .tags.proxy_engine = "{{ .Values.ingress.provider }}"
+    .tags.region = "{{ .Values.global.region }}"
+    .tags.pool = "{{ .Values.global.pool }}"
+    '''
+
+    [sinks.victoria_metrics]
+    type = "prometheus_remote_write"
+    inputs = ["enrich_tags"]
+    endpoint = "{{ .Values.observability.vector.sinkUrl }}/api/v1/write"
+    healthcheck.enabled = false
+{{- end }}

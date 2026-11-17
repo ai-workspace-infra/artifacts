@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "xconnect-edge-proxy.fullname" . }}
+  labels:
+    {{- include "xconnect-edge-proxy.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "xconnect-edge-proxy.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort | default 80 }}
+      targetPort: http
+      protocol: TCP
+    - name: https
+      port: {{ .Values.service.httpsPort | default 443 }}
+      targetPort: https
+      protocol: TCP
+    - name: metrics
+      port: {{ include "xconnect-edge-proxy.metricsPort" . }}
+      targetPort: metrics
+      protocol: TCP
