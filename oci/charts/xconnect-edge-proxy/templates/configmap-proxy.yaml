@@ -19,7 +19,7 @@ data:
       respond "OK"
     }
 
-    https://{{ .Values.global.nodeDomain }}:{{ .Values.ingress.httpsPort }} {
+    https://{{ .Values.global.nodeDomain }}:{{ .Values.ingress.httpsPort }}{{ range .Values.ingress.aliases }} https://{{ . }}:{{ $.Values.ingress.httpsPort }}{{ end }} {
       tls {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.certFileName }} {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.keyFileName }}
 
       handle_path /xray-exporter/xhttp/* {

@@ -25,6 +25,7 @@ ingress:
   hostNetwork: false # false for K3s ServiceLB (LoadBalancer Service binds node 80/443 directly)
   httpPort: 80
   httpsPort: 443
+  aliases: [] # Alternative hostnames / CNAMEs (e.g. ["xconnect-jp-free-01.svc.plus", "jp-free-selfhost-prod-v2.svc.plus"])
   tls:
     secretName: "xconnect-tls-secret"
     mountPath: "/etc/ssl/certs/xconnect"

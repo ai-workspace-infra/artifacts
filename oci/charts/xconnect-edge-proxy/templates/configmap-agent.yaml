@@ -42,18 +42,22 @@ data:
           - name: "xhttp"
             outputPath: "/usr/local/etc/xray/config.json"
             templatePath: "/etc/agent/xray.xhttp.template.json"
-          - name: "tcp"
-            outputPath: "/usr/local/etc/xray/tcp-config.json"
-            templatePath: "/etc/agent/xray.xhttp.template.json"
+            restartCommand: ["pkill", "-f", "xray run"]
 
   xray.xhttp.template.json: |
     {
       "log": {
         "loglevel": "warning"
       },
+      "api": {
+        "tag": "api",
+        "listen": "127.0.0.1:10086",
+        "services": ["HandlerService", "StatsService"]
+      },
       "inbounds": [
         {
-          "listen": "{{ .Values.core.udsSocketPath }}",
+          "tag": "xhttp-vless",
+          "listen": "{{ .Values.core.udsSocketPath }},0666",
           "protocol": "vless",
           "settings": {
             "clients": [],
@@ -62,14 +66,44 @@ data:
           "streamSettings": {
             "network": "xhttp",
             "xhttpSettings": {
-              "path": "/xhttp"
+              "mode": "auto",
+              "path": "/split"
             }
           }
         }
       ],
       "outbounds": [
         {
-          "protocol": "freedom"
+          "tag": "direct",
+          "protocol": "freedom",
+          "settings": {}
+        },
+        {
+          "tag": "blocked",
+          "protocol": "blackhole",
+          "settings": {}
         }
-      ]
+      ],
+      "routing": {
+        "domainStrategy": "AsIs",
+        "rules": [
+          {
+            "type": "field",
+            "ip": [
+              "geoip:private"
+            ],
+            "outboundTag": "blocked"
+          }
+        ]
+      },
+      "policy": {
+        "levels": {
+          "0": {
+            "statsUserUplink": true,
+            "statsUserDownlink": true,
+            "bufferSize": 512
+          }
+        }
+      },
+      "stats": {}
     }

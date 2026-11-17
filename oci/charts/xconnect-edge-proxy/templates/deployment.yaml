@@ -22,10 +22,30 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
+      shareProcessNamespace: true
       hostNetwork: {{ .Values.ingress.hostNetwork | default false }}
       serviceAccountName: {{ include "xconnect-edge-proxy.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: init-xray-config
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              if [ ! -f /usr/local/etc/xray/config.json ]; then
+                mkdir -p /usr/local/etc/xray
+                cp /etc/agent/xray.xhttp.template.json /usr/local/etc/xray/config.json
+              fi
+          volumeMounts:
+            - name: agent-config
+              mountPath: /etc/agent/xray.xhttp.template.json
+              subPath: xray.xhttp.template.json
+              readOnly: true
+            - name: xray-config
+              mountPath: /usr/local/etc/xray
       containers:
         # 1. Reverse Proxy Engine Container (Fluxgate [Default] | HAProxy | Caddy)
         # Terminates TLS and forwards L7 traffic to core UDS socket over shared /dev/shm
@@ -143,6 +163,8 @@ spec:
           volumeMounts:
             - name: shm-uds
               mountPath: /dev/shm
+            - name: xray-config
+              mountPath: /usr/local/etc/xray
             - name: agent-config
               mountPath: /etc/agent/account-agent.yaml
               subPath: account-agent.yaml
@@ -162,7 +184,7 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.core.image.repository }}:{{ .Values.core.image.tag }}"
           imagePullPolicy: {{ .Values.core.image.pullPolicy }}
-          command: ["xray", "run", "-config", "/etc/agent/xray.xhttp.template.json"]
+          command: ["xray", "run", "-config", "/usr/local/etc/xray/config.json"]
           env:
             - name: GOMEMLIMIT
               value: {{ .Values.core.gomemlimit | default "64MiB" | quote }}
@@ -173,10 +195,8 @@ spec:
           volumeMounts:
             - name: shm-uds
               mountPath: /dev/shm
-            - name: agent-config
-              mountPath: /etc/agent/xray.xhttp.template.json
-              subPath: xray.xhttp.template.json
-              readOnly: true
+            - name: xray-config
+              mountPath: /usr/local/etc/xray
         {{- end }}
 
         {{- if and .Values.observability.enabled .Values.observability.vector.enabled }}
@@ -201,6 +221,8 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: {{ .Values.ipc.shmSizeLimit | default "32Mi" }}
+        - name: xray-config
+          emptyDir: {}
         - name: tls-certs
           secret:
             secretName: {{ .Values.ingress.tls.secretName }}
