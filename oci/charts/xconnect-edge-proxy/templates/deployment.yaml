@@ -147,6 +147,10 @@ spec:
               mountPath: /etc/agent/account-agent.yaml
               subPath: account-agent.yaml
               readOnly: true
+            - name: agent-config
+              mountPath: /etc/agent/xray.xhttp.template.json
+              subPath: xray.xhttp.template.json
+              readOnly: true
             - name: agent-data
               mountPath: {{ .Values.agent.stateDir }}
         {{- end }}

@@ -10,13 +10,16 @@ data:
   Fluxgatefile: |
     {
       grace_period 15s
-      metrics 0.0.0.0:{{ .Values.engines.fluxgate.metricsPort }}
       log {
         level INFO
       }
     }
 
-    {{ .Values.global.nodeDomain }} {
+    :{{ .Values.ingress.httpPort }} {
+      respond "OK"
+    }
+
+    https://{{ .Values.global.nodeDomain }}:{{ .Values.ingress.httpsPort }} {
       tls {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.certFileName }} {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.keyFileName }}
 
       handle_path /xray-exporter/xhttp/* {
