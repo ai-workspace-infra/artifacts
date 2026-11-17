@@ -1,6 +1,7 @@
 # Default values for xconnect-edge-proxy.
-# Production-ready Helm chart supporting 4 selectable ingress engines:
-# fluxgate (default) | haproxy | caddy | traefik (K3s native IngressRoute)
+# Ultra-lightweight Edge Ingress & Proxy Pod designed for 1C1G / 2C2G VPS nodes.
+# Architecture: K3s (SQLite) -> ServiceLB (:80/:443) -> LoadBalancer Service -> 1 Pod Deployment.
+# No Traefik, No FluxCD, No Ingress Controller required.
 
 replicaCount: 1
 
@@ -15,24 +16,34 @@ global:
   customEmails: []
 
 # Ingress Engine Selection
-# Options: fluxgate | haproxy | caddy | traefik
-# - fluxgate: Rust + Pingora engine (~25MB RSS, zero-GC, ultra low latency, native 499 suppression) [DEFAULT]
-# - haproxy: HAProxy 3.0-alpine (C epoll, single-process battle-tested)
-# - caddy: Caddy 2.8-alpine (Go runtime, extensible)
-# - traefik: K3s native Traefik IngressRoute (integrated edge cluster ingress)
+# Options: fluxgate (default) | haproxy | caddy
+# - fluxgate: Rust + Pingora engine (~25MB RSS, zero-GC, ultra low latency, native 499 suppression) [DEFAULT for 1C1G]
+# - haproxy: HAProxy 3.0-alpine (C epoll, single-process, ~79MB RSS)
+# - caddy: Caddy 2.8-alpine (Go runtime, ~225MB RSS, recommended for >=2C2G)
 ingress:
-  provider: "fluxgate" # fluxgate | haproxy | caddy | traefik
-  hostNetwork: true # Recommended true for standalone edge nodes to preserve client source IPs
+  provider: "fluxgate" # fluxgate | haproxy | caddy
+  hostNetwork: false # false for K3s ServiceLB (LoadBalancer Service binds node 80/443 directly)
   httpPort: 80
   httpsPort: 443
   tls:
     secretName: "xconnect-tls-secret"
     mountPath: "/etc/ssl/certs/xconnect"
-    # When using self-managed certs in Secret:
     certFileName: "tls.crt"
     keyFileName: "tls.key"
 
-# Engines Specific Configurations
+# Service Configuration (Direct K3s ServiceLB Binding)
+service:
+  type: LoadBalancer # Binds directly to host :80 and :443 via K3s ServiceLB (klipper-lb)
+  externalTrafficPolicy: Local # Preserves real client IP, avoids cross-node hops
+  httpPort: 80
+  httpsPort: 443
+  annotations: {}
+
+# Inter-Process Communication (UDS over shared RAM)
+ipc:
+  shmSizeLimit: "32Mi" # Memory emptyDir size limit for /dev/shm sockets
+
+# Engines Specific Configurations (Tuned for 1C1G / 2C2G)
 engines:
   fluxgate:
     image:
@@ -41,14 +52,14 @@ engines:
       pullPolicy: IfNotPresent
     metricsPort: 9102
     suppressH2Cancel499: true
-    workerThreads: 2
+    workerThreads: 1 # 1 worker thread is ideal for 1 vCPU; use 2 for 2 vCPU
     resources:
       limits:
-        cpu: "1000m"
-        memory: "128Mi"
+        cpu: "500m"
+        memory: "64Mi" # Hard ceiling (actual RSS ~25MB)
       requests:
-        cpu: "50m"
-        memory: "32Mi"
+        cpu: "20m"
+        memory: "20Mi"
 
   haproxy:
     image:
@@ -56,13 +67,13 @@ engines:
       tag: "3.0-alpine"
       pullPolicy: IfNotPresent
     metricsPort: 8404
-    maxconn: 10000
+    maxconn: 5000
     resources:
       limits:
-        cpu: "1000m"
-        memory: "256Mi"
+        cpu: "500m"
+        memory: "128Mi"
       requests:
-        cpu: "50m"
+        cpu: "30m"
         memory: "64Mi"
 
   caddy:
@@ -74,36 +85,10 @@ engines:
     resources:
       limits:
         cpu: "1000m"
-        memory: "512Mi"
+        memory: "384Mi"
       requests:
-        cpu: "100m"
+        cpu: "50m"
         memory: "128Mi"
-
-  traefik:
-    # Used when ingress.provider == "traefik" (K3s native)
-    entryPoints:
-      - websecure
-    scheme: "h2c"
-    flushInterval: "-1ms"
-    labels:
-      external-dns: "contabo-sit"
-    annotations:
-      external-dns.alpha.kubernetes.io/ttl: "300"
-      traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-
-# Credentials & Security Plane (Zero-leak contract)
-security:
-  # Best practice: inject tokens via pre-existing Kubernetes Secret or Vault Secret Operator
-  existingSecret: ""
-  authUrl: "https://accounts.svc.plus"
-  billingServiceUrl: "https://billing.svc.plus"
-  vaultEnvPath: "prod"
-  vaultAddr: "https://vault.svc.plus"
-  vaultTlsSecretPath: "kv/data/CICD/domains/svc.plus"
-  observabilityVaultPath: "kv/data/CICD/observability"
-  # Sensitive tokens: only populate if not using existingSecret (will be rendered into a Secret)
-  vaultToken: ""
-  internalServiceToken: ""
 
 # Edge Controller Agent (xconnect-edge-agent)
 agent:
@@ -114,13 +99,15 @@ agent:
     pullPolicy: IfNotPresent
   syncInterval: "60s"
   stateDir: "/var/lib/xconnect-edge-agent"
+  gomemlimit: "48MiB" # Go runtime memory target to prevent heap bloating on 1C1G
+  gogc: "50"
   resources:
     limits:
-      cpu: "500m"
-      memory: "128Mi"
+      cpu: "300m"
+      memory: "64Mi"
     requests:
-      cpu: "20m"
-      memory: "32Mi"
+      cpu: "10m"
+      memory: "20Mi"
 
 # Core Network Service (Xray Backend over UDS)
 core:
@@ -131,13 +118,15 @@ core:
     pullPolicy: IfNotPresent
   udsSocketPath: "/dev/shm/xray.sock"
   tcpSocketPath: "/dev/shm/xray-tcp.sock"
+  gomemlimit: "64MiB"
+  gogc: "50"
   resources:
     limits:
-      cpu: "1000m"
-      memory: "256Mi"
+      cpu: "800m"
+      memory: "128Mi"
     requests:
-      cpu: "50m"
-      memory: "64Mi"
+      cpu: "20m"
+      memory: "32Mi"
 
 # Observability Plane (Vector & Exporters)
 observability:
@@ -152,20 +141,31 @@ observability:
     metricsPort: 8686
     resources:
       limits:
-        cpu: "300m"
-        memory: "128Mi"
+        cpu: "200m"
+        memory: "48Mi"
       requests:
-        cpu: "20m"
-        memory: "32Mi"
+        cpu: "10m"
+        memory: "16Mi"
   exporters:
     enabled: true
     xhttpPort: 9100
     tcpPort: 9101
 
-# Periodic Drift Convergence & Sync (Ansible Pull / Sync CronJob)
+# Credentials & Security Plane (Zero-leak contract)
+security:
+  existingSecret: ""
+  authUrl: "https://accounts.svc.plus"
+  billingServiceUrl: "https://billing.svc.plus"
+  vaultEnvPath: "prod"
+  vaultAddr: "https://vault.svc.plus"
+  vaultTlsSecretPath: "kv/data/CICD/domains/svc.plus"
+  observabilityVaultPath: "kv/data/CICD/observability"
+  vaultToken: ""
+  internalServiceToken: ""
+
+# Periodic Drift Convergence & Sync (Optional CronJob)
 syncTimer:
-  enabled: true
-  # Runs every 15 minutes to reconcile configuration drift from Playbooks / GitOps
+  enabled: false # On standalone 1C1G, disable in-cluster cron to save memory; use host timer or manual GitOps
   schedule: "*/15 * * * *"
   image:
     repository: alpine/git
@@ -193,12 +193,6 @@ securityContext:
       - NET_BIND_SERVICE
   runAsUser: 0
   runAsGroup: 0
-
-service:
-  type: ClusterIP
-  httpPort: 80
-  httpsPort: 443
-  annotations: {}
 
 nodeSelector: {}
 tolerations: []

@@ -9,24 +9,44 @@ data:
   {{- if eq .Values.ingress.provider "fluxgate" }}
   Fluxgatefile: |
     {
-      admin 0.0.0.0:{{ .Values.engines.fluxgate.metricsPort }}
+      grace_period 15s
+      metrics 0.0.0.0:{{ .Values.engines.fluxgate.metricsPort }}
       log {
-        level info
-        format json
-      }
-      http2 {
-        suppress_client_cancel {{ .Values.engines.fluxgate.suppressH2Cancel499 | default true }}
+        level INFO
       }
     }
 
-    https://{{ .Values.global.nodeDomain }}:{{ .Values.ingress.httpsPort }} {
+    {{ .Values.global.nodeDomain }} {
       tls {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.certFileName }} {{ .Values.ingress.tls.mountPath }}/{{ .Values.ingress.tls.keyFileName }}
-      reverse_proxy unix/{{ .Values.core.udsSocketPath }} {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto https
+
+      handle_path /xray-exporter/xhttp/* {
+        reverse_proxy 127.0.0.1:8080
       }
+
+      handle_path /xray-exporter/tcp/* {
+        reverse_proxy 127.0.0.1:8081
+      }
+
+      @xhttp {
+        path /split /split/*
+      }
+
+      @xhttp_root path /split
+      rewrite @xhttp_root /split/
+
+      handle @xhttp {
+        uri query -x_padding
+
+        reverse_proxy unix/{{ .Values.core.udsSocketPath }} {
+          flush_interval -1
+
+          transport http {
+            versions h2c 2
+          }
+        }
+      }
+
+      respond "XConnect Edge Agent"
     }
   {{- else if eq .Values.ingress.provider "haproxy" }}
   haproxy.cfg: |

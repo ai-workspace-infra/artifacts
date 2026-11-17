@@ -1,0 +1,55 @@
+# Profile: 1C1G VPS Extreme Minimal Resource Profile
+# Designed for ultra-budget 1 vCPU / 1GB RAM nodes running stripped K3s (SQLite + ServiceLB).
+# Total Pod RSS footprint: ~75MB - 90MB (leaving >600MB free RAM on the 1GB VPS).
+
+ingress:
+  provider: "fluxgate" # Fluxgate is MANDATORY on 1C1G to avoid Go GC OOM
+  hostNetwork: false
+  httpPort: 80
+  httpsPort: 443
+
+service:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+
+ipc:
+  shmSizeLimit: "24Mi"
+
+engines:
+  fluxgate:
+    workerThreads: 1
+    resources:
+      requests:
+        cpu: "10m"
+        memory: "16Mi"
+      limits:
+        cpu: "400m"
+        memory: "48Mi"
+
+agent:
+  gomemlimit: "36MiB"
+  gogc: "40"
+  resources:
+    requests:
+      cpu: "10m"
+      memory: "16Mi"
+    limits:
+      cpu: "200m"
+      memory: "48Mi"
+
+core:
+  gomemlimit: "48MiB"
+  gogc: "40"
+  resources:
+    requests:
+      cpu: "20m"
+      memory: "24Mi"
+    limits:
+      cpu: "600m"
+      memory: "80Mi"
+
+observability:
+  enabled: false # Disabled on 1C1G to conserve every MB; use external blackbox probing
+
+syncTimer:
+  enabled: false

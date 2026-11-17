@@ -20,14 +20,13 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      hostNetwork: {{ .Values.ingress.hostNetwork }}
-      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: {{ .Values.ingress.hostNetwork | default false }}
       serviceAccountName: {{ include "xconnect-edge-proxy.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        {{- if ne .Values.ingress.provider "traefik" }}
-        # Reverse Proxy Engine Container (Fluxgate | HAProxy | Caddy)
+        # 1. Reverse Proxy Engine Container (Fluxgate [Default] | HAProxy | Caddy)
+        # Terminates TLS and forwards L7 traffic to core UDS socket over shared /dev/shm
         - name: reverse-proxy
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -90,10 +89,9 @@ spec:
             - name: metrics
               containerPort: {{ include "xconnect-edge-proxy.metricsPort" . }}
               protocol: TCP
-        {{- end }}
 
         {{- if .Values.agent.enabled }}
-        # XConnect Edge Agent Container
+        # 2. XConnect Edge Agent Container (Controller Sync & Account Management)
         - name: edge-agent
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -101,6 +99,11 @@ spec:
           imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
           command: ["/app/xconnect-edge-agent", "-config", "/etc/agent/account-agent.yaml"]
           env:
+            # Memory bounds for Go runtime on 1C1G/2C2G environments
+            - name: GOMEMLIMIT
+              value: {{ .Values.agent.gomemlimit | default "48MiB" | quote }}
+            - name: GOGC
+              value: {{ .Values.agent.gogc | default "50" | quote }}
             - name: AUTH_URL
               value: {{ .Values.security.authUrl | quote }}
             - name: BILLING_SERVICE_URL
@@ -147,13 +150,18 @@ spec:
         {{- end }}
 
         {{- if .Values.core.enabled }}
-        # Core Network Protocol Server Container
+        # 3. Core Network Protocol Server Container (xray-core UDS)
         - name: core-server
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.core.image.repository }}:{{ .Values.core.image.tag }}"
           imagePullPolicy: {{ .Values.core.image.pullPolicy }}
           command: ["xray", "run", "-config", "/etc/agent/xray.xhttp.template.json"]
+          env:
+            - name: GOMEMLIMIT
+              value: {{ .Values.core.gomemlimit | default "64MiB" | quote }}
+            - name: GOGC
+              value: {{ .Values.core.gogc | default "50" | quote }}
           resources:
             {{- toYaml .Values.core.resources | nindent 12 }}
           volumeMounts:
@@ -166,7 +174,7 @@ spec:
         {{- end }}
 
         {{- if and .Values.observability.enabled .Values.observability.vector.enabled }}
-        # Observability Vector Sidecar Container
+        # 4. Observability Vector Sidecar Container
         - name: vector-agent
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -186,16 +194,14 @@ spec:
         - name: shm-uds
           emptyDir:
             medium: Memory
-            sizeLimit: 128Mi
+            sizeLimit: {{ .Values.ipc.shmSizeLimit | default "32Mi" }}
         - name: tls-certs
           secret:
             secretName: {{ .Values.ingress.tls.secretName }}
             optional: true
-        {{- if ne .Values.ingress.provider "traefik" }}
         - name: proxy-config
           configMap:
             name: {{ include "xconnect-edge-proxy.fullname" . }}-proxy-config
-        {{- end }}
         - name: agent-config
           configMap:
             name: {{ include "xconnect-edge-proxy.fullname" . }}-agent-config

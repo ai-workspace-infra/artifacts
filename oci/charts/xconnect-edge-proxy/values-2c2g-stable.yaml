@@ -1,0 +1,61 @@
+# Profile: 2C2G Standard Production Profile
+# Designed for 2 vCPU / 2GB RAM edge nodes.
+# Balance between high throughput, multi-threading, observability, and stability.
+
+ingress:
+  provider: "fluxgate" # fluxgate or haproxy
+  hostNetwork: false
+  httpPort: 80
+  httpsPort: 443
+
+service:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+
+ipc:
+  shmSizeLimit: "64Mi"
+
+engines:
+  fluxgate:
+    workerThreads: 2
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+      limits:
+        cpu: "1000m"
+        memory: "128Mi"
+
+agent:
+  gomemlimit: "64MiB"
+  gogc: "60"
+  resources:
+    requests:
+      cpu: "20m"
+      memory: "32Mi"
+    limits:
+      cpu: "500m"
+      memory: "128Mi"
+
+core:
+  gomemlimit: "128MiB"
+  gogc: "60"
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "1500m"
+      memory: "256Mi"
+
+observability:
+  enabled: true
+  vector:
+    enabled: true
+    resources:
+      requests:
+        cpu: "20m"
+        memory: "32Mi"
+      limits:
+        cpu: "300m"
+        memory: "64Mi"
