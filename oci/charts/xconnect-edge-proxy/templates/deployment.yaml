@@ -15,8 +15,10 @@ spec:
     metadata:
       labels:
         {{- include "xconnect-edge-proxy.selectorLabels" . | nindent 8 }}
-      {{- with .Values.podAnnotations }}
       annotations:
+        checksum/proxy-config: {{ include (print $.Template.BasePath "/configmap-proxy.yaml") . | sha256sum }}
+        checksum/agent-config: {{ include (print $.Template.BasePath "/configmap-agent.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:

@@ -6,22 +6,45 @@ metadata:
     {{- include "xconnect-edge-proxy.labels" . | nindent 4 }}
 data:
   account-agent.yaml: |
-    controller:
-      auth_url: {{ .Values.security.authUrl | quote }}
-      billing_url: {{ .Values.security.billingServiceUrl | quote }}
-      sync_interval: {{ .Values.agent.syncInterval | quote }}
-    node:
-      domain: {{ .Values.global.nodeDomain | quote }}
-      entry_point: {{ .Values.global.entryPoint | quote }}
-      region: {{ .Values.global.region | quote }}
-      pool: {{ .Values.global.pool | quote }}
-      resource_class: {{ .Values.global.resourceClass | quote }}
-      team_id: {{ .Values.global.teamId | quote }}
-    ipc:
-      uds_socket: {{ .Values.core.udsSocketPath | quote }}
-      uds_tcp_socket: {{ .Values.core.tcpSocketPath | quote }}
-    state:
-      data_dir: {{ .Values.agent.stateDir | quote }}
+    mode: "agent"
+
+    log:
+      level: info
+
+    agent:
+      id: {{ .Values.global.nodeDomain | quote }}
+      role: "agent-proxy"
+      resourceClass: {{ .Values.global.resourceClass | default "plus" | quote }}
+      teamId: {{ .Values.global.teamId | default "" | quote }}
+      entryPoint: {{ .Values.global.entryPoint | default .Values.global.nodeDomain | quote }}
+      pool: {{ .Values.global.pool | default "jp-main" | quote }}
+      region: {{ .Values.global.region | default "JP" | quote }}
+      controllerUrl: {{ .Values.security.authUrl | quote }}
+      apiToken: {{ .Values.security.internalServiceToken | default "6cf595b2e5f3e560d41d5e4ab67fbbd40f886d03bf7a77e1fc1cb440d76e9823" | quote }}
+      httpTimeout: 15s
+      statusInterval: 1m
+      syncInterval: 10m
+      tls:
+        insecureSkipVerify: false
+
+    billing:
+      enabled: false
+      baseURL: {{ .Values.security.billingServiceUrl | quote }}
+      httpTimeout: 15s
+      collectInterval: 1m
+      reconcileInterval: 5m
+
+    xray:
+      sync:
+        enabled: true
+        interval: 10m
+        targets:
+          - name: "xhttp"
+            outputPath: "/usr/local/etc/xray/config.json"
+            templatePath: "/etc/agent/xray.xhttp.template.json"
+          - name: "tcp"
+            outputPath: "/usr/local/etc/xray/tcp-config.json"
+            templatePath: "/etc/agent/xray.xhttp.template.json"
 
   xray.xhttp.template.json: |
     {
