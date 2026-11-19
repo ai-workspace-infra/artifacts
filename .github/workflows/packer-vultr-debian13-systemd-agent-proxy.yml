@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - packer/debian13-systemd-agent-proxy.pkr.hcl
+      - packer/debian-13/systemd-agent-proxy.pkr.hcl
       - packer/scripts/setup-agent-proxy-runtime.sh
       - packer/scripts/setup-observability-runtime.sh
       - packer/scripts/cleanup-golden-image.sh
@@ -21,7 +21,7 @@ on:
       plan_id:
         description: Vultr plan used for the temporary builder VPS
         required: true
-        default: vc2-1c-2gb
+        default: vc2-2c-4gb
         type: string
       os_id:
         description: Optional Vultr OS ID override; blank resolves Debian 13 x64
@@ -43,10 +43,10 @@ jobs:
   publish:
     uses: ./.github/workflows/packer-vultr-publish-reusable.yml
     with:
-      template: packer/debian13-systemd-agent-proxy.pkr.hcl
+      template: packer/debian-13/systemd-agent-proxy.pkr.hcl
       source_name: debian13_systemd_agent_proxy
       os_regex: '^Debian 13'
       region_id: ${{ inputs.region_id || 'nrt' }}
-      plan_id: ${{ inputs.plan_id || 'vc2-1c-2gb' }}
+      plan_id: ${{ inputs.plan_id || 'vc2-2c-4gb' }}
       os_id: ${{ inputs.os_id || '' }}
       runner: ${{ inputs.runner || 'ubuntu-latest' }}

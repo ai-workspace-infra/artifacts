@@ -7,28 +7,53 @@ packer {
   }
 }
 
+variable "arch" {
+  type        = string
+  default     = "amd64"
+  description = "Target architecture: amd64 or arm64"
+  validation {
+    condition     = contains(["amd64", "arm64"], var.arch)
+    error_message = "arch must be either amd64 or arm64."
+  }
+}
+
 variable "iso_url" {
-  type    = string
-  default = "https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso"
+  type        = string
+  default     = ""
+  description = "Optional custom ISO URL override"
 }
 
 variable "iso_checksum" {
   type    = string
-  default = "none" # To be replaced with actual checksum
+  default = "none"
 }
 
-source "qemu" "ubuntu2604_docker" {
-  iso_url           = var.iso_url
+locals {
+  default_iso_urls = {
+    "amd64" = "https://releases.ubuntu.com/24.04/ubuntu-24.04.2-live-server-amd64.iso"
+    "arm64" = "https://cdimage.ubuntu.com/releases/24.04/release/ubuntu-24.04.2-live-server-arm64.iso"
+  }
+  qemu_binaries = {
+    "amd64" = "qemu-system-x86_64"
+    "arm64" = "qemu-system-aarch64"
+  }
+  iso_url     = var.iso_url != "" ? var.iso_url : lookup(local.default_iso_urls, var.arch, local.default_iso_urls["amd64"])
+  qemu_binary = lookup(local.qemu_binaries, var.arch, "qemu-system-x86_64")
+}
+
+source "qemu" "ubuntu2404_docker" {
+  iso_url           = local.iso_url
   iso_checksum      = var.iso_checksum
-  output_directory  = "output-ubuntu2604-docker"
+  output_directory  = "output-ubuntu2404-docker-${var.arch}"
   shutdown_command  = "echo 'packer' | sudo -S shutdown -P now"
   disk_size         = "20G"
   format            = "qcow2"
   accelerator       = "kvm"
+  qemu_binary       = local.qemu_binary
   ssh_username      = "packer"
   ssh_password      = "packer"
   ssh_timeout       = "20m"
-  vm_name           = "ubuntu2604-docker-base.qcow2"
+  vm_name           = "ubuntu2404-docker-${var.arch}-base.qcow2"
   net_device        = "virtio-net"
   disk_interface    = "virtio"
   boot_wait         = "10s"
@@ -37,16 +62,16 @@ source "qemu" "ubuntu2604_docker" {
     " autoinstall ds=nocloud-net\\;s=http://{{ .HTTPIP }}:{{ .HTTPPort }}/ ",
     "<f10>"
   ]
-  http_directory    = "http"
+  http_directory    = "${path.root}/http"
 }
 
 build {
-  sources = ["source.qemu.ubuntu2604_docker"]
+  sources = ["source.qemu.ubuntu2404_docker"]
 
   provisioner "shell" {
     inline = [
       "sudo apt-get update",
-      "sudo apt-get install -y ca-certificates curl gnupg",
+      "sudo apt-get install -y ca-certificates curl gnupg lsb-release",
       "sudo install -m 0755 -d /etc/apt/keyrings",
       "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg",
       "sudo chmod a+r /etc/apt/keyrings/docker.gpg",
@@ -55,5 +80,9 @@ build {
       "sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
       "sudo systemctl enable docker"
     ]
+  }
+
+  provisioner "shell" {
+    script = "${path.root}/../scripts/cleanup-golden-image.sh"
   }
 }

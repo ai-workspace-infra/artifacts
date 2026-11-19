@@ -11,9 +11,20 @@ packer {
   }
 }
 
+variable "arch" {
+  type        = string
+  default     = "amd64"
+  description = "Target architecture: amd64, arm64, or loong64"
+  validation {
+    condition     = contains(["amd64", "arm64", "loong64"], var.arch)
+    error_message = "arch must be amd64, arm64, or loong64."
+  }
+}
+
 variable "iso_url" {
-  type    = string
-  default = "https://cdimage.debian.org/cdimage/daily-builds/daily/arch-latest/amd64/iso-cd/debian-testing-amd64-netinst.iso"
+  type        = string
+  default     = ""
+  description = "Optional custom ISO URL override"
 }
 
 variable "iso_checksum" {
@@ -44,21 +55,37 @@ variable "vultr_plan_id" {
 
 variable "vultr_snapshot_description" {
   type    = string
-  default = "debian13-docker-compose-websaas-golden"
+  default = "debian14-docker-compose-websaas-golden"
 }
 
-source "qemu" "debian13_docker_compose_websaas" {
-  iso_url          = var.iso_url
+locals {
+  default_iso_urls = {
+    "amd64"   = "https://cdimage.debian.org/cdimage/ports/daily-builds/amd64/iso-cd/debian-testing-amd64-netinst.iso"
+    "arm64"   = "https://cdimage.debian.org/cdimage/ports/daily-builds/arm64/iso-cd/debian-testing-arm64-netinst.iso"
+    "loong64" = "https://cdimage.debian.org/cdimage/ports/daily-builds/loong64/iso-cd/debian-testing-loong64-netinst.iso"
+  }
+  qemu_binaries = {
+    "amd64"   = "qemu-system-x86_64"
+    "arm64"   = "qemu-system-aarch64"
+    "loong64" = "qemu-system-loongarch64"
+  }
+  iso_url     = var.iso_url != "" ? var.iso_url : lookup(local.default_iso_urls, var.arch, local.default_iso_urls["amd64"])
+  qemu_binary = lookup(local.qemu_binaries, var.arch, "qemu-system-x86_64")
+}
+
+source "qemu" "debian14_docker_compose_websaas" {
+  iso_url          = local.iso_url
   iso_checksum     = var.iso_checksum
-  output_directory = "output-debian13-docker-compose-websaas"
+  output_directory = "output-debian14-docker-compose-websaas-${var.arch}"
   shutdown_command = "echo 'packer' | sudo -S shutdown -P now"
   disk_size        = "40G"
   format           = "qcow2"
   accelerator      = "kvm"
+  qemu_binary      = local.qemu_binary
   ssh_username     = "packer"
   ssh_password     = "packer"
   ssh_timeout      = "20m"
-  vm_name          = "debian13-docker-compose-websaas-golden.qcow2"
+  vm_name          = "debian14-docker-compose-websaas-${var.arch}-golden.qcow2"
   net_device       = "virtio-net"
   disk_interface   = "virtio"
   boot_wait        = "10s"
@@ -71,7 +98,7 @@ source "qemu" "debian13_docker_compose_websaas" {
     "locale=en_US.UTF-8 <wait>",
     "kbd-chooser/method=us <wait>",
     "keyboard-configuration/xkb-keymap=us <wait>",
-    "netcfg/get_hostname=debian13-websaas <wait>",
+    "netcfg/get_hostname=debian14-websaas <wait>",
     "netcfg/get_domain=local <wait>",
     "fb=false <wait>",
     "debconf/frontend=noninteractive <wait>",
@@ -80,32 +107,32 @@ source "qemu" "debian13_docker_compose_websaas" {
     "grub-installer/bootdev=/dev/vda <wait>",
     "<enter><wait>"
   ]
-  http_directory = "http"
+  http_directory = "${path.root}/http"
 }
 
 build {
-  sources = ["source.qemu.debian13_docker_compose_websaas"]
+  sources = ["source.qemu.debian14_docker_compose_websaas"]
 
   provisioner "shell" {
-    script = "scripts/setup-websaas-runtime.sh"
+    script = "${path.root}/../scripts/setup-websaas-runtime.sh"
   }
 
   provisioner "shell" {
-    script = "scripts/setup-observability-runtime.sh"
+    script = "${path.root}/../scripts/setup-observability-runtime.sh"
     environment_vars = ["INSTALL_POSTGRES_EXPORTER=1"]
   }
 
   provisioner "shell" {
-    script = "scripts/cleanup-golden-image.sh"
+    script = "${path.root}/../scripts/cleanup-golden-image.sh"
   }
 }
 
-source "vultr" "debian13_docker_compose_websaas" {
+source "vultr" "debian14_docker_compose_websaas" {
   api_key              = var.vultr_api_key
   os_id                = var.vultr_os_id
   plan_id              = var.vultr_plan_id
   region_id            = var.vultr_region_id
-  instance_label       = "packer-debian13-docker-compose-websaas"
+  instance_label       = "packer-debian14-docker-compose-websaas"
   snapshot_description = var.vultr_snapshot_description
   state_timeout        = "30m"
   ssh_username         = "root"
@@ -113,18 +140,18 @@ source "vultr" "debian13_docker_compose_websaas" {
 }
 
 build {
-  sources = ["source.vultr.debian13_docker_compose_websaas"]
+  sources = ["source.vultr.debian14_docker_compose_websaas"]
 
   provisioner "shell" {
-    script = "scripts/setup-websaas-runtime.sh"
+    script = "${path.root}/../scripts/setup-websaas-runtime.sh"
   }
 
   provisioner "shell" {
-    script = "scripts/setup-observability-runtime.sh"
+    script = "${path.root}/../scripts/setup-observability-runtime.sh"
     environment_vars = ["INSTALL_POSTGRES_EXPORTER=1"]
   }
 
   provisioner "shell" {
-    script = "scripts/cleanup-golden-image.sh"
+    script = "${path.root}/../scripts/cleanup-golden-image.sh"
   }
 }

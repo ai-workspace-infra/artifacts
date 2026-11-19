@@ -1,0 +1,32 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  identity:
+    hostname: ubuntu2404-node
+    username: packer
+    password: "$6$rounds=4096$j891...$22pQZkY3u4r6u8O7iF3q456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopq"
+  ssh:
+    install-server: true
+    allow-pw: true
+  storage:
+    layout:
+      name: direct
+  packages:
+    - sudo
+    - curl
+    - qemu-guest-agent
+  user-data:
+    users:
+      - name: packer
+        passwd: "$6$rounds=4096$rounds=4096$packer$nK5H3aI3YgUf46M4KqFq.9E4V8N3.rE4x3M.8wPq.sN"
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        groups: [adm, sudo]
+        shell: /bin/bash
+        lock_passwd: false
+  late-commands:
+    - echo 'packer:packer' | chpasswd
+    - echo 'packer ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/packer
+    - chmod 440 /target/etc/sudoers.d/packer

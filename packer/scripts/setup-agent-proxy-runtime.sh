@@ -7,33 +7,107 @@ echo "======================================================="
 
 export DEBIAN_FRONTEND=noninteractive
 
+# 0. Detect OS & Architecture
+if [ -f /etc/os-release ]; then
+  . /etc/os-release
+  OS_ID="${ID:-linux}"
+  OS_ID_LIKE="${ID_LIKE:-}"
+else
+  OS_ID="unknown"
+  OS_ID_LIKE=""
+fi
+
+is_debian_like() {
+  case "$OS_ID" in
+    debian|ubuntu) return 0 ;;
+  esac
+  case "$OS_ID_LIKE" in
+    *debian*|*ubuntu*) return 0 ;;
+  esac
+  return 1
+}
+
+is_rhel_like() {
+  case "$OS_ID" in
+    rocky|almalinux|rhel|centos|fedora) return 0 ;;
+  esac
+  case "$OS_ID_LIKE" in
+    *rhel*|*fedora*|*centos*) return 0 ;;
+  esac
+  return 1
+}
+
+UNAME_M="$(uname -m)"
+case "${UNAME_M}" in
+  x86_64|amd64)
+    ARCH_STD="amd64"
+    ARCH_XRAY="64"
+    ;;
+  aarch64|arm64)
+    ARCH_STD="arm64"
+    ARCH_XRAY="arm64-v8a"
+    ;;
+  loongarch64|loong64)
+    ARCH_STD="loong64"
+    ARCH_XRAY="loong64"
+    ;;
+  *)
+    echo "Unsupported architecture: ${UNAME_M}" >&2
+    exit 1
+    ;;
+esac
+
+echo "Target System: OS=${OS_ID}, Architecture=${ARCH_STD} (${UNAME_M})"
+
 # Ensure valid DNS resolvers exist
 if ! grep -q "nameserver" /etc/resolv.conf 2>/dev/null; then
   echo "nameserver 1.1.1.1" >> /etc/resolv.conf
   echo "nameserver 8.8.8.8" >> /etc/resolv.conf
 fi
 
-# 1. Update APT & install core production runtime packages
-apt-get update -y
-apt-get install -y --no-install-recommends \
-  ca-certificates \
-  curl \
-  gnupg \
-  lsb-release \
-  git \
-  jq \
-  net-tools \
-  python3 \
-  python3-pip \
-  python3-venv \
-  ansible \
-  rsync \
-  sudo \
-  htop \
-  unzip \
-  iptables \
-  iproute2 \
-  stunnel4
+# 1. Install core production runtime packages
+if is_debian_like; then
+  apt-get update -y
+  apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    git \
+    jq \
+    net-tools \
+    python3 \
+    python3-pip \
+    python3-venv \
+    ansible \
+    rsync \
+    sudo \
+    htop \
+    unzip \
+    iptables \
+    iproute2 \
+    stunnel4
+elif is_rhel_like; then
+  dnf install -y epel-release || true
+  dnf install -y \
+    ca-certificates \
+    curl \
+    gnupg2 \
+    git \
+    jq \
+    net-tools \
+    python3 \
+    python3-pip \
+    ansible-core \
+    rsync \
+    sudo \
+    htop \
+    unzip \
+    iptables \
+    iptables-services \
+    iproute \
+    stunnel
+fi
 
 # Ensure DNS remains valid after package installation
 if ! grep -q "nameserver" /etc/resolv.conf 2>/dev/null; then
@@ -47,9 +121,9 @@ chmod 755 /etc/agent-proxy /etc/xray /etc/stunnel
 
 # 3. Install Xray-core Binary (Production Runtime)
 XRAY_VERSION="v25.1.30"
-XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
+XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${ARCH_XRAY}.zip"
 
-echo "Downloading Xray-core ${XRAY_VERSION}..."
+echo "Downloading Xray-core ${XRAY_VERSION} for ${ARCH_STD} (${ARCH_XRAY})..."
 TEMP_DIR="$(mktemp -d)"
 if curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "${XRAY_URL}" -o "${TEMP_DIR}/xray.zip"; then
   unzip -q "${TEMP_DIR}/xray.zip" -d "${TEMP_DIR}/xray"
