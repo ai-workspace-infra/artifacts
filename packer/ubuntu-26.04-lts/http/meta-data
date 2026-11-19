@@ -1,0 +1,3 @@
+# Empty cloud-init meta-data
+instance-id: ubuntu2604-packer
+local-hostname: ubuntu2604-node

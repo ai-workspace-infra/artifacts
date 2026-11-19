@@ -11,9 +11,20 @@ packer {
   }
 }
 
+variable "arch" {
+  type        = string
+  default     = "amd64"
+  description = "Target architecture: amd64 or arm64"
+  validation {
+    condition     = contains(["amd64", "arm64"], var.arch)
+    error_message = "arch must be either amd64 or arm64."
+  }
+}
+
 variable "iso_url" {
-  type    = string
-  default = "https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso"
+  type        = string
+  default     = ""
+  description = "Optional custom ISO URL override"
 }
 
 variable "iso_checksum" {
@@ -39,7 +50,7 @@ variable "vultr_region_id" {
 
 variable "vultr_plan_id" {
   type    = string
-  default = "vc2-1c-2gb"
+  default = "vc2-2c-4gb"
 }
 
 variable "vultr_snapshot_description" {
@@ -47,18 +58,32 @@ variable "vultr_snapshot_description" {
   default = "ubuntu2604-systemd-agent-proxy-golden"
 }
 
+locals {
+  default_iso_urls = {
+    "amd64" = "https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso"
+    "arm64" = "https://cdimage.ubuntu.com/releases/26.04/release/ubuntu-26.04-live-server-arm64.iso"
+  }
+  qemu_binaries = {
+    "amd64" = "qemu-system-x86_64"
+    "arm64" = "qemu-system-aarch64"
+  }
+  iso_url     = var.iso_url != "" ? var.iso_url : lookup(local.default_iso_urls, var.arch, local.default_iso_urls["amd64"])
+  qemu_binary = lookup(local.qemu_binaries, var.arch, "qemu-system-x86_64")
+}
+
 source "qemu" "ubuntu2604_systemd_agent_proxy" {
-  iso_url          = var.iso_url
+  iso_url          = local.iso_url
   iso_checksum     = var.iso_checksum
-  output_directory = "output-ubuntu2604-systemd-agent-proxy"
+  output_directory = "output-ubuntu2604-systemd-agent-proxy-${var.arch}"
   shutdown_command = "echo 'packer' | sudo -S shutdown -P now"
-  disk_size        = "10G"
+  disk_size        = "40G"
   format           = "qcow2"
   accelerator      = "kvm"
+  qemu_binary      = local.qemu_binary
   ssh_username     = "packer"
   ssh_password     = "packer"
   ssh_timeout      = "20m"
-  vm_name          = "ubuntu2604-systemd-agent-proxy-golden.qcow2"
+  vm_name          = "ubuntu2604-systemd-agent-proxy-${var.arch}-golden.qcow2"
   net_device       = "virtio-net"
   disk_interface   = "virtio"
   boot_wait        = "10s"
@@ -67,22 +92,22 @@ source "qemu" "ubuntu2604_systemd_agent_proxy" {
     " autoinstall ds=nocloud-net\\;s=http://{{ .HTTPIP }}:{{ .HTTPPort }}/ ",
     "<f10>"
   ]
-  http_directory = "http"
+  http_directory = "${path.root}/http"
 }
 
 build {
   sources = ["source.qemu.ubuntu2604_systemd_agent_proxy"]
 
   provisioner "shell" {
-    script = "scripts/setup-agent-proxy-runtime.sh"
+    script = "${path.root}/../scripts/setup-agent-proxy-runtime.sh"
   }
 
   provisioner "shell" {
-    script = "scripts/setup-observability-runtime.sh"
+    script = "${path.root}/../scripts/setup-observability-runtime.sh"
   }
 
   provisioner "shell" {
-    script = "scripts/cleanup-golden-image.sh"
+    script = "${path.root}/../scripts/cleanup-golden-image.sh"
   }
 }
 
@@ -102,14 +127,14 @@ build {
   sources = ["source.vultr.ubuntu2604_systemd_agent_proxy"]
 
   provisioner "shell" {
-    script = "scripts/setup-agent-proxy-runtime.sh"
+    script = "${path.root}/../scripts/setup-agent-proxy-runtime.sh"
   }
 
   provisioner "shell" {
-    script = "scripts/setup-observability-runtime.sh"
+    script = "${path.root}/../scripts/setup-observability-runtime.sh"
   }
 
   provisioner "shell" {
-    script = "scripts/cleanup-golden-image.sh"
+    script = "${path.root}/../scripts/cleanup-golden-image.sh"
   }
 }
