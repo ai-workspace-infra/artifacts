@@ -1,0 +1,66 @@
+name: Reusable UCloud LightHost Packer Golden Image Publish
+
+on:
+  workflow_call:
+    inputs:
+      template:
+        required: true
+        type: string
+      source_name:
+        required: true
+        type: string
+      arch:
+        required: false
+        default: amd64
+        type: string
+      ucloud_region:
+        required: false
+        default: cn-bj2
+        type: string
+      image_name:
+        required: true
+        type: string
+      vault_kv_path:
+        required: false
+        default: kv/data/CICD/uat
+        type: string
+      runner:
+        required: false
+        default: ubuntu-latest
+        type: string
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.source_name }} to UCloud LightHost
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: latest
+      - name: Get Vault Secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          path: jwt
+          role: github-actions-artifacts-uat
+          jwtGithubAudience: vault
+          secrets: |
+            ${{ inputs.vault_kv_path }} UCLOUD_PUBLIC_KEY | UCLOUD_PUBLIC_KEY ;
+            ${{ inputs.vault_kv_path }} UCLOUD_PRIVATE_KEY | UCLOUD_PRIVATE_KEY
+      - name: Packer Build (QEMU for UCloud)
+        run: |
+          packer init "${{ inputs.template }}"
+          packer validate -var="arch=${{ inputs.arch }}" "${{ inputs.template }}"
+          packer build -color=false -only="qemu.${{ inputs.source_name }}" -var="arch=${{ inputs.arch }}" "${{ inputs.template }}"
+      - name: Import to UCloud LightHost
+        env:
+          UCLOUD_REGION: ${{ inputs.ucloud_region }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+        run: |
+          QCOW2_PATH="$(find . -name '*-golden.qcow2' | head -n 1)"
+          QCOW2_PATH="${QCOW2_PATH}" bash packer/scripts/publish-ucloud-image.sh

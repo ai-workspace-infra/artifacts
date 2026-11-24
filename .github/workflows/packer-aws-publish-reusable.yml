@@ -1,0 +1,59 @@
+name: Reusable AWS Packer Golden Image Publish
+
+on:
+  workflow_call:
+    inputs:
+      template:
+        required: true
+        type: string
+      source_name:
+        required: true
+        type: string
+      aws_region:
+        required: false
+        default: ap-northeast-1
+        type: string
+      aws_instance_type:
+        required: false
+        default: t3.medium
+        type: string
+      vault_kv_path:
+        required: false
+        default: kv/data/CICD/uat
+        type: string
+      runner:
+        required: false
+        default: ubuntu-latest
+        type: string
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.source_name }} to AWS
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: latest
+      - name: Get Vault Secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          path: jwt
+          role: github-actions-artifacts-uat
+          jwtGithubAudience: vault
+          secrets: |
+            ${{ inputs.vault_kv_path }} AWS_ACCESS_KEY_ID | AWS_ACCESS_KEY_ID ;
+            ${{ inputs.vault_kv_path }} AWS_SECRET_ACCESS_KEY | AWS_SECRET_ACCESS_KEY
+      - name: Packer Build (AWS)
+        run: |
+          packer init "${{ inputs.template }}"
+          packer validate -var="aws_region=${{ inputs.aws_region }}" -var="aws_instance_type=${{ inputs.aws_instance_type }}" "${{ inputs.template }}"
+          packer build -color=false -only="amazon-ebs.${{ inputs.source_name }}" \
+            -var="aws_region=${{ inputs.aws_region }}" \
+            -var="aws_instance_type=${{ inputs.aws_instance_type }}" \
+            "${{ inputs.template }}"

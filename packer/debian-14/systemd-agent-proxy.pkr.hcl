@@ -8,23 +8,38 @@ packer {
       version = ">= 2.3.2"
       source  = "github.com/vultr/vultr"
     }
+    linode = {
+      version = ">= 1.0.0"
+      source  = "github.com/linode/linode"
+    }
+    amazon = {
+      version = ">= 1.2.0"
+      source  = "github.com/hashicorp/amazon"
+    }
+    googlecompute = {
+      version = ">= 1.1.0"
+      source  = "github.com/hashicorp/googlecompute"
+    }
+    alicloud = {
+      version = ">= 1.1.0"
+      source  = "github.com/hashicorp/alicloud"
+    }
   }
 }
 
 variable "arch" {
   type        = string
   default     = "amd64"
-  description = "Target architecture: amd64, arm64, or loong64"
+  description = "Target architecture (amd64, arm64, loong64)"
   validation {
     condition     = contains(["amd64", "arm64", "loong64"], var.arch)
-    error_message = "arch must be amd64, arm64, or loong64."
+    error_message = "arch must be one of: amd64, arm64, loong64."
   }
 }
 
 variable "iso_url" {
-  type        = string
-  default     = ""
-  description = "Optional custom ISO URL override"
+  type    = string
+  default = ""
 }
 
 variable "iso_checksum" {
@@ -32,41 +47,47 @@ variable "iso_checksum" {
   default = "none"
 }
 
+# --- Vultr Variables ---
 variable "vultr_api_key" {
   type      = string
   sensitive = true
   default   = env("VULTR_API_KEY")
 }
+variable "vultr_os_id" { type = number; default = 0 }
+variable "vultr_region_id" { type = string; default = "nrt" }
+variable "vultr_plan_id" { type = string; default = "vc2-2c-4gb" }
+variable "vultr_snapshot_description" { type = string; default = "debian14-systemd-agent-proxy-golden" }
 
-variable "vultr_os_id" {
-  type    = number
-  default = 0
+# --- Linode Variables ---
+variable "linode_token" {
+  type      = string
+  sensitive = true
+  default   = env("LINODE_TOKEN")
 }
+variable "linode_region" { type = string; default = "ap-northeast" }
+variable "linode_instance_type" { type = string; default = "g6-standard-2" }
 
-variable "vultr_region_id" {
-  type    = string
-  default = "nrt"
-}
+# --- AWS Variables ---
+variable "aws_region" { type = string; default = "ap-northeast-1" }
+variable "aws_instance_type" { type = string; default = "t3.medium" }
 
-variable "vultr_plan_id" {
-  type    = string
-  default = "vc2-2c-4gb"
-}
+# --- GCP Variables ---
+variable "gcp_project_id" { type = string; default = env("GCP_PROJECT_ID") }
+variable "gcp_zone" { type = string; default = "asia-northeast1-a" }
 
-variable "vultr_snapshot_description" {
-  type    = string
-  default = "debian14-systemd-agent-proxy-golden"
-}
+# --- Alicloud Variables ---
+variable "alicloud_region" { type = string; default = "cn-hongkong" }
+variable "alicloud_instance_type" { type = string; default = "ecs.g6.large" }
 
 locals {
   default_iso_urls = {
-    "amd64"   = "https://cdimage.debian.org/cdimage/ports/daily-builds/amd64/iso-cd/debian-testing-amd64-netinst.iso"
-    "arm64"   = "https://cdimage.debian.org/cdimage/ports/daily-builds/arm64/iso-cd/debian-testing-arm64-netinst.iso"
+    "amd64" = "https://cdimage.debian.org/cdimage/ports/daily-builds/amd64/iso-cd/debian-testing-amd64-netinst.iso"
+    "arm64" = "https://cdimage.debian.org/cdimage/ports/daily-builds/arm64/iso-cd/debian-testing-arm64-netinst.iso"
     "loong64" = "https://cdimage.debian.org/cdimage/ports/daily-builds/loong64/iso-cd/debian-testing-loong64-netinst.iso"
   }
   qemu_binaries = {
-    "amd64"   = "qemu-system-x86_64"
-    "arm64"   = "qemu-system-aarch64"
+    "amd64" = "qemu-system-x86_64"
+    "arm64" = "qemu-system-aarch64"
     "loong64" = "qemu-system-loongarch64"
   }
   iso_url     = var.iso_url != "" ? var.iso_url : lookup(local.default_iso_urls, var.arch, local.default_iso_urls["amd64"])
@@ -98,7 +119,7 @@ source "qemu" "debian14_systemd_agent_proxy" {
     "locale=en_US.UTF-8 <wait>",
     "kbd-chooser/method=us <wait>",
     "keyboard-configuration/xkb-keymap=us <wait>",
-    "netcfg/get_hostname=debian14-agent-proxy <wait>",
+    "netcfg/get_hostname=debian14-node <wait>",
     "netcfg/get_domain=local <wait>",
     "fb=false <wait>",
     "debconf/frontend=noninteractive <wait>",
@@ -108,22 +129,6 @@ source "qemu" "debian14_systemd_agent_proxy" {
     "<enter><wait>"
   ]
   http_directory = "${path.root}/http"
-}
-
-build {
-  sources = ["source.qemu.debian14_systemd_agent_proxy"]
-
-  provisioner "shell" {
-    script = "${path.root}/../scripts/setup-agent-proxy-runtime.sh"
-  }
-
-  provisioner "shell" {
-    script = "${path.root}/../scripts/setup-observability-runtime.sh"
-  }
-
-  provisioner "shell" {
-    script = "${path.root}/../scripts/cleanup-golden-image.sh"
-  }
 }
 
 source "vultr" "debian14_systemd_agent_proxy" {
@@ -138,18 +143,83 @@ source "vultr" "debian14_systemd_agent_proxy" {
   ssh_timeout          = "20m"
 }
 
+source "linode" "debian14_systemd_agent_proxy" {
+  linode_token      = var.linode_token
+  image             = "linode/debian13"
+  region            = var.linode_region
+  instance_type     = var.linode_instance_type
+  instance_label    = "packer-debian14-systemd-agent-proxy"
+  image_label       = "debian14-systemd-agent-proxy-golden"
+  image_description = "Golden image for debian14 systemd-agent-proxy"
+  ssh_username      = "root"
+}
+
+source "amazon-ebs" "debian14_systemd_agent_proxy" {
+  region        = var.aws_region
+  instance_type = var.aws_instance_type
+  ami_name      = "debian14-systemd-agent-proxy-golden-{{timestamp}}"
+  ssh_username  = "admin"
+  source_ami_filter {
+    filters = {
+      name                = "debian-13-*"
+      root-device-type    = "ebs"
+      virtualization-type = "hvm"
+    }
+    most_recent = true
+    owners      = ["136693071363"]
+  }
+}
+
+source "googlecompute" "debian14_systemd_agent_proxy" {
+  project_id          = var.gcp_project_id
+  source_image_family = "debian-13"
+  source_image_project_id = ["debian-cloud"]
+  zone                = var.gcp_zone
+  image_name          = "debian14-systemd-agent-proxy-golden-{{timestamp}}"
+  image_family        = "debian14-systemd-agent-proxy"
+  ssh_username        = "packer"
+}
+
+source "alicloud-ecs" "debian14_systemd_agent_proxy" {
+  region           = var.alicloud_region
+  image_name       = "debian14-systemd-agent-proxy-golden-{{timestamp}}"
+  source_image     = "debian_13*"
+  instance_type    = var.alicloud_instance_type
+  ssh_username     = "root"
+  internet_charge_type = "PayByTraffic"
+}
+
 build {
-  sources = ["source.vultr.debian14_systemd_agent_proxy"]
+  sources = [
+    "source.qemu.debian14_systemd_agent_proxy",
+    "source.vultr.debian14_systemd_agent_proxy",
+    "source.linode.debian14_systemd_agent_proxy",
+    "source.amazon-ebs.debian14_systemd_agent_proxy",
+    "source.googlecompute.debian14_systemd_agent_proxy",
+    "source.alicloud-ecs.debian14_systemd_agent_proxy",
+  ]
 
   provisioner "shell" {
-    script = "${path.root}/../scripts/setup-agent-proxy-runtime.sh"
+    script = "${path.root}/../scripts/00-base-os.sh"
   }
 
   provisioner "shell" {
-    script = "${path.root}/../scripts/setup-observability-runtime.sh"
+    script = "${path.root}/../scripts/01-security-hardening.sh"
   }
 
   provisioner "shell" {
-    script = "${path.root}/../scripts/cleanup-golden-image.sh"
+    script = "${path.root}/../scripts/13-agent-proxy-runtime.sh"
+  }
+
+  provisioner "shell" {
+    script = "${path.root}/../scripts/20-observability-core.sh"
+  }
+
+  provisioner "shell" {
+    script = "${path.root}/../scripts/90-cloud-init-prep.sh"
+  }
+
+  provisioner "shell" {
+    script = "${path.root}/../scripts/99-cleanup-golden-image.sh"
   }
 }
