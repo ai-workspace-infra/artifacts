@@ -1,0 +1,59 @@
+name: Reusable Alicloud Packer Golden Image Publish
+
+on:
+  workflow_call:
+    inputs:
+      template:
+        required: true
+        type: string
+      source_name:
+        required: true
+        type: string
+      alicloud_region:
+        required: false
+        default: cn-hongkong
+        type: string
+      alicloud_instance_type:
+        required: false
+        default: ecs.g6.large
+        type: string
+      vault_kv_path:
+        required: false
+        default: kv/data/CICD/uat
+        type: string
+      runner:
+        required: false
+        default: ubuntu-latest
+        type: string
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.source_name }} to Alicloud
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: latest
+      - name: Get Vault Secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          path: jwt
+          role: github-actions-artifacts-uat
+          jwtGithubAudience: vault
+          secrets: |
+            ${{ inputs.vault_kv_path }} ALICLOUD_ACCESS_KEY | ALICLOUD_ACCESS_KEY ;
+            ${{ inputs.vault_kv_path }} ALICLOUD_SECRET_KEY | ALICLOUD_SECRET_KEY
+      - name: Packer Build (Alicloud)
+        run: |
+          packer init "${{ inputs.template }}"
+          packer validate -var="alicloud_region=${{ inputs.alicloud_region }}" -var="alicloud_instance_type=${{ inputs.alicloud_instance_type }}" "${{ inputs.template }}"
+          packer build -color=false -only="alicloud-ecs.${{ inputs.source_name }}" \
+            -var="alicloud_region=${{ inputs.alicloud_region }}" \
+            -var="alicloud_instance_type=${{ inputs.alicloud_instance_type }}" \
+            "${{ inputs.template }}"

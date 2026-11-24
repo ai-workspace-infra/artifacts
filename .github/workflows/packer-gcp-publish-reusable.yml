@@ -1,0 +1,54 @@
+name: Reusable GCP Packer Golden Image Publish
+
+on:
+  workflow_call:
+    inputs:
+      template:
+        required: true
+        type: string
+      source_name:
+        required: true
+        type: string
+      gcp_zone:
+        required: false
+        default: asia-northeast1-a
+        type: string
+      vault_kv_path:
+        required: false
+        default: kv/data/CICD/uat
+        type: string
+      runner:
+        required: false
+        default: ubuntu-latest
+        type: string
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.source_name }} to GCP
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: latest
+      - name: Get Vault Secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          path: jwt
+          role: github-actions-artifacts-uat
+          jwtGithubAudience: vault
+          secrets: |
+            ${{ inputs.vault_kv_path }} GCP_PROJECT_ID | GCP_PROJECT_ID ;
+            ${{ inputs.vault_kv_path }} GCP_CREDENTIALS_JSON | GOOGLE_CREDENTIALS
+      - name: Packer Build (GCP)
+        run: |
+          packer init "${{ inputs.template }}"
+          packer validate -var="gcp_zone=${{ inputs.gcp_zone }}" "${{ inputs.template }}"
+          packer build -color=false -only="googlecompute.${{ inputs.source_name }}" \
+            -var="gcp_zone=${{ inputs.gcp_zone }}" \
+            "${{ inputs.template }}"

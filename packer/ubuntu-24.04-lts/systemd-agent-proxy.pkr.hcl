@@ -8,23 +8,38 @@ packer {
       version = ">= 2.3.2"
       source  = "github.com/vultr/vultr"
     }
+    linode = {
+      version = ">= 1.0.0"
+      source  = "github.com/linode/linode"
+    }
+    amazon = {
+      version = ">= 1.2.0"
+      source  = "github.com/hashicorp/amazon"
+    }
+    googlecompute = {
+      version = ">= 1.1.0"
+      source  = "github.com/hashicorp/googlecompute"
+    }
+    alicloud = {
+      version = ">= 1.1.0"
+      source  = "github.com/hashicorp/alicloud"
+    }
   }
 }
 
 variable "arch" {
   type        = string
   default     = "amd64"
-  description = "Target architecture: amd64 or arm64"
+  description = "Target architecture (amd64, arm64)"
   validation {
     condition     = contains(["amd64", "arm64"], var.arch)
-    error_message = "arch must be either amd64 or arm64."
+    error_message = "arch must be one of: amd64, arm64."
   }
 }
 
 variable "iso_url" {
-  type        = string
-  default     = ""
-  description = "Optional custom ISO URL override"
+  type    = string
+  default = ""
 }
 
 variable "iso_checksum" {
@@ -32,31 +47,37 @@ variable "iso_checksum" {
   default = "none"
 }
 
+# --- Vultr Variables ---
 variable "vultr_api_key" {
   type      = string
   sensitive = true
   default   = env("VULTR_API_KEY")
 }
+variable "vultr_os_id" { type = number; default = 0 }
+variable "vultr_region_id" { type = string; default = "nrt" }
+variable "vultr_plan_id" { type = string; default = "vc2-2c-4gb" }
+variable "vultr_snapshot_description" { type = string; default = "ubuntu2404-systemd-agent-proxy-golden" }
 
-variable "vultr_os_id" {
-  type    = number
-  default = 0
+# --- Linode Variables ---
+variable "linode_token" {
+  type      = string
+  sensitive = true
+  default   = env("LINODE_TOKEN")
 }
+variable "linode_region" { type = string; default = "ap-northeast" }
+variable "linode_instance_type" { type = string; default = "g6-standard-2" }
 
-variable "vultr_region_id" {
-  type    = string
-  default = "nrt"
-}
+# --- AWS Variables ---
+variable "aws_region" { type = string; default = "ap-northeast-1" }
+variable "aws_instance_type" { type = string; default = "t3.medium" }
 
-variable "vultr_plan_id" {
-  type    = string
-  default = "vc2-2c-4gb"
-}
+# --- GCP Variables ---
+variable "gcp_project_id" { type = string; default = env("GCP_PROJECT_ID") }
+variable "gcp_zone" { type = string; default = "asia-northeast1-a" }
 
-variable "vultr_snapshot_description" {
-  type    = string
-  default = "ubuntu2404-systemd-agent-proxy-golden"
-}
+# --- Alicloud Variables ---
+variable "alicloud_region" { type = string; default = "cn-hongkong" }
+variable "alicloud_instance_type" { type = string; default = "ecs.g6.large" }
 
 locals {
   default_iso_urls = {
@@ -95,22 +116,6 @@ source "qemu" "ubuntu2404_systemd_agent_proxy" {
   http_directory = "${path.root}/http"
 }
 
-build {
-  sources = ["source.qemu.ubuntu2404_systemd_agent_proxy"]
-
-  provisioner "shell" {
-    script = "${path.root}/../scripts/setup-agent-proxy-runtime.sh"
-  }
-
-  provisioner "shell" {
-    script = "${path.root}/../scripts/setup-observability-runtime.sh"
-  }
-
-  provisioner "shell" {
-    script = "${path.root}/../scripts/cleanup-golden-image.sh"
-  }
-}
-
 source "vultr" "ubuntu2404_systemd_agent_proxy" {
   api_key              = var.vultr_api_key
   os_id                = var.vultr_os_id
@@ -123,18 +128,83 @@ source "vultr" "ubuntu2404_systemd_agent_proxy" {
   ssh_timeout          = "20m"
 }
 
+source "linode" "ubuntu2404_systemd_agent_proxy" {
+  linode_token      = var.linode_token
+  image             = "linode/ubuntu24.04"
+  region            = var.linode_region
+  instance_type     = var.linode_instance_type
+  instance_label    = "packer-ubuntu2404-systemd-agent-proxy"
+  image_label       = "ubuntu2404-systemd-agent-proxy-golden"
+  image_description = "Golden image for ubuntu2404 systemd-agent-proxy"
+  ssh_username      = "root"
+}
+
+source "amazon-ebs" "ubuntu2404_systemd_agent_proxy" {
+  region        = var.aws_region
+  instance_type = var.aws_instance_type
+  ami_name      = "ubuntu2404-systemd-agent-proxy-golden-{{timestamp}}"
+  ssh_username  = "ubuntu"
+  source_ami_filter {
+    filters = {
+      name                = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-*"
+      root-device-type    = "ebs"
+      virtualization-type = "hvm"
+    }
+    most_recent = true
+    owners      = ["099720109477"]
+  }
+}
+
+source "googlecompute" "ubuntu2404_systemd_agent_proxy" {
+  project_id          = var.gcp_project_id
+  source_image_family = "ubuntu-2404-lts-amd64"
+  source_image_project_id = ["ubuntu-os-cloud"]
+  zone                = var.gcp_zone
+  image_name          = "ubuntu2404-systemd-agent-proxy-golden-{{timestamp}}"
+  image_family        = "ubuntu2404-systemd-agent-proxy"
+  ssh_username        = "packer"
+}
+
+source "alicloud-ecs" "ubuntu2404_systemd_agent_proxy" {
+  region           = var.alicloud_region
+  image_name       = "ubuntu2404-systemd-agent-proxy-golden-{{timestamp}}"
+  source_image     = "ubuntu_24_04*"
+  instance_type    = var.alicloud_instance_type
+  ssh_username     = "root"
+  internet_charge_type = "PayByTraffic"
+}
+
 build {
-  sources = ["source.vultr.ubuntu2404_systemd_agent_proxy"]
+  sources = [
+    "source.qemu.ubuntu2404_systemd_agent_proxy",
+    "source.vultr.ubuntu2404_systemd_agent_proxy",
+    "source.linode.ubuntu2404_systemd_agent_proxy",
+    "source.amazon-ebs.ubuntu2404_systemd_agent_proxy",
+    "source.googlecompute.ubuntu2404_systemd_agent_proxy",
+    "source.alicloud-ecs.ubuntu2404_systemd_agent_proxy",
+  ]
 
   provisioner "shell" {
-    script = "${path.root}/../scripts/setup-agent-proxy-runtime.sh"
+    script = "${path.root}/../scripts/00-base-os.sh"
   }
 
   provisioner "shell" {
-    script = "${path.root}/../scripts/setup-observability-runtime.sh"
+    script = "${path.root}/../scripts/01-security-hardening.sh"
   }
 
   provisioner "shell" {
-    script = "${path.root}/../scripts/cleanup-golden-image.sh"
+    script = "${path.root}/../scripts/13-agent-proxy-runtime.sh"
+  }
+
+  provisioner "shell" {
+    script = "${path.root}/../scripts/20-observability-core.sh"
+  }
+
+  provisioner "shell" {
+    script = "${path.root}/../scripts/90-cloud-init-prep.sh"
+  }
+
+  provisioner "shell" {
+    script = "${path.root}/../scripts/99-cleanup-golden-image.sh"
   }
 }
