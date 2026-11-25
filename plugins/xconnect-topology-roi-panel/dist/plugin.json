@@ -23,7 +23,7 @@
       "small": "img/logo.svg",
       "large": "img/logo.svg"
     },
-    "version": "1.1.0",
+    "version": "1.1.1",
     "updated": "2026-11-25"
   },
   "dependencies": {
