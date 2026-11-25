@@ -145,18 +145,35 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
     return () => clearInterval(timer);
   }, [isPlayingTime]);
 
-  const resolvedNodeName = useMemo(() => {
-    const raw = options.nodeHostname || 'jp-xconnect-02.svc.plus';
+  const resolveTemplateVar = (expr: string, fallback: string): string => {
     if (replaceVariables) {
       try {
-        const v = replaceVariables(raw);
-        if (v && !v.startsWith('$')) return v;
+        const v = replaceVariables(expr);
+        if (v && !v.startsWith('$') && v !== '.*') {
+          return v.trim();
+        }
       } catch {
         // ignore
       }
     }
-    return liveTelemetry.instance || raw;
-  }, [options.nodeHostname, replaceVariables, liveTelemetry.instance]);
+    return fallback;
+  };
+
+  const rawResolvedNode = resolveTemplateVar(
+    options.nodeHostname || '$instance',
+    liveTelemetry.instance || 'jp-xconnect-02.svc.plus'
+  );
+  const resolvedNodeName = rawResolvedNode.replace(/:\d+$/, '');
+  const nodeShortName = resolvedNodeName.split('.')[0] || 'jp-xconnect-02';
+  const resolvedGatewayId = nodeShortName.includes('-xconnect-')
+    ? nodeShortName.replace(/-xconnect-/, '-xconnect-gateway-')
+    : `${nodeShortName}-gateway`;
+  const resolvedGatewayHost = resolvedNodeName.includes('.')
+    ? `${resolvedGatewayId}.${resolvedNodeName.split('.').slice(1).join('.')}`
+    : resolvedGatewayId;
+  const resolvedOverlayNet = `net-${nodeShortName}`;
+  const resolvedEnv = resolveTemplateVar('$environment', liveTelemetry.environment || 'prod');
+  const resolvedTestId = resolveTemplateVar('$testid', liveTelemetry.testId || '');
 
   const model = useMemo(
     () =>
@@ -398,9 +415,29 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
                   cursor: 'pointer',
                 }}
               >
-                ★ 实时流水线采样 ({liveTelemetry.testId || 'Prometheus'})
+                ★ 实时流水线采样 ({resolvedTestId || liveTelemetry.testId || 'Prometheus'})
               </button>
             )}
+            <a
+              href={k6WorkflowUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                background: 'rgba(14,165,233,0.18)',
+                border: '1px solid #38bdf8',
+                color: '#7dd3fc',
+                borderRadius: '6px',
+                padding: '4px 9px',
+                fontSize: '11px',
+                fontWeight: 700,
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              ⚡ 联动 K6 压测流水线 {resolvedEnv ? `[${resolvedEnv}]` : ''}
+            </a>
           </div>
         </div>
 
@@ -1748,7 +1785,7 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
                 XConnect Overlay Tunnel
               </text>
               <text x="56" y="614" fontSize="11" fontFamily="monospace" fill="#fb7185">
-                jp-xconnect-gateway-02.svc.plus:443
+                {resolvedGatewayHost}:443
               </text>
               <text x="56" y="631" fontSize="11" fontFamily="monospace" fill="#94a3b8">
                 path=/xconnect
@@ -1804,7 +1841,7 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
                 • 01-agent-proxy.yaml -&gt; 单一目标 &quot;proxy&quot; (/usr/local/etc/xray/config.json · 14 clients)
               </text>
               <text x="500" y="190" fontSize="12" fill="#e2e8f0">
-                • 02-xconnect-gateway.yaml -&gt; jp-xconnect-gateway-02 (net-jp-xconnect-02)
+                • 02-xconnect-gateway.yaml -&gt; {resolvedGatewayId} ({resolvedOverlayNet})
               </text>
               <text x="500" y="209" fontSize="11" fontFamily="monospace" fill="#fbbf24">
                 Role: roles/vhosts/xconnect-edge-agent · SIGHUP 热重载
@@ -2068,7 +2105,7 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
                 UDP 127.0.0.1:51820
               </text>
               <text x="1312" y="608" fontSize="11" fontFamily="monospace" fill="#94a3b8">
-                net-jp-xconnect-02
+                {resolvedOverlayNet}
               </text>
             </g>
 

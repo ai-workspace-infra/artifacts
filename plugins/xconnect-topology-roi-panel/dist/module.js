@@ -874,17 +874,29 @@ var XConnectTopologyRoiPanel = (props) => {
     }, 180);
     return () => clearInterval(timer);
   }, [isPlayingTime]);
-  const resolvedNodeName = (0, import_react.useMemo)(() => {
-    const raw = options.nodeHostname || "jp-xconnect-02.svc.plus";
+  const resolveTemplateVar = (expr, fallback) => {
     if (replaceVariables) {
       try {
-        const v = replaceVariables(raw);
-        if (v && !v.startsWith("$")) return v;
+        const v = replaceVariables(expr);
+        if (v && !v.startsWith("$") && v !== ".*") {
+          return v.trim();
+        }
       } catch {
       }
     }
-    return liveTelemetry.instance || raw;
-  }, [options.nodeHostname, replaceVariables, liveTelemetry.instance]);
+    return fallback;
+  };
+  const rawResolvedNode = resolveTemplateVar(
+    options.nodeHostname || "$instance",
+    liveTelemetry.instance || "jp-xconnect-02.svc.plus"
+  );
+  const resolvedNodeName = rawResolvedNode.replace(/:\d+$/, "");
+  const nodeShortName = resolvedNodeName.split(".")[0] || "jp-xconnect-02";
+  const resolvedGatewayId = nodeShortName.includes("-xconnect-") ? nodeShortName.replace(/-xconnect-/, "-xconnect-gateway-") : `${nodeShortName}-gateway`;
+  const resolvedGatewayHost = resolvedNodeName.includes(".") ? `${resolvedGatewayId}.${resolvedNodeName.split(".").slice(1).join(".")}` : resolvedGatewayId;
+  const resolvedOverlayNet = `net-${nodeShortName}`;
+  const resolvedEnv = resolveTemplateVar("$environment", liveTelemetry.environment || "prod");
+  const resolvedTestId = resolveTemplateVar("$testid", liveTelemetry.testId || "");
   const model = (0, import_react.useMemo)(
     () => computeOperatingModel(targetVu, {
       userMultiplier,
@@ -1096,8 +1108,30 @@ var XConnectTopologyRoiPanel = (props) => {
             }
           },
           "\u2605 \u5B9E\u65F6\u6D41\u6C34\u7EBF\u91C7\u6837 (",
-          liveTelemetry.testId || "Prometheus",
+          resolvedTestId || liveTelemetry.testId || "Prometheus",
           ")"
+        ), /* @__PURE__ */ import_react.default.createElement(
+          "a",
+          {
+            href: k6WorkflowUrl,
+            target: "_blank",
+            rel: "noreferrer",
+            style: {
+              background: "rgba(14,165,233,0.18)",
+              border: "1px solid #38bdf8",
+              color: "#7dd3fc",
+              borderRadius: "6px",
+              padding: "4px 9px",
+              fontSize: "11px",
+              fontWeight: 700,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px"
+            }
+          },
+          "\u26A1 \u8054\u52A8 K6 \u538B\u6D4B\u6D41\u6C34\u7EBF ",
+          resolvedEnv ? `[${resolvedEnv}]` : ""
         ))
       ),
       /* @__PURE__ */ import_react.default.createElement(
@@ -2110,7 +2144,7 @@ var XConnectTopologyRoiPanel = (props) => {
         /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("control") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "40", y: "95", width: "230", height: "106", rx: "10", fill: "#0f172a", stroke: "#fbbf24", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "122", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "accounts.svc.plus"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "143", fontSize: "12", fill: "#cbd5e1" }, "\u63A7\u5236\u9762 SaaS / \u8C03\u5EA6\u4E2D\u5FC3"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "164", fontSize: "11", fontFamily: "monospace", fill: "#fbbf24" }, "Users \xB7 Routing \xB7 Gateway Policy"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "182", fontSize: "11", fontFamily: "monospace", fill: "#94a3b8" }, "HTTPS / Sync 5m + SSE")),
         /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("proxy") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "40", y: "295", width: "230", height: "104", rx: "10", fill: "#0f172a", stroke: "#38bdf8", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "322", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "\u4EE3\u7406\u5BA2\u6237\u7AEF (XHTTP \xB7 ", model.vu, " VU)"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "343", fontSize: "12", fill: "#cbd5e1" }, "VLESS + XHTTP + TLS (fp=chrome)"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "364", fontSize: "11", fontFamily: "monospace", fill: "#38bdf8" }, resolvedNodeName, ":443"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "382", fontSize: "11", fontFamily: "monospace", fill: "#94a3b8" }, "path=/split \xB7 alpn=h2,http/1.1")),
         /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("proxy") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "40", y: "425", width: "230", height: "92", rx: "10", fill: "#0f172a", stroke: "#34d399", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "452", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "\u4EE3\u7406\u5BA2\u6237\u7AEF (TCP Vision)"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "473", fontSize: "12", fill: "#cbd5e1" }, "VLESS + TLS + xtls-rprx-vision"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "494", fontSize: "11", fontFamily: "monospace", fill: "#34d399" }, resolvedNodeName, ":1443")),
-        /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("gateway") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "40", y: "545", width: "230", height: "98", rx: "10", fill: "#0f172a", stroke: "#fb7185", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "572", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "\u96F6\u4FE1\u4EFB Gateway \u5BA2\u6237\u7AEF"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "593", fontSize: "12", fill: "#cbd5e1" }, "XConnect Overlay Tunnel"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "614", fontSize: "11", fontFamily: "monospace", fill: "#fb7185" }, "jp-xconnect-gateway-02.svc.plus:443"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "631", fontSize: "11", fontFamily: "monospace", fill: "#94a3b8" }, "path=/xconnect")),
+        /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("gateway") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "40", y: "545", width: "230", height: "98", rx: "10", fill: "#0f172a", stroke: "#fb7185", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "572", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "\u96F6\u4FE1\u4EFB Gateway \u5BA2\u6237\u7AEF"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "593", fontSize: "12", fill: "#cbd5e1" }, "XConnect Overlay Tunnel"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "614", fontSize: "11", fontFamily: "monospace", fill: "#fb7185" }, resolvedGatewayHost, ":443"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "631", fontSize: "11", fontFamily: "monospace", fill: "#94a3b8" }, "path=/xconnect")),
         /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("obs") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "40", y: "715", width: "230", height: "118", rx: "10", fill: "#0f172a", stroke: "#a78bfa", strokeWidth: "1.5" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "742", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "GitOps + Playbooks"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "763", fontSize: "12", fill: "#cbd5e1" }, "\u6BCF\u65E5\u5B9A\u65F6\u81EA\u6211\u6536\u655B (ansible-pull)"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "784", fontSize: "11", fontFamily: "monospace", fill: "#a78bfa" }, "xconnect-regional-pools.yaml"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "802", fontSize: "11", fontFamily: "monospace", fill: "#cbd5e1" }, "sysctl / fluxgate / xray / journald"), /* @__PURE__ */ import_react.default.createElement("text", { x: "56", y: "820", fontSize: "11", fontFamily: "monospace", fill: "#94a3b8" }, "\u5DF2\u505C\u975E\u6838\u5FC3: fail2ban/unattended/auditd")),
         /* @__PURE__ */ import_react.default.createElement(
           "g",
@@ -2137,7 +2171,7 @@ var XConnectTopologyRoiPanel = (props) => {
           /* @__PURE__ */ import_react.default.createElement("text", { x: "945", y: "125", textAnchor: "middle", fontSize: "11", fontWeight: "700", fill: "#fbbf24" }, "RSS ", edgeAgentRss, " MB"),
           /* @__PURE__ */ import_react.default.createElement("text", { x: "500", y: "150", fontSize: "12", fontFamily: "monospace", fill: "#cbd5e1" }, "/usr/local/bin/agent-proxy -config /etc/agent/account-agent.yaml"),
           /* @__PURE__ */ import_react.default.createElement("text", { x: "500", y: "171", fontSize: "12", fill: "#e2e8f0" }, '\u2022 01-agent-proxy.yaml -> \u5355\u4E00\u76EE\u6807 "proxy" (/usr/local/etc/xray/config.json \xB7 14 clients)'),
-          /* @__PURE__ */ import_react.default.createElement("text", { x: "500", y: "190", fontSize: "12", fill: "#e2e8f0" }, "\u2022 02-xconnect-gateway.yaml -> jp-xconnect-gateway-02 (net-jp-xconnect-02)"),
+          /* @__PURE__ */ import_react.default.createElement("text", { x: "500", y: "190", fontSize: "12", fill: "#e2e8f0" }, "\u2022 02-xconnect-gateway.yaml -> ", resolvedGatewayId, " (", resolvedOverlayNet, ")"),
           /* @__PURE__ */ import_react.default.createElement("text", { x: "500", y: "209", fontSize: "11", fontFamily: "monospace", fill: "#fbbf24" }, "Role: roles/vhosts/xconnect-edge-agent \xB7 SIGHUP \u70ED\u91CD\u8F7D")
         ),
         /* @__PURE__ */ import_react.default.createElement(
@@ -2272,7 +2306,7 @@ var XConnectTopologyRoiPanel = (props) => {
         ),
         /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("obs") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "960", y: "712", width: "250", height: "154", rx: "10", fill: "#0f172a", stroke: "rgba(167,139,250,0.45)", strokeWidth: "1.5" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "976", y: "738", fontSize: "13", fontWeight: "700", fill: "#f8fafc" }, "\u57FA\u7840\u652F\u6491\u91C7\u96C6\u8FDB\u7A0B"), /* @__PURE__ */ import_react.default.createElement("text", { x: "976", y: "762", fontSize: "12", fontFamily: "monospace", fill: "#cbd5e1" }, "\u2022 systemd-journald  ", journaldRss, " MB"), /* @__PURE__ */ import_react.default.createElement("text", { x: "976", y: "781", fontSize: "11", fontFamily: "monospace", fill: "#a78bfa" }, "cap: 24M/48M \xB7 disk 64M/3d"), /* @__PURE__ */ import_react.default.createElement("text", { x: "976", y: "803", fontSize: "12", fontFamily: "monospace", fill: "#cbd5e1" }, "\u2022 node_exporter     20.3 MB"), /* @__PURE__ */ import_react.default.createElement("text", { x: "976", y: "822", fontSize: "12", fontFamily: "monospace", fill: "#cbd5e1" }, "\u2022 process-exporter  16.9 MB"), /* @__PURE__ */ import_react.default.createElement("text", { x: "976", y: "841", fontSize: "12", fontFamily: "monospace", fill: "#cbd5e1" }, "\u2022 metrics-sup.py     7.0 MB")),
         /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("proxy") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "1295", y: "295", width: "225", height: "186", rx: "10", fill: "#0f172a", stroke: "#34d399", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "322", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "Proxy \u7B56\u7565\u8DEF\u7531\u51FA\u7AD9"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "346", fontSize: "12", fontFamily: "monospace", fill: "#34d399" }, "\u2022 pool-media-stream"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "366", fontSize: "12", fontFamily: "monospace", fill: "#34d399" }, "\u2022 pool-pro-ai-dev"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "386", fontSize: "12", fontFamily: "monospace", fill: "#34d399" }, "\u2022 pool-media-fallback"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "408", fontSize: "12", fontFamily: "monospace", fill: "#cbd5e1" }, "\u2022 direct-cn (geosite/ip)"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "428", fontSize: "12", fontFamily: "monospace", fill: "#94a3b8" }, "\u2022 blocked-private"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "458", fontSize: "11", fill: "#94a3b8" }, "DomainStrategy: IPIfNonMatch")),
-        /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("gateway") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "1295", y: "514", width: "225", height: "122", rx: "10", fill: "#0f172a", stroke: "#fb7185", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "542", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "WireGuard Overlay"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "566", fontSize: "12", fontFamily: "monospace", fill: "#fb7185" }, "interface: xconzero0"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "586", fontSize: "12", fontFamily: "monospace", fill: "#cbd5e1" }, "UDP 127.0.0.1:51820"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "608", fontSize: "11", fontFamily: "monospace", fill: "#94a3b8" }, "net-jp-xconnect-02")),
+        /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("gateway") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "1295", y: "514", width: "225", height: "122", rx: "10", fill: "#0f172a", stroke: "#fb7185", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "542", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "WireGuard Overlay"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "566", fontSize: "12", fontFamily: "monospace", fill: "#fb7185" }, "interface: xconzero0"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "586", fontSize: "12", fontFamily: "monospace", fill: "#cbd5e1" }, "UDP 127.0.0.1:51820"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "608", fontSize: "11", fontFamily: "monospace", fill: "#94a3b8" }, resolvedOverlayNet)),
         /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("obs") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "1295", y: "685", width: "225", height: "92", rx: "10", fill: "#0f172a", stroke: "#a78bfa", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "712", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "billing.svc.plus"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "734", fontSize: "12", fontFamily: "monospace", fill: "#a78bfa" }, "/v1/ingest/snapshots"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "754", fontSize: "11", fill: "#cbd5e1" }, "\u6BCF\u5206\u949F\u6D41\u91CF\u8BA1\u8D39\u5165\u5E93 (PG)")),
         /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("obs") ? 1 : 0.16 }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "1295", y: "795", width: "225", height: "92", rx: "10", fill: "#0f172a", stroke: "#a78bfa", strokeWidth: "2" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "822", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "observability.svc.plus"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "844", fontSize: "11", fontFamily: "monospace", fill: "#a78bfa" }, "VictoriaMetrics + VictoriaLogs"), /* @__PURE__ */ import_react.default.createElement("text", { x: "1312", y: "864", fontSize: "11", fill: "#cbd5e1" }, "\u8282\u70B9/\u8FDB\u7A0B/Xray/Fluxgate \u5168\u666F\u76D1\u63A7")),
         /* @__PURE__ */ import_react.default.createElement("g", { opacity: isLayerVisible("control") ? 1 : 0.12 }, /* @__PURE__ */ import_react.default.createElement("path", { d: "M 270 148 L 474 148", fill: "none", stroke: "#fbbf24", strokeWidth: "2.5", markerEnd: "url(#xc-arrow-amber)" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "372", y: "138", textAnchor: "middle", fontSize: "11", fontWeight: "600", fill: "#fbbf24" }, "5m Sync / SSE"), /* @__PURE__ */ import_react.default.createElement("path", { d: "M 880 220 L 880 288", fill: "none", stroke: "#fbbf24", strokeWidth: "2.3", strokeDasharray: "6 3", markerEnd: "url(#xc-arrow-amber)" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "888", y: "250", fontSize: "11", fontWeight: "600", fill: "#fbbf24" }, "\u5199 config.json + SIGHUP \u70ED\u52A0\u8F7D"), /* @__PURE__ */ import_react.default.createElement("path", { d: "M 700 220 L 700 575 L 729 575", fill: "none", stroke: "#fbbf24", strokeWidth: "2.3", strokeDasharray: "6 3", markerEnd: "url(#xc-arrow-amber)" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "706", y: "425", fontSize: "11", fontWeight: "600", fill: "#fbbf24", transform: "rotate(-90 706 425)" }, "xconnect-gateway apply")),
