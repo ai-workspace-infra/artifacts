@@ -63,9 +63,35 @@ export const plugin = new PanelPlugin<PanelOptions>(XConnectTopologyRoiPanel).se
       defaultValue: 7,
       settings: {
         options: [
-          { value: 7, label: '$7/月 (2C1G IPv4 标准档)' },
-          { value: 10, label: '$10/月 (对照档)' },
-          { value: 12, label: '$12/月 (对照档)' },
+          { value: 7, label: '$7/月 (2C1G IPv4 标准档, 含 2TB 流量)' },
+          { value: 10, label: '$10/月 (对照档, 含 2TB 流量)' },
+          { value: 12, label: '$12/月 (对照档, 含 2TB 流量)' },
+        ],
+      },
+    })
+    .addRadio({
+      path: 'defaultGbPerUserMonth',
+      name: '人均月流量模型 (GB/人/月)',
+      description: '计算均摊 + 流量均摊模型下每位在线用户的平均月消耗流量（120 VU @4x 下 2TB 包内约 4.27 GB/人）',
+      defaultValue: 10,
+      settings: {
+        options: [
+          { value: 4.27, label: '4.27 GB (2TB 包内免超额)' },
+          { value: 10, label: '10 GB (轻量日常办公)' },
+          { value: 20, label: '20 GB (标准研发+流媒体)' },
+          { value: 50, label: '50 GB (重度流量用户)' },
+        ],
+      },
+    })
+    .addRadio({
+      path: 'defaultTrafficBillingMode',
+      name: '超额流量计费与扩容策略',
+      description: '对比多台 2C1G 节点池化流量包 ($0.00342/GB @ $7) 与单机硬抗 AWS 超额流量费 ($0.09/GB)',
+      defaultValue: 'pooled',
+      settings: {
+        options: [
+          { value: 'pooled', label: '2C1G 流量包池化均摊 ($0.00342/GB)' },
+          { value: 'overage', label: '单机硬抗 AWS 超额 ($0.09/GB)' },
         ],
       },
     })
@@ -96,5 +122,10 @@ export const plugin = new PanelPlugin<PanelOptions>(XConnectTopologyRoiPanel).se
       path: 'totalRamMib',
       name: '节点物理内存上限 (MiB)',
       defaultValue: 939,
+    })
+    .addTextInput({
+      path: 'k6WorkflowUrl',
+      name: 'Playbooks k6 压测流水线链接',
+      defaultValue: 'https://github.com/ai-workspace-infra/playbooks/actions/workflows/k6-proxy-performance.yml',
     });
 });

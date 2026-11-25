@@ -5,6 +5,7 @@ import {
   LivePrometheusSnapshot,
   SloLevel,
   TierCostBreakdown,
+  TrafficBillingMode,
 } from './types';
 
 // 121 points (0.0m to 30.0m at 15s = 0.25m resolution) from real 1s-sampled k6-30m.log (40 VU)
@@ -215,6 +216,8 @@ export function computeOperatingModel(
     cleanTmpfs?: boolean;
     vectorOptimized?: boolean;
     totalRamMib?: number;
+    gbPerUserMonth?: number;
+    trafficBillingMode?: TrafficBillingMode;
   }
 ): DynamicOperatingModel {
   const vu = Math.max(1, Math.min(500, Math.round(rawVu || 120)));
@@ -222,6 +225,9 @@ export function computeOperatingModel(
   const cleanTmpfs = options?.cleanTmpfs ?? true;
   const vectorOptimized = options?.vectorOptimized ?? true;
   const totalRamMib = options?.totalRamMib && options.totalRamMib > 100 ? options.totalRamMib : 939;
+  const gbPerUserMonth =
+    options?.gbPerUserMonth != null && options.gbPerUserMonth > 0 ? Number(options.gbPerUserMonth) : 10;
+  const trafficBillingMode: TrafficBillingMode = options?.trafficBillingMode || 'pooled';
 
   const rampAnchors: Array<[number, number]> = K6_RAMP_CHECKPOINTS.map((p) => [p.targetVu, p.qps]);
   const rampQps = Number(lerpPiecewise(vu, rampAnchors).toFixed(2));
@@ -267,21 +273,57 @@ export function computeOperatingModel(
 
   const slo = evaluateSlo(estimatedP95Ms, ramPct, vu);
 
-  // ROI economics (30d = 2,592,000s)
-  const onlineUsers = Math.round(vu * userMultiplier);
+  // ROI economics: Compute Amortization + Traffic Amortization (计算费用均摊 + 流量费用均摊)
+  // AWS Lightsail 2C1G ($7/$10/$12) includes 2 TB/mo (2,048 GB) free outbound transfer.
+  const bundledTrafficGb = 2048;
+  const overageTrafficRatePerGb = 0.09; // AWS Lightsail AP-Tokyo overage rate ($0.09/GB)
+  const onlineUsers = Math.max(1, Math.round(vu * userMultiplier));
   const monthlyReqsM = Number(((steadyQps * 2592000) / 1e6).toFixed(1));
   // Avg bytes per request in k6 test was ~680 B for generate_204; for real proxy traffic (~12 KB/req avg mix)
   const estimatedBandwidthMbps = Number(((steadyQps * 12 * 1024 * 8) / 1e6).toFixed(2));
   const monthlyTrafficTb = Number(((estimatedBandwidthMbps * 2592000) / 8 / 1e6).toFixed(2));
   const trafficQuotaPct2Tb = Number(((monthlyTrafficTb / 2.0) * 100).toFixed(1));
 
+  const includedGbRaw = bundledTrafficGb / onlineUsers;
+  const includedGbPerUser = Number(includedGbRaw.toFixed(2));
+  const extraGbRaw =
+    gbPerUserMonth <= includedGbPerUser + 1e-4 ? 0 : Math.max(0, gbPerUserMonth - includedGbRaw);
+  const extraGbPerUser = Number(extraGbRaw.toFixed(2));
+  const totalUserTrafficTb = Number(((onlineUsers * gbPerUserMonth) / 1024).toFixed(2));
+  const pooledNodesNeeded = Number(Math.max(1, (onlineUsers * gbPerUserMonth) / bundledTrafficGb).toFixed(2));
+
   const round4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
-  const buildTier = (price: 7 | 10 | 12): TierCostBreakdown => ({
-    tierPriceUsd: price,
-    costPerVuUsd: round4(price / vu),
-    costPerUserUsd: round4(price / Math.max(1, onlineUsers)),
-    costPer1MReqUsd: round4(price / Math.max(0.1, monthlyReqsM)),
-  });
+  const round6 = (n: number) => Math.round((n + Number.EPSILON) * 1000000) / 1000000;
+
+  const buildTier = (price: 7 | 10 | 12): TierCostBreakdown => {
+    const computeCostPerUserUsd = round4(price / onlineUsers);
+    const pooledRateRaw = price / bundledTrafficGb;
+    const pooledTrafficRatePerGb = round6(pooledRateRaw);
+    const trafficCostPerUserPooledUsd = round4(extraGbRaw * pooledRateRaw);
+    const trafficCostPerUserOverageUsd = round4(extraGbRaw * overageTrafficRatePerGb);
+    const totalCostPerUserPooledUsd = round4(computeCostPerUserUsd + trafficCostPerUserPooledUsd);
+    const totalCostPerUserOverageUsd = round4(computeCostPerUserUsd + trafficCostPerUserOverageUsd);
+    const activeTrafficCostPerUserUsd =
+      trafficBillingMode === 'overage' ? trafficCostPerUserOverageUsd : trafficCostPerUserPooledUsd;
+    const activeTotalCostPerUserUsd =
+      trafficBillingMode === 'overage' ? totalCostPerUserOverageUsd : totalCostPerUserPooledUsd;
+
+    return {
+      tierPriceUsd: price,
+      costPerVuUsd: round4(price / vu),
+      costPerUserUsd: computeCostPerUserUsd,
+      computeCostPerUserUsd,
+      pooledTrafficRatePerGb,
+      overageTrafficRatePerGb,
+      trafficCostPerUserPooledUsd,
+      trafficCostPerUserOverageUsd,
+      totalCostPerUserPooledUsd,
+      totalCostPerUserOverageUsd,
+      activeTrafficCostPerUserUsd,
+      activeTotalCostPerUserUsd,
+      costPer1MReqUsd: round4(price / Math.max(0.1, monthlyReqsM)),
+    };
+  };
 
   return {
     vu,
@@ -323,6 +365,14 @@ export function computeOperatingModel(
       estimatedBandwidthMbps,
       monthlyTrafficTb,
       trafficQuotaPct2Tb,
+      bundledTrafficGb,
+      includedGbPerUser,
+      gbPerUserMonth,
+      extraGbPerUser,
+      totalUserTrafficTb,
+      pooledNodesNeeded,
+      trafficBillingMode,
+      overageTrafficRatePerGb,
       tiers: {
         7: buildTier(7),
         10: buildTier(10),
@@ -351,7 +401,7 @@ export function simulateTimeseriesForVu(targetVu: number): K6TimeseriesPoint[] {
     const blendedNorm = (1 - tBlend) * norm40 + tBlend * norm500;
     const peakSteady = vu <= 150 ? modelAtTarget.steadyQps : modelAtTarget.steadyQps * (1 + 0.45 * tBlend);
     const simQps = Number(Math.max(0.5, blendedNorm * peakSteady).toFixed(2));
-    const simLat = Number(Math.max(50, ((simVu / Math.max(0.5, simQps)) - 1) * 1000).toFixed(1));
+    const simLat = Number(Math.max(50, (simVu / Math.max(0.5, simQps) - 1) * 1000).toFixed(1));
     return {
       minute: p40.minute,
       avgVu: simVu,
@@ -362,92 +412,236 @@ export function simulateTimeseriesForVu(targetVu: number): K6TimeseriesPoint[] {
 }
 
 /**
- * Parses optional live Prometheus / VictoriaMetrics frames from Grafana `data.series`.
+ * Parses optional live Prometheus / VictoriaMetrics frames (both instant & range time-series)
+ * from Grafana `data.series`, including live k6 remote-write runs (`k6_vus`, `k6_http_reqs_total`,
+ * `k6_http_req_duration_p95`, `k6_custom_api_latency`, `k6_custom_error_rate`, `testid`).
  * Never throws; returns `hasLiveTelemetry: false` when no matching series exist.
  */
 export function parsePrometheusTelemetry(series: any[] | undefined): LivePrometheusSnapshot {
   const snapshot: LivePrometheusSnapshot = {
     hasLiveTelemetry: false,
+    hasK6PipelineData: false,
     processRssMib: {},
+    liveSeries: [],
   };
   if (!Array.isArray(series) || series.length === 0) {
     return snapshot;
   }
 
-  const lastValue = (field: any): number | null => {
+  const getFieldLen = (field: any): number => {
     if (!field || !field.values) {
-      return null;
+      return 0;
     }
     const vals = field.values;
-    const len = typeof vals.length === 'number' ? vals.length : typeof vals.size === 'number' ? vals.size : 0;
-    if (len <= 0) {
+    return typeof vals.length === 'number' ? vals.length : typeof vals.size === 'number' ? vals.size : 0;
+  };
+
+  const getFieldVal = (field: any, idx: number): number | null => {
+    const vals = field?.values;
+    if (!vals) {
       return null;
     }
+    const raw = typeof vals.get === 'function' ? vals.get(idx) : vals[idx];
+    const num = Number(raw);
+    return raw != null && !Number.isNaN(num) ? num : null;
+  };
+
+  const lastValue = (field: any): number | null => {
+    const len = getFieldLen(field);
     for (let i = len - 1; i >= 0; i--) {
-      const v = typeof vals.get === 'function' ? vals.get(i) : vals[i];
-      const num = Number(v);
-      if (v != null && !Number.isNaN(num)) {
+      const num = getFieldVal(field, i);
+      if (num !== null) {
         return num;
       }
     }
     return null;
   };
 
+  const vusByTs = new Map<number, number>();
+  const qpsByTs = new Map<number, number>();
+  const p95ByTs = new Map<number, number>();
+
   for (const frame of series) {
     if (!frame || !Array.isArray(frame.fields)) {
       continue;
     }
-    const numField = frame.fields.find((f: any) => f.type === 'number' || f.name === 'Value');
-    if (!numField) {
+    const timeField = frame.fields.find((f: any) => f.type === 'time' || f.name === 'Time');
+    const numFields = frame.fields.filter((f: any) => f.type === 'number' || f.name === 'Value');
+    if (numFields.length === 0) {
       continue;
     }
-    const val = lastValue(numField);
-    if (val === null) {
-      continue;
-    }
-    const labels: Record<string, string> = frame.labels || numField.labels || {};
-    const metricName = String(labels.__name__ || frame.name || numField.name || '').toLowerCase();
+
     const refId = String(frame.refId || '');
 
-    if (labels.instance && !snapshot.instance) {
-      snapshot.instance = labels.instance;
-    }
-
-    if (metricName.includes('fluxgate_active_connections') || metricName.includes('k6_vus') || refId === 'VU') {
-      snapshot.activeVusOrConns = Math.round(val);
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes('k6_http_reqs') || metricName.includes('fluxgate_http_requests') || refId === 'QPS') {
-      snapshot.liveQps = Number(val.toFixed(2));
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes('duration_p95') || refId === 'P95') {
-      snapshot.liveP95Ms = Number((val < 30 ? val * 1000 : val).toFixed(1));
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes('node_memory_memtotal_bytes') || refId === 'MEM_TOTAL') {
-      snapshot.memTotalMib = Number((val / (1024 * 1024)).toFixed(1));
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes('node_memory_memavailable_bytes') || refId === 'MEM_AVAIL') {
-      snapshot.memAvailMib = Number((val / (1024 * 1024)).toFixed(1));
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes('namedprocess_namegroup_memory_bytes') || refId === 'PROC_RSS') {
-      const grp = String(labels.groupname || '').toLowerCase();
-      const mib = Number((val / (1024 * 1024)).toFixed(1));
-      if (grp.includes('fluxgate')) {
-        snapshot.processRssMib.fluxgate = mib;
-      } else if (grp.includes('gateway')) {
-        snapshot.processRssMib.gatewayXray = mib;
-      } else if (grp.includes('xray')) {
-        snapshot.processRssMib.proxyXray = mib;
-      } else if (grp.includes('edge-agent') || grp.includes('agent-proxy')) {
-        snapshot.processRssMib.edgeAgent = mib;
-      } else if (grp.includes('vector')) {
-        snapshot.processRssMib.vector = mib;
-      } else if (grp.includes('journal')) {
-        snapshot.processRssMib.journald = mib;
+    for (const numField of numFields) {
+      const val = lastValue(numField);
+      if (val === null) {
+        continue;
       }
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes('xray_up') || refId === 'XRAY_UP') {
-      snapshot.xrayUp = val;
-      snapshot.hasLiveTelemetry = true;
+      const labels: Record<string, string> = { ...(frame.labels || {}), ...(numField.labels || {}) };
+      const metricName = String(labels.__name__ || frame.name || numField.name || '').toLowerCase();
+
+      if (labels.instance && !snapshot.instance) {
+        snapshot.instance = labels.instance;
+      }
+      if (labels.testid && !snapshot.testId) {
+        snapshot.testId = labels.testid;
+        snapshot.hasK6PipelineData = true;
+      }
+      if (labels.test_profile && !snapshot.testProfile) {
+        snapshot.testProfile = labels.test_profile;
+      }
+      if (labels.environment && !snapshot.environment) {
+        snapshot.environment = labels.environment;
+      }
+
+      const extractRangePoints = (targetMap: Map<number, number>, transform?: (v: number) => number) => {
+        const len = getFieldLen(numField);
+        if (len <= 1 && !timeField) {
+          return;
+        }
+        for (let i = 0; i < len; i++) {
+          const v = getFieldVal(numField, i);
+          if (v === null) {
+            continue;
+          }
+          const ts = timeField ? getFieldVal(timeField, i) ?? i * 15000 : i * 15000;
+          const mapped = transform ? transform(v) : v;
+          targetMap.set(ts, mapped);
+        }
+      };
+
+      if (
+        refId === 'K6_VUS_TS' ||
+        refId === 'FLUX_CONNS_TS' ||
+        refId === 'VU' ||
+        metricName.includes('k6_vus') ||
+        metricName.includes('fluxgate_active_connections')
+      ) {
+        snapshot.activeVusOrConns = Math.round(val);
+        snapshot.hasLiveTelemetry = true;
+        if (refId === 'K6_VUS_TS' || metricName.includes('k6_vus')) {
+          snapshot.hasK6PipelineData = true;
+        }
+        extractRangePoints(vusByTs, (v) => Math.max(0, Number(v.toFixed(1))));
+      } else if (
+        refId === 'K6_QPS_TS' ||
+        refId === 'FLUX_QPS_TS' ||
+        refId === 'QPS' ||
+        metricName.includes('k6_http_reqs') ||
+        metricName.includes('fluxgate_http_requests')
+      ) {
+        snapshot.liveQps = Number(val.toFixed(2));
+        snapshot.hasLiveTelemetry = true;
+        if (refId === 'K6_QPS_TS' || metricName.includes('k6_http_reqs')) {
+          snapshot.hasK6PipelineData = true;
+        }
+        extractRangePoints(qpsByTs, (v) => Math.max(0, Number(v.toFixed(2))));
+      } else if (
+        refId === 'K6_P95_TS' ||
+        refId === 'P95' ||
+        metricName.includes('duration_p95') ||
+        metricName.includes('k6_custom_api_latency')
+      ) {
+        const toMs = (v: number) => Number((v > 0 && v < 15 ? v * 1000 : v).toFixed(1));
+        snapshot.liveP95Ms = toMs(val);
+        snapshot.hasLiveTelemetry = true;
+        if (
+          refId === 'K6_P95_TS' ||
+          metricName.includes('k6_http_req_duration') ||
+          metricName.includes('k6_custom_api_latency')
+        ) {
+          snapshot.hasK6PipelineData = true;
+        }
+        extractRangePoints(p95ByTs, toMs);
+      } else if (
+        refId === 'K6_ERR_RATE' ||
+        metricName.includes('k6_custom_error_rate') ||
+        metricName.includes('http_req_failed')
+      ) {
+        snapshot.liveErrorRate = Number((val <= 1 ? val * 100 : val).toFixed(2));
+        snapshot.hasLiveTelemetry = true;
+        snapshot.hasK6PipelineData = true;
+      } else if (metricName.includes('node_memory_memtotal_bytes') || refId === 'MEM_TOTAL') {
+        snapshot.memTotalMib = Number((val / (1024 * 1024)).toFixed(1));
+        snapshot.hasLiveTelemetry = true;
+      } else if (metricName.includes('node_memory_memavailable_bytes') || refId === 'MEM_AVAIL') {
+        snapshot.memAvailMib = Number((val / (1024 * 1024)).toFixed(1));
+        snapshot.hasLiveTelemetry = true;
+      } else if (metricName.includes('namedprocess_namegroup_memory_bytes') || refId === 'PROC_RSS') {
+        const grp = String(labels.groupname || '').toLowerCase();
+        const mib = Number((val / (1024 * 1024)).toFixed(1));
+        if (grp.includes('fluxgate')) {
+          snapshot.processRssMib.fluxgate = mib;
+        } else if (grp.includes('gateway')) {
+          snapshot.processRssMib.gatewayXray = mib;
+        } else if (grp.includes('xray')) {
+          snapshot.processRssMib.proxyXray = mib;
+        } else if (grp.includes('edge-agent') || grp.includes('agent-proxy')) {
+          snapshot.processRssMib.edgeAgent = mib;
+        } else if (grp.includes('vector')) {
+          snapshot.processRssMib.vector = mib;
+        } else if (grp.includes('journal')) {
+          snapshot.processRssMib.journald = mib;
+        }
+        snapshot.hasLiveTelemetry = true;
+      } else if (metricName.includes('xray_up') || refId === 'XRAY_UP') {
+        snapshot.xrayUp = val;
+        snapshot.hasLiveTelemetry = true;
+      }
+    }
+  }
+
+  // Build unified live timeseries curve (mapped onto 0..30m axis) if range points exist
+  const allTimestamps = Array.from(
+    new Set<number>([...vusByTs.keys(), ...qpsByTs.keys(), ...p95ByTs.keys()])
+  ).sort((a, b) => a - b);
+
+  if (allTimestamps.length >= 2) {
+    const t0 = allTimestamps[0];
+    const tEnd = allTimestamps[allTimestamps.length - 1];
+    const spanMin = Math.max(0.25, (tEnd - t0) / 60000);
+    // If span exceeds 30m, normalize to 0..30m; otherwise use elapsed minutes from t0 (up to 30m)
+    const scaleFactor = spanMin > 30 ? 30 / spanMin : 1;
+
+    let lastVu = snapshot.activeVusOrConns ?? 40;
+    let lastQps = snapshot.liveQps ?? 1;
+    let lastP95 = snapshot.liveP95Ms ?? 150;
+    let maxVu = 0;
+    let maxQps = 0;
+
+    snapshot.liveSeries = allTimestamps.map((ts) => {
+      if (vusByTs.has(ts)) {
+        lastVu = vusByTs.get(ts)!;
+      }
+      if (qpsByTs.has(ts)) {
+        lastQps = qpsByTs.get(ts)!;
+      }
+      if (p95ByTs.has(ts)) {
+        lastP95 = p95ByTs.get(ts)!;
+      } else if (lastVu > 0 && lastQps > 0) {
+        lastP95 = Number(Math.max(50, (lastVu / Math.max(0.5, lastQps) - 1) * 1000).toFixed(1));
+      }
+      if (lastVu > maxVu) {
+        maxVu = lastVu;
+      }
+      if (lastQps > maxQps) {
+        maxQps = lastQps;
+      }
+      const rawMin = ((ts - t0) / 60000) * scaleFactor;
+      return {
+        minute: Number(Math.max(0, Math.min(30, rawMin)).toFixed(2)),
+        avgVu: Number(lastVu.toFixed(1)),
+        qps: Number(lastQps.toFixed(2)),
+        impliedLatencyMs: Number(lastP95.toFixed(1)),
+      };
+    });
+
+    if (maxVu > 0) {
+      snapshot.peakVus = Math.round(maxVu);
+    }
+    if (maxQps > 0) {
+      snapshot.peakQps = Number(maxQps.toFixed(2));
     }
   }
 

@@ -32,14 +32,47 @@ assert.equal(m40.sloLevel, 'PASS');
 assert.ok(Math.abs(m40.estimatedP95Ms - 207.1) < 1, '40 VU P95 calibrated to 207.1 ms');
 assert.equal(m40.roi.tiers[7].costPerUserUsd, 0.0438);
 
-const m120 = m.computeOperatingModel(120, { cleanTmpfs: true, vectorOptimized: true, userMultiplier: 4 });
+const m120 = m.computeOperatingModel(120, {
+  cleanTmpfs: true,
+  vectorOptimized: true,
+  userMultiplier: 4,
+  gbPerUserMonth: 10,
+  trafficBillingMode: 'pooled',
+});
 assert.equal(m120.vu, 120);
 assert.equal(m120.onlineUsers, 480);
 assert.equal(m120.sloLevel, 'PASS');
+assert.equal(m120.roi.includedGbPerUser, 4.27);
+assert.equal(m120.roi.extraGbPerUser, 5.73);
 assert.equal(m120.roi.tiers[7].costPerVuUsd, 0.0583);
 assert.equal(m120.roi.tiers[7].costPerUserUsd, 0.0146);
+assert.equal(m120.roi.tiers[7].computeCostPerUserUsd, 0.0146);
+assert.equal(m120.roi.tiers[7].pooledTrafficRatePerGb, 0.003418);
+assert.equal(m120.roi.tiers[7].overageTrafficRatePerGb, 0.09);
+assert.equal(m120.roi.tiers[7].trafficCostPerUserPooledUsd, 0.0196);
+assert.equal(m120.roi.tiers[7].totalCostPerUserPooledUsd, 0.0342);
+assert.equal(m120.roi.tiers[7].trafficCostPerUserOverageUsd, 0.516);
+assert.equal(m120.roi.tiers[7].totalCostPerUserOverageUsd, 0.5306);
 assert.equal(m120.roi.tiers[10].costPerUserUsd, 0.0208);
 assert.equal(m120.roi.tiers[12].costPerUserUsd, 0.025);
+
+// Validate 4.27 GB bundled quota (0 traffic overage) and 20 GB traffic amortization
+const m120Bundled = m.computeOperatingModel(120, { userMultiplier: 4, gbPerUserMonth: 4.27 });
+assert.equal(m120Bundled.roi.extraGbPerUser, 0);
+assert.equal(m120Bundled.roi.tiers[7].trafficCostPerUserPooledUsd, 0);
+assert.equal(m120Bundled.roi.tiers[7].totalCostPerUserPooledUsd, 0.0146);
+assert.equal(m120Bundled.roi.tiers[7].totalCostPerUserOverageUsd, 0.0146);
+
+const m12020Gb = m.computeOperatingModel(120, {
+  userMultiplier: 4,
+  gbPerUserMonth: 20,
+  trafficBillingMode: 'overage',
+});
+assert.equal(m12020Gb.roi.tiers[7].trafficCostPerUserPooledUsd, 0.0538);
+assert.equal(m12020Gb.roi.tiers[7].totalCostPerUserPooledUsd, 0.0684);
+assert.equal(m12020Gb.roi.tiers[7].trafficCostPerUserOverageUsd, 1.416);
+assert.equal(m12020Gb.roi.tiers[7].totalCostPerUserOverageUsd, 1.4306);
+assert.equal(m12020Gb.roi.tiers[7].activeTotalCostPerUserUsd, 1.4306);
 
 // 3. Validate /tmp 75 MiB cleanup effect (+120 VU headroom before 75% RAM)
 const mWithTmp = m.computeOperatingModel(150, { cleanTmpfs: false, vectorOptimized: true });
@@ -56,15 +89,56 @@ assert.equal(m.computeOperatingModel(160).sloLevel, 'P1_WARN');
 assert.equal(m.computeOperatingModel(200).sloLevel, 'P2_DRAIN');
 assert.equal(m.computeOperatingModel(500).sloLevel, 'P3_CIRCUIT_BREAK');
 
-// 5. Validate simulated timeseries envelope & Prometheus frame parsing
+// 5. Validate simulated timeseries envelope & Prometheus instant + range k6 pipeline frame parsing
 const sim120 = m.simulateTimeseriesForVu(120);
 assert.equal(sim120.length, 121);
 assert.ok(sim120[60].qps > 35 && sim120[60].qps < 206);
 
+const t0 = 1764040000000;
 const live = m.parsePrometheusTelemetry([
   {
     refId: 'VU',
     fields: [{ name: 'Value', type: 'number', labels: { instance: 'jp-xconnect-02.svc.plus' }, values: [135] }],
+  },
+  {
+    refId: 'K6_VUS_TS',
+    fields: [
+      { name: 'Time', type: 'time', values: [t0, t0 + 60000, t0 + 120000] },
+      {
+        name: 'k6_vus',
+        type: 'number',
+        labels: {
+          testid: 'k6-prod-jp-xconnect-02-20261125-pipeline',
+          test_profile: 'proxy_capacity',
+          environment: 'prod',
+        },
+        values: [40, 120, 150],
+      },
+    ],
+  },
+  {
+    refId: 'K6_QPS_TS',
+    fields: [
+      { name: 'Time', type: 'time', values: [t0, t0 + 60000, t0 + 120000] },
+      {
+        name: 'k6_http_reqs_total',
+        type: 'number',
+        labels: { testid: 'k6-prod-jp-xconnect-02-20261125-pipeline' },
+        values: [35.3, 80.4, 95.2],
+      },
+    ],
+  },
+  {
+    refId: 'K6_P95_TS',
+    fields: [
+      { name: 'Time', type: 'time', values: [t0, t0 + 60000, t0 + 120000] },
+      {
+        name: 'k6_http_req_duration_p95',
+        type: 'number',
+        labels: { testid: 'k6-prod-jp-xconnect-02-20261125-pipeline' },
+        values: [207.1, 680.0, 945.0],
+      },
+    ],
   },
   {
     refId: 'PROC_RSS',
@@ -79,8 +153,16 @@ const live = m.parsePrometheusTelemetry([
   },
 ]);
 assert.equal(live.hasLiveTelemetry, true);
+assert.equal(live.hasK6PipelineData, true);
 assert.equal(live.instance, 'jp-xconnect-02.svc.plus');
-assert.equal(live.activeVusOrConns, 135);
+assert.equal(live.testId, 'k6-prod-jp-xconnect-02-20261125-pipeline');
+assert.equal(live.testProfile, 'proxy_capacity');
+assert.equal(live.environment, 'prod');
+assert.equal(live.activeVusOrConns, 150);
+assert.equal(live.peakVus, 150);
+assert.equal(live.peakQps, 95.2);
+assert.equal(live.liveP95Ms, 945);
+assert.equal(live.liveSeries.length, 3);
 assert.equal(live.processRssMib.vector, 71.5);
 
-console.log('all xconnect-topology-roi-panel dataModel tests passed');
+console.log('all xconnect-topology-roi-panel v1.1.0 dataModel tests passed');

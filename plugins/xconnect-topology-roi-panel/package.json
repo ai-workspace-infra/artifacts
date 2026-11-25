@@ -1,7 +1,7 @@
 {
   "name": "xconnect-topology-roi-panel",
-  "version": "1.0.0",
-  "description": "XConnect 5-Service Core Topology, k6 40VU/500VU Timeseries, Knee/Memory Scaling & AWS Lightsail 2C1G Dynamic ROI Panel for Grafana",
+  "version": "1.1.0",
+  "description": "XConnect 5-Service Core Topology, k6 40VU/500VU + Live Pipeline Timeseries, Knee/Memory Scaling & AWS Lightsail 2C1G Compute + Traffic Amortization Dynamic ROI Panel for Grafana",
   "scripts": {
     "build": "node build.js",
     "test": "node test/dataModel.test.js"

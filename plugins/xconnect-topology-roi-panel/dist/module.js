@@ -419,6 +419,8 @@ function computeOperatingModel(rawVu, options) {
   const cleanTmpfs = options?.cleanTmpfs ?? true;
   const vectorOptimized = options?.vectorOptimized ?? true;
   const totalRamMib = options?.totalRamMib && options.totalRamMib > 100 ? options.totalRamMib : 939;
+  const gbPerUserMonth = options?.gbPerUserMonth != null && options.gbPerUserMonth > 0 ? Number(options.gbPerUserMonth) : 10;
+  const trafficBillingMode = options?.trafficBillingMode || "pooled";
   const rampAnchors = K6_RAMP_CHECKPOINTS.map((p) => [p.targetVu, p.qps]);
   const rampQps = Number(lerpPiecewise(vu, rampAnchors).toFixed(2));
   const steadyQps = Number(lerpPiecewise(vu, STEADY_QPS_ANCHORS).toFixed(2));
@@ -450,18 +452,47 @@ function computeOperatingModel(rawVu, options) {
   const maxSafeVu75 = Math.max(0, Math.floor((cap75Mib - nonProxyFixedMib - 88.1) / 0.5872));
   const maxSafeVu80 = Math.max(0, Math.floor((cap80Mib - nonProxyFixedMib - 88.1) / 0.5872));
   const slo = evaluateSlo(estimatedP95Ms, ramPct, vu);
-  const onlineUsers = Math.round(vu * userMultiplier);
+  const bundledTrafficGb = 2048;
+  const overageTrafficRatePerGb = 0.09;
+  const onlineUsers = Math.max(1, Math.round(vu * userMultiplier));
   const monthlyReqsM = Number((steadyQps * 2592e3 / 1e6).toFixed(1));
   const estimatedBandwidthMbps = Number((steadyQps * 12 * 1024 * 8 / 1e6).toFixed(2));
   const monthlyTrafficTb = Number((estimatedBandwidthMbps * 2592e3 / 8 / 1e6).toFixed(2));
   const trafficQuotaPct2Tb = Number((monthlyTrafficTb / 2 * 100).toFixed(1));
+  const includedGbRaw = bundledTrafficGb / onlineUsers;
+  const includedGbPerUser = Number(includedGbRaw.toFixed(2));
+  const extraGbRaw = gbPerUserMonth <= includedGbPerUser + 1e-4 ? 0 : Math.max(0, gbPerUserMonth - includedGbRaw);
+  const extraGbPerUser = Number(extraGbRaw.toFixed(2));
+  const totalUserTrafficTb = Number((onlineUsers * gbPerUserMonth / 1024).toFixed(2));
+  const pooledNodesNeeded = Number(Math.max(1, onlineUsers * gbPerUserMonth / bundledTrafficGb).toFixed(2));
   const round4 = (n) => Math.round((n + Number.EPSILON) * 1e4) / 1e4;
-  const buildTier = (price) => ({
-    tierPriceUsd: price,
-    costPerVuUsd: round4(price / vu),
-    costPerUserUsd: round4(price / Math.max(1, onlineUsers)),
-    costPer1MReqUsd: round4(price / Math.max(0.1, monthlyReqsM))
-  });
+  const round6 = (n) => Math.round((n + Number.EPSILON) * 1e6) / 1e6;
+  const buildTier = (price) => {
+    const computeCostPerUserUsd = round4(price / onlineUsers);
+    const pooledRateRaw = price / bundledTrafficGb;
+    const pooledTrafficRatePerGb = round6(pooledRateRaw);
+    const trafficCostPerUserPooledUsd = round4(extraGbRaw * pooledRateRaw);
+    const trafficCostPerUserOverageUsd = round4(extraGbRaw * overageTrafficRatePerGb);
+    const totalCostPerUserPooledUsd = round4(computeCostPerUserUsd + trafficCostPerUserPooledUsd);
+    const totalCostPerUserOverageUsd = round4(computeCostPerUserUsd + trafficCostPerUserOverageUsd);
+    const activeTrafficCostPerUserUsd = trafficBillingMode === "overage" ? trafficCostPerUserOverageUsd : trafficCostPerUserPooledUsd;
+    const activeTotalCostPerUserUsd = trafficBillingMode === "overage" ? totalCostPerUserOverageUsd : totalCostPerUserPooledUsd;
+    return {
+      tierPriceUsd: price,
+      costPerVuUsd: round4(price / vu),
+      costPerUserUsd: computeCostPerUserUsd,
+      computeCostPerUserUsd,
+      pooledTrafficRatePerGb,
+      overageTrafficRatePerGb,
+      trafficCostPerUserPooledUsd,
+      trafficCostPerUserOverageUsd,
+      totalCostPerUserPooledUsd,
+      totalCostPerUserOverageUsd,
+      activeTrafficCostPerUserUsd,
+      activeTotalCostPerUserUsd,
+      costPer1MReqUsd: round4(price / Math.max(0.1, monthlyReqsM))
+    };
+  };
   return {
     vu,
     onlineUsers,
@@ -502,6 +533,14 @@ function computeOperatingModel(rawVu, options) {
       estimatedBandwidthMbps,
       monthlyTrafficTb,
       trafficQuotaPct2Tb,
+      bundledTrafficGb,
+      includedGbPerUser,
+      gbPerUserMonth,
+      extraGbPerUser,
+      totalUserTrafficTb,
+      pooledNodesNeeded,
+      trafficBillingMode,
+      overageTrafficRatePerGb,
       tiers: {
         7: buildTier(7),
         10: buildTier(10),
@@ -535,82 +574,186 @@ function simulateTimeseriesForVu(targetVu) {
 function parsePrometheusTelemetry(series) {
   const snapshot = {
     hasLiveTelemetry: false,
-    processRssMib: {}
+    hasK6PipelineData: false,
+    processRssMib: {},
+    liveSeries: []
   };
   if (!Array.isArray(series) || series.length === 0) {
     return snapshot;
   }
-  const lastValue = (field) => {
+  const getFieldLen = (field) => {
     if (!field || !field.values) {
-      return null;
+      return 0;
     }
     const vals = field.values;
-    const len = typeof vals.length === "number" ? vals.length : typeof vals.size === "number" ? vals.size : 0;
-    if (len <= 0) {
+    return typeof vals.length === "number" ? vals.length : typeof vals.size === "number" ? vals.size : 0;
+  };
+  const getFieldVal = (field, idx) => {
+    const vals = field?.values;
+    if (!vals) {
       return null;
     }
+    const raw = typeof vals.get === "function" ? vals.get(idx) : vals[idx];
+    const num = Number(raw);
+    return raw != null && !Number.isNaN(num) ? num : null;
+  };
+  const lastValue = (field) => {
+    const len = getFieldLen(field);
     for (let i = len - 1; i >= 0; i--) {
-      const v = typeof vals.get === "function" ? vals.get(i) : vals[i];
-      const num = Number(v);
-      if (v != null && !Number.isNaN(num)) {
+      const num = getFieldVal(field, i);
+      if (num !== null) {
         return num;
       }
     }
     return null;
   };
+  const vusByTs = /* @__PURE__ */ new Map();
+  const qpsByTs = /* @__PURE__ */ new Map();
+  const p95ByTs = /* @__PURE__ */ new Map();
   for (const frame of series) {
     if (!frame || !Array.isArray(frame.fields)) {
       continue;
     }
-    const numField = frame.fields.find((f) => f.type === "number" || f.name === "Value");
-    if (!numField) {
+    const timeField = frame.fields.find((f) => f.type === "time" || f.name === "Time");
+    const numFields = frame.fields.filter((f) => f.type === "number" || f.name === "Value");
+    if (numFields.length === 0) {
       continue;
     }
-    const val = lastValue(numField);
-    if (val === null) {
-      continue;
-    }
-    const labels = frame.labels || numField.labels || {};
-    const metricName = String(labels.__name__ || frame.name || numField.name || "").toLowerCase();
     const refId = String(frame.refId || "");
-    if (labels.instance && !snapshot.instance) {
-      snapshot.instance = labels.instance;
-    }
-    if (metricName.includes("fluxgate_active_connections") || metricName.includes("k6_vus") || refId === "VU") {
-      snapshot.activeVusOrConns = Math.round(val);
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes("k6_http_reqs") || metricName.includes("fluxgate_http_requests") || refId === "QPS") {
-      snapshot.liveQps = Number(val.toFixed(2));
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes("duration_p95") || refId === "P95") {
-      snapshot.liveP95Ms = Number((val < 30 ? val * 1e3 : val).toFixed(1));
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes("node_memory_memtotal_bytes") || refId === "MEM_TOTAL") {
-      snapshot.memTotalMib = Number((val / (1024 * 1024)).toFixed(1));
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes("node_memory_memavailable_bytes") || refId === "MEM_AVAIL") {
-      snapshot.memAvailMib = Number((val / (1024 * 1024)).toFixed(1));
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes("namedprocess_namegroup_memory_bytes") || refId === "PROC_RSS") {
-      const grp = String(labels.groupname || "").toLowerCase();
-      const mib = Number((val / (1024 * 1024)).toFixed(1));
-      if (grp.includes("fluxgate")) {
-        snapshot.processRssMib.fluxgate = mib;
-      } else if (grp.includes("gateway")) {
-        snapshot.processRssMib.gatewayXray = mib;
-      } else if (grp.includes("xray")) {
-        snapshot.processRssMib.proxyXray = mib;
-      } else if (grp.includes("edge-agent") || grp.includes("agent-proxy")) {
-        snapshot.processRssMib.edgeAgent = mib;
-      } else if (grp.includes("vector")) {
-        snapshot.processRssMib.vector = mib;
-      } else if (grp.includes("journal")) {
-        snapshot.processRssMib.journald = mib;
+    for (const numField of numFields) {
+      const val = lastValue(numField);
+      if (val === null) {
+        continue;
       }
-      snapshot.hasLiveTelemetry = true;
-    } else if (metricName.includes("xray_up") || refId === "XRAY_UP") {
-      snapshot.xrayUp = val;
-      snapshot.hasLiveTelemetry = true;
+      const labels = { ...frame.labels || {}, ...numField.labels || {} };
+      const metricName = String(labels.__name__ || frame.name || numField.name || "").toLowerCase();
+      if (labels.instance && !snapshot.instance) {
+        snapshot.instance = labels.instance;
+      }
+      if (labels.testid && !snapshot.testId) {
+        snapshot.testId = labels.testid;
+        snapshot.hasK6PipelineData = true;
+      }
+      if (labels.test_profile && !snapshot.testProfile) {
+        snapshot.testProfile = labels.test_profile;
+      }
+      if (labels.environment && !snapshot.environment) {
+        snapshot.environment = labels.environment;
+      }
+      const extractRangePoints = (targetMap, transform) => {
+        const len = getFieldLen(numField);
+        if (len <= 1 && !timeField) {
+          return;
+        }
+        for (let i = 0; i < len; i++) {
+          const v = getFieldVal(numField, i);
+          if (v === null) {
+            continue;
+          }
+          const ts = timeField ? getFieldVal(timeField, i) ?? i * 15e3 : i * 15e3;
+          const mapped = transform ? transform(v) : v;
+          targetMap.set(ts, mapped);
+        }
+      };
+      if (refId === "K6_VUS_TS" || refId === "FLUX_CONNS_TS" || refId === "VU" || metricName.includes("k6_vus") || metricName.includes("fluxgate_active_connections")) {
+        snapshot.activeVusOrConns = Math.round(val);
+        snapshot.hasLiveTelemetry = true;
+        if (refId === "K6_VUS_TS" || metricName.includes("k6_vus")) {
+          snapshot.hasK6PipelineData = true;
+        }
+        extractRangePoints(vusByTs, (v) => Math.max(0, Number(v.toFixed(1))));
+      } else if (refId === "K6_QPS_TS" || refId === "FLUX_QPS_TS" || refId === "QPS" || metricName.includes("k6_http_reqs") || metricName.includes("fluxgate_http_requests")) {
+        snapshot.liveQps = Number(val.toFixed(2));
+        snapshot.hasLiveTelemetry = true;
+        if (refId === "K6_QPS_TS" || metricName.includes("k6_http_reqs")) {
+          snapshot.hasK6PipelineData = true;
+        }
+        extractRangePoints(qpsByTs, (v) => Math.max(0, Number(v.toFixed(2))));
+      } else if (refId === "K6_P95_TS" || refId === "P95" || metricName.includes("duration_p95") || metricName.includes("k6_custom_api_latency")) {
+        const toMs = (v) => Number((v > 0 && v < 15 ? v * 1e3 : v).toFixed(1));
+        snapshot.liveP95Ms = toMs(val);
+        snapshot.hasLiveTelemetry = true;
+        if (refId === "K6_P95_TS" || metricName.includes("k6_http_req_duration") || metricName.includes("k6_custom_api_latency")) {
+          snapshot.hasK6PipelineData = true;
+        }
+        extractRangePoints(p95ByTs, toMs);
+      } else if (refId === "K6_ERR_RATE" || metricName.includes("k6_custom_error_rate") || metricName.includes("http_req_failed")) {
+        snapshot.liveErrorRate = Number((val <= 1 ? val * 100 : val).toFixed(2));
+        snapshot.hasLiveTelemetry = true;
+        snapshot.hasK6PipelineData = true;
+      } else if (metricName.includes("node_memory_memtotal_bytes") || refId === "MEM_TOTAL") {
+        snapshot.memTotalMib = Number((val / (1024 * 1024)).toFixed(1));
+        snapshot.hasLiveTelemetry = true;
+      } else if (metricName.includes("node_memory_memavailable_bytes") || refId === "MEM_AVAIL") {
+        snapshot.memAvailMib = Number((val / (1024 * 1024)).toFixed(1));
+        snapshot.hasLiveTelemetry = true;
+      } else if (metricName.includes("namedprocess_namegroup_memory_bytes") || refId === "PROC_RSS") {
+        const grp = String(labels.groupname || "").toLowerCase();
+        const mib = Number((val / (1024 * 1024)).toFixed(1));
+        if (grp.includes("fluxgate")) {
+          snapshot.processRssMib.fluxgate = mib;
+        } else if (grp.includes("gateway")) {
+          snapshot.processRssMib.gatewayXray = mib;
+        } else if (grp.includes("xray")) {
+          snapshot.processRssMib.proxyXray = mib;
+        } else if (grp.includes("edge-agent") || grp.includes("agent-proxy")) {
+          snapshot.processRssMib.edgeAgent = mib;
+        } else if (grp.includes("vector")) {
+          snapshot.processRssMib.vector = mib;
+        } else if (grp.includes("journal")) {
+          snapshot.processRssMib.journald = mib;
+        }
+        snapshot.hasLiveTelemetry = true;
+      } else if (metricName.includes("xray_up") || refId === "XRAY_UP") {
+        snapshot.xrayUp = val;
+        snapshot.hasLiveTelemetry = true;
+      }
+    }
+  }
+  const allTimestamps = Array.from(
+    /* @__PURE__ */ new Set([...vusByTs.keys(), ...qpsByTs.keys(), ...p95ByTs.keys()])
+  ).sort((a, b) => a - b);
+  if (allTimestamps.length >= 2) {
+    const t0 = allTimestamps[0];
+    const tEnd = allTimestamps[allTimestamps.length - 1];
+    const spanMin = Math.max(0.25, (tEnd - t0) / 6e4);
+    const scaleFactor = spanMin > 30 ? 30 / spanMin : 1;
+    let lastVu = snapshot.activeVusOrConns ?? 40;
+    let lastQps = snapshot.liveQps ?? 1;
+    let lastP95 = snapshot.liveP95Ms ?? 150;
+    let maxVu = 0;
+    let maxQps = 0;
+    snapshot.liveSeries = allTimestamps.map((ts) => {
+      if (vusByTs.has(ts)) {
+        lastVu = vusByTs.get(ts);
+      }
+      if (qpsByTs.has(ts)) {
+        lastQps = qpsByTs.get(ts);
+      }
+      if (p95ByTs.has(ts)) {
+        lastP95 = p95ByTs.get(ts);
+      } else if (lastVu > 0 && lastQps > 0) {
+        lastP95 = Number(Math.max(50, (lastVu / Math.max(0.5, lastQps) - 1) * 1e3).toFixed(1));
+      }
+      if (lastVu > maxVu) {
+        maxVu = lastVu;
+      }
+      if (lastQps > maxQps) {
+        maxQps = lastQps;
+      }
+      const rawMin = (ts - t0) / 6e4 * scaleFactor;
+      return {
+        minute: Number(Math.max(0, Math.min(30, rawMin)).toFixed(2)),
+        avgVu: Number(lastVu.toFixed(1)),
+        qps: Number(lastQps.toFixed(2)),
+        impliedLatencyMs: Number(lastP95.toFixed(1))
+      };
+    });
+    if (maxVu > 0) {
+      snapshot.peakVus = Math.round(maxVu);
+    }
+    if (maxQps > 0) {
+      snapshot.peakQps = Number(maxQps.toFixed(2));
     }
   }
   if (snapshot.memTotalMib != null && snapshot.memAvailMib != null) {
@@ -699,11 +842,16 @@ var XConnectTopologyRoiPanel = (props) => {
   const [cleanTmpfs, setCleanTmpfs] = (0, import_react.useState)(options.cleanTmpfs ?? true);
   const [vectorOptimized, setVectorOptimized] = (0, import_react.useState)(options.vectorOptimized ?? true);
   const [selectedTier, setSelectedTier] = (0, import_react.useState)(options.defaultTierPrice || 7);
+  const [gbPerUserMonth, setGbPerUserMonth] = (0, import_react.useState)(options.defaultGbPerUserMonth || 10);
+  const [trafficBillingMode, setTrafficBillingMode] = (0, import_react.useState)(
+    options.defaultTrafficBillingMode || "pooled"
+  );
   const [scrubIndex, setScrubIndex] = (0, import_react.useState)(60);
   const [isPlayingTime, setIsPlayingTime] = (0, import_react.useState)(false);
   const [show40VuSeries, setShow40VuSeries] = (0, import_react.useState)(true);
   const [show500VuSeries, setShow500VuSeries] = (0, import_react.useState)(true);
   const [showSimVuSeries, setShowSimVuSeries] = (0, import_react.useState)(true);
+  const [showLivePipelineSeries, setShowLivePipelineSeries] = (0, import_react.useState)(true);
   (0, import_react.useEffect)(() => {
     if (options.viewMode) setActiveView(options.viewMode);
   }, [options.viewMode]);
@@ -711,6 +859,7 @@ var XConnectTopologyRoiPanel = (props) => {
     if (options.defaultLayer) setActiveLayer(options.defaultLayer);
   }, [options.defaultLayer]);
   const liveTelemetry = (0, import_react.useMemo)(() => parsePrometheusTelemetry(data?.series), [data]);
+  const k6WorkflowUrl = options.k6WorkflowUrl || "https://github.com/ai-workspace-infra/playbooks/actions/workflows/k6-proxy-performance.yml";
   (0, import_react.useEffect)(() => {
     if (options.followLiveVu && liveTelemetry.activeVusOrConns && liveTelemetry.activeVusOrConns > 0) {
       setTargetVu(Math.max(10, Math.min(500, liveTelemetry.activeVusOrConns)));
@@ -741,9 +890,20 @@ var XConnectTopologyRoiPanel = (props) => {
       userMultiplier,
       cleanTmpfs,
       vectorOptimized,
-      totalRamMib: liveTelemetry.memTotalMib || options.totalRamMib || 939
+      totalRamMib: liveTelemetry.memTotalMib || options.totalRamMib || 939,
+      gbPerUserMonth,
+      trafficBillingMode
     }),
-    [targetVu, userMultiplier, cleanTmpfs, vectorOptimized, liveTelemetry.memTotalMib, options.totalRamMib]
+    [
+      targetVu,
+      userMultiplier,
+      cleanTmpfs,
+      vectorOptimized,
+      liveTelemetry.memTotalMib,
+      options.totalRamMib,
+      gbPerUserMonth,
+      trafficBillingMode
+    ]
   );
   const simSeries = (0, import_react.useMemo)(() => simulateTimeseriesForVu(targetVu), [targetVu]);
   const activeTierCost = model.roi.tiers[selectedTier];
@@ -795,6 +955,17 @@ var XConnectTopologyRoiPanel = (props) => {
       px2,
       py2Lat
     );
+    const hasLiveCurve = liveTelemetry.liveSeries.length >= 2;
+    const p1QpsLive = hasLiveCurve ? buildSvgPath(
+      liveTelemetry.liveSeries.map((p) => [p.minute, p.qps]),
+      px1,
+      py1Qps
+    ) : "";
+    const p2LatLive = hasLiveCurve ? buildSvgPath(
+      liveTelemetry.liveSeries.map((p) => [p.minute, p.impliedLatencyMs]),
+      px2,
+      py2Lat
+    ) : "";
     const vuAreaPts = [
       [0, 0],
       ...K6_SERIES_500VU.map((p) => [p.minute, p.avgVu * 0.5]),
@@ -806,6 +977,9 @@ var XConnectTopologyRoiPanel = (props) => {
     const pt500 = K6_SERIES_500VU[idx];
     const ptSim = simSeries[idx];
     const curMin = pt500.minute;
+    const ptLive = hasLiveCurve ? liveTelemetry.liveSeries.reduce(
+      (best, cand) => Math.abs(cand.minute - curMin) < Math.abs(best.minute - curMin) ? cand : best
+    ) : null;
     const phaseLabel = curMin < 7.5 ? "0\u20137.5m \u7EBF\u6027\u722C\u5761\u671F" : curMin >= 9.5 && curMin <= 11 ? "t\u224810m \u8FDE\u63A5\u6C60\u91CD\u7F6E\u4E0E H2 \u591A\u8DEF\u590D\u7528\u91CD\u5EFA\u62D0\u70B9" : curMin <= 22.5 ? "7.5\u201322.5m \u5CF0\u503C\u7A33\u6001\u4FDD\u6301\u671F" : "22.5\u201330m \u7EBF\u6027\u964D\u8F7D\u671F";
     return /* @__PURE__ */ import_react.default.createElement(
       "div",
@@ -906,6 +1080,24 @@ var XConnectTopologyRoiPanel = (props) => {
           "\u25C6 \u5F53\u524D ",
           targetVu,
           " VU \u52A8\u6001\u4EFF\u771F"
+        ), hasLiveCurve && /* @__PURE__ */ import_react.default.createElement(
+          "button",
+          {
+            onClick: () => setShowLivePipelineSeries((v) => !v),
+            style: {
+              background: showLivePipelineSeries ? "rgba(251,191,36,0.22)" : "#1e293b",
+              border: `1px solid ${showLivePipelineSeries ? "#fbbf24" : "#334155"}`,
+              color: showLivePipelineSeries ? "#fde68a" : "#64748b",
+              borderRadius: "6px",
+              padding: "4px 9px",
+              fontSize: "11px",
+              fontWeight: 700,
+              cursor: "pointer"
+            }
+          },
+          "\u2605 \u5B9E\u65F6\u6D41\u6C34\u7EBF\u91C7\u6837 (",
+          liveTelemetry.testId || "Prometheus",
+          ")"
         ))
       ),
       /* @__PURE__ */ import_react.default.createElement(
@@ -939,7 +1131,8 @@ var XConnectTopologyRoiPanel = (props) => {
         )),
         /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#34d399", fontWeight: 600 } }, "40 VU \u57FA\u7EBF\uFF1A"), /* @__PURE__ */ import_react.default.createElement("span", { style: { fontFamily: "monospace", color: "#e2e8f0" } }, pt40.avgVu, " VU \xB7 ", /* @__PURE__ */ import_react.default.createElement("strong", null, pt40.qps, " req/s"), " \xB7 \u5747\u5EF6 ", /* @__PURE__ */ import_react.default.createElement("strong", null, pt40.impliedLatencyMs, " ms"))),
         /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#38bdf8", fontWeight: 600 } }, "500 VU \u5B9E\u6D4B\uFF1A"), /* @__PURE__ */ import_react.default.createElement("span", { style: { fontFamily: "monospace", color: "#e2e8f0" } }, pt500.avgVu, " VU \xB7 ", /* @__PURE__ */ import_react.default.createElement("strong", null, pt500.qps, " req/s"), " \xB7 \u5747\u5EF6 ", /* @__PURE__ */ import_react.default.createElement("strong", null, pt500.impliedLatencyMs, " ms"))),
-        /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#a78bfa", fontWeight: 600 } }, "\u5F53\u524D ", targetVu, " VU \u52A8\u6001\u5305\u7EDC\uFF1A"), /* @__PURE__ */ import_react.default.createElement("span", { style: { fontFamily: "monospace", color: "#e2e8f0" } }, ptSim.avgVu, " VU \xB7 ", /* @__PURE__ */ import_react.default.createElement("strong", null, ptSim.qps, " req/s"), " \xB7 \u5747\u5EF6 ", /* @__PURE__ */ import_react.default.createElement("strong", null, ptSim.impliedLatencyMs, " ms")))
+        /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#a78bfa", fontWeight: 600 } }, "\u5F53\u524D ", targetVu, " VU \u52A8\u6001\u5305\u7EDC\uFF1A"), /* @__PURE__ */ import_react.default.createElement("span", { style: { fontFamily: "monospace", color: "#e2e8f0" } }, ptSim.avgVu, " VU \xB7 ", /* @__PURE__ */ import_react.default.createElement("strong", null, ptSim.qps, " req/s"), " \xB7 \u5747\u5EF6 ", /* @__PURE__ */ import_react.default.createElement("strong", null, ptSim.impliedLatencyMs, " ms"))),
+        ptLive && /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#fbbf24", fontWeight: 700 } }, "\u2605 \u6D41\u6C34\u7EBF\u5B9E\u65F6\u91C7\u6837\uFF1A"), /* @__PURE__ */ import_react.default.createElement("span", { style: { fontFamily: "monospace", color: "#fef08a" } }, ptLive.avgVu, " VU \xB7 ", /* @__PURE__ */ import_react.default.createElement("strong", null, ptLive.qps, " req/s"), " \xB7 P95 ", /* @__PURE__ */ import_react.default.createElement("strong", null, ptLive.impliedLatencyMs, " ms")))
       ),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement(
         "svg",
@@ -1007,13 +1200,16 @@ var XConnectTopologyRoiPanel = (props) => {
         show500VuSeries && /* @__PURE__ */ import_react.default.createElement("path", { d: p1Qps500, fill: "none", stroke: "#38bdf8", strokeWidth: "2.4" }),
         show40VuSeries && /* @__PURE__ */ import_react.default.createElement("path", { d: p1Qps40, fill: "none", stroke: "#34d399", strokeWidth: "2.4" }),
         showSimVuSeries && /* @__PURE__ */ import_react.default.createElement("path", { d: p1QpsSim, fill: "none", stroke: "#a78bfa", strokeWidth: "2.2", strokeDasharray: "6 3" }),
+        hasLiveCurve && showLivePipelineSeries && /* @__PURE__ */ import_react.default.createElement("path", { d: p1QpsLive, fill: "none", stroke: "#fbbf24", strokeWidth: "2.8" }),
         show500VuSeries && /* @__PURE__ */ import_react.default.createElement("path", { d: p2Lat500, fill: "none", stroke: "#fb7185", strokeWidth: "2.4" }),
         show40VuSeries && /* @__PURE__ */ import_react.default.createElement("path", { d: p2Lat40, fill: "none", stroke: "#34d399", strokeWidth: "2.4" }),
         showSimVuSeries && /* @__PURE__ */ import_react.default.createElement("path", { d: p2LatSim, fill: "none", stroke: "#a78bfa", strokeWidth: "2.2", strokeDasharray: "6 3" }),
+        hasLiveCurve && showLivePipelineSeries && /* @__PURE__ */ import_react.default.createElement("path", { d: p2LatLive, fill: "none", stroke: "#fbbf24", strokeWidth: "2.8" }),
         /* @__PURE__ */ import_react.default.createElement("line", { x1: px1(curMin), y1: "80", x2: px1(curMin), y2: "520", stroke: "#f8fafc", strokeWidth: "1.5" }),
         show500VuSeries && /* @__PURE__ */ import_react.default.createElement("circle", { cx: px1(curMin), cy: py1Qps(pt500.qps), r: "5", fill: "#38bdf8", stroke: "#0b1120", strokeWidth: "1.5" }),
         show40VuSeries && /* @__PURE__ */ import_react.default.createElement("circle", { cx: px1(curMin), cy: py1Qps(pt40.qps), r: "5", fill: "#34d399", stroke: "#0b1120", strokeWidth: "1.5" }),
         showSimVuSeries && /* @__PURE__ */ import_react.default.createElement("circle", { cx: px1(curMin), cy: py1Qps(ptSim.qps), r: "5", fill: "#a78bfa", stroke: "#0b1120", strokeWidth: "1.5" }),
+        ptLive && showLivePipelineSeries && /* @__PURE__ */ import_react.default.createElement("circle", { cx: px1(curMin), cy: py1Qps(ptLive.qps), r: "6", fill: "#fbbf24", stroke: "#0b1120", strokeWidth: "1.8" }),
         /* @__PURE__ */ import_react.default.createElement("line", { x1: px2(curMin), y1: "80", x2: px2(curMin), y2: "520", stroke: "#f8fafc", strokeWidth: "1.5" }),
         show500VuSeries && /* @__PURE__ */ import_react.default.createElement(
           "circle",
@@ -1046,6 +1242,17 @@ var XConnectTopologyRoiPanel = (props) => {
             fill: "#a78bfa",
             stroke: "#0b1120",
             strokeWidth: "1.5"
+          }
+        ),
+        ptLive && showLivePipelineSeries && /* @__PURE__ */ import_react.default.createElement(
+          "circle",
+          {
+            cx: px2(curMin),
+            cy: py2Lat(ptLive.impliedLatencyMs),
+            r: "6",
+            fill: "#fbbf24",
+            stroke: "#0b1120",
+            strokeWidth: "1.8"
           }
         ),
         /* @__PURE__ */ import_react.default.createElement("rect", { x: "88", y: "88", width: "225", height: "86", rx: "8", fill: "#0f172a", fillOpacity: "0.92", stroke: "#334155" }),
@@ -1471,7 +1678,23 @@ var XConnectTopologyRoiPanel = (props) => {
     const h = 620;
     const py1 = (ms) => 510 - Math.min(ms, 5e3) / 5e3 * 395;
     const px2 = (vu) => 875 + (vu - 40) / 460 * 590;
-    const py2User = (usd) => 510 - Math.min(usd, 0.09) / 0.09 * 395;
+    const roiVus = [40, 80, 100, 120, 150, 160, 200, 250, 300, 400, 500];
+    const roiModels = roiVus.map(
+      (v) => computeOperatingModel(v, {
+        userMultiplier,
+        cleanTmpfs,
+        vectorOptimized,
+        gbPerUserMonth,
+        trafficBillingMode
+      })
+    );
+    const maxRoiVal = Math.max(
+      0.08,
+      ...roiModels.map((m) => m.roi.tiers[12].activeTotalCostPerUserUsd)
+    );
+    const yAxisMax = maxRoiVal <= 0.1 ? 0.09 : maxRoiVal <= 0.25 ? 0.24 : maxRoiVal <= 0.8 ? 0.8 : maxRoiVal <= 2 ? 2 : Math.ceil(maxRoiVal * 1.1 * 10) / 10;
+    const py2User = (usd) => 510 - Math.min(usd, yAxisMax) / yAxisMax * 395;
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map((r) => Number((r * yAxisMax).toFixed(3)));
     const bars = [
       { label1: "40 VU", label2: "\u5B9E\u6D4B\u57FA\u7EBF", val: 207.1, col: "#34d399", vu: 40 },
       { label1: "120 VU", label2: "\u6700\u4F73\u751C\u70B9", val: 680, col: "#38bdf8", vu: 120 },
@@ -1486,20 +1709,23 @@ var XConnectTopologyRoiPanel = (props) => {
         vu: model.vu
       }
     ];
-    const roiVus = [40, 80, 100, 120, 150, 160, 200, 250, 300, 400, 500];
-    const roiModels = roiVus.map((v) => computeOperatingModel(v, { userMultiplier, cleanTmpfs, vectorOptimized }));
-    const l7 = buildSvgPath(
-      roiModels.map((m) => [m.vu, m.roi.tiers[7].costPerUserUsd]),
+    const l7Total = buildSvgPath(
+      roiModels.map((m) => [m.vu, m.roi.tiers[7].activeTotalCostPerUserUsd]),
       px2,
       py2User
     );
-    const l10 = buildSvgPath(
-      roiModels.map((m) => [m.vu, m.roi.tiers[10].costPerUserUsd]),
+    const l10Total = buildSvgPath(
+      roiModels.map((m) => [m.vu, m.roi.tiers[10].activeTotalCostPerUserUsd]),
       px2,
       py2User
     );
-    const l12 = buildSvgPath(
-      roiModels.map((m) => [m.vu, m.roi.tiers[12].costPerUserUsd]),
+    const l12Total = buildSvgPath(
+      roiModels.map((m) => [m.vu, m.roi.tiers[12].activeTotalCostPerUserUsd]),
+      px2,
+      py2User
+    );
+    const l7ComputeOnly = buildSvgPath(
+      roiModels.map((m) => [m.vu, m.roi.tiers[7].computeCostPerUserUsd]),
       px2,
       py2User
     );
@@ -1536,7 +1762,7 @@ var XConnectTopologyRoiPanel = (props) => {
             gap: "12px"
           }
         },
-        /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "16px", fontWeight: 700, color: "#f8fafc" } }, "\u2463 P95 \u5EF6\u8FDF\u5206\u7EA7\u76D1\u63A7\u4E0A\u9650\u4E0E AWS Lightsail 2C1G ($7 / $10 / $12) \u52A8\u6001 ROI \u9762\u677F"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "12px", color: "#94a3b8", marginTop: "2px" } }, "SLO \u9608\u503C\u4F53\u7CFB\uFF08800ms \u9884\u8B66 / 1500ms \u6392\u7A7A / 3000ms \u7194\u65AD\uFF09\u53CA\u6309 ", /* @__PURE__ */ import_react.default.createElement("strong", null, userMultiplier, "x"), " ", "\u601D\u8003\u65F6\u95F4\u590D\u7528\u7CFB\u6570\u6298\u7B97\u7684\u5355\u5728\u7EBF\u7528\u6237\u6708\u6210\u672C\u4E0E\u767E\u4E07\u8BF7\u6C42\u6210\u672C")),
+        /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "16px", fontWeight: 700, color: "#f8fafc" } }, "\u2463 P95 \u5EF6\u8FDF\u5206\u7EA7\u76D1\u63A7\u4E0A\u9650\u4E0E AWS Lightsail 2C1G ($7 / $10 / $12) \u8BA1\u7B97+\u6D41\u91CF\u5747\u644A\u52A8\u6001 ROI \u9762\u677F"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "12px", color: "#94a3b8", marginTop: "2px" } }, "\u6309 ", /* @__PURE__ */ import_react.default.createElement("strong", null, userMultiplier, "x"), " \u590D\u7528\u7CFB\u6570 + \u5355\u673A\u514D\u8D39\u914D\u989D ", /* @__PURE__ */ import_react.default.createElement("strong", null, "2 TB/\u6708 (2,048 GB \u2248 ", model.roi.includedGbPerUser, " GB/\u4EBA)"), " ", "+ \u4EBA\u5747 ", /* @__PURE__ */ import_react.default.createElement("strong", null, gbPerUserMonth, " GB/\u6708"), "\uFF08", trafficBillingMode === "pooled" ? `2C1G \u6D41\u91CF\u5305\u6C60\u5316 $${model.roi.tiers[selectedTier].pooledTrafficRatePerGb.toFixed(5)}/GB\uFF0C\u9700 ~${model.roi.pooledNodesNeeded} \u53F0\u6C60\u5316` : "\u5355\u673A\u786C\u6297 AWS \u8D85\u989D\u6D41\u91CF\u8D39 $0.09/GB\uFF08\u8D35 26.3 \u500D\uFF09", "\uFF09\u7EFC\u5408\u6D4B\u7B97")),
         /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" } }, [7, 10, 12].map((price) => /* @__PURE__ */ import_react.default.createElement(
           "button",
           {
@@ -1556,7 +1782,7 @@ var XConnectTopologyRoiPanel = (props) => {
           "$",
           price,
           "/\u6708 ",
-          price === 7 ? "(\u6807\u51C6 IPv4)" : "(\u5BF9\u7167\u6863)"
+          price === 7 ? "(\u6807\u51C6 IPv4 + 2TB)" : "(\u5BF9\u7167\u6863 + 2TB)"
         )))
       ),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement(
@@ -1568,7 +1794,7 @@ var XConnectTopologyRoiPanel = (props) => {
         /* @__PURE__ */ import_react.default.createElement("rect", { x: "16", y: "16", width: "745", height: "585", rx: "10", fill: "#0b1120", stroke: "#1e293b" }),
         /* @__PURE__ */ import_react.default.createElement("rect", { x: "795", y: "16", width: "749", height: "585", rx: "10", fill: "#0b1120", stroke: "#1e293b" }),
         /* @__PURE__ */ import_react.default.createElement("text", { x: "85", y: "48", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "A. P95 \u5EF6\u8FDF\u9636\u68AF\u5BF9\u6BD4\u4E0E\u5206\u7EA7\u76D1\u63A7\u7EA2\u7EBF (\u542B\u5F53\u524D ", model.vu, " VU \u52A8\u6001\u67F1)"),
-        /* @__PURE__ */ import_react.default.createElement("text", { x: "875", y: "48", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "B. \u5355\u5728\u7EBF\u7528\u6237\u6708\u6210\u672C ($/User/mo @", userMultiplier, "x) ROI \u66F2\u7EBF"),
+        /* @__PURE__ */ import_react.default.createElement("text", { x: "875", y: "48", fontSize: "14", fontWeight: "700", fill: "#f8fafc" }, "B. \u5355\u5728\u7EBF\u7528\u6237\u6708\u7EFC\u5408\u6210\u672C ($/\u4EBA/\u6708 @", userMultiplier, "x \xB7 \u8BA1\u7B97\u5747\u644A + ", gbPerUserMonth, "GB \u6D41\u91CF\u5747\u644A)"),
         [0, 800, 1500, 3e3, 4e3, 5e3].map((ms) => {
           const y = py1(ms);
           const col = ms === 800 ? "#fbbf24" : ms === 1500 ? "#f97316" : ms === 3e3 ? "#ef4444" : "#1e293b";
@@ -1647,17 +1873,18 @@ var XConnectTopologyRoiPanel = (props) => {
           "\u6700\u4F73 ROI \u533A\u95F4"
         ),
         /* @__PURE__ */ import_react.default.createElement("text", { x: (px2(120) + px2(160)) / 2, y: "151", textAnchor: "middle", fontSize: "10", fill: "#a7f3d0" }, "120-160 VU"),
-        [0, 0.02, 0.04, 0.06, 0.08].map((usd) => {
+        yTicks.map((usd) => {
           const y = py2User(usd);
-          return /* @__PURE__ */ import_react.default.createElement("g", { key: `usd-${usd}` }, /* @__PURE__ */ import_react.default.createElement("line", { x1: "875", y1: y, x2: "1465", y2: y, stroke: "#1e293b" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "866", y: y + 4, textAnchor: "end", fontSize: "11", fill: "#94a3b8" }, "$", usd.toFixed(2)));
+          return /* @__PURE__ */ import_react.default.createElement("g", { key: `usd-${usd}` }, /* @__PURE__ */ import_react.default.createElement("line", { x1: "875", y1: y, x2: "1465", y2: y, stroke: "#1e293b" }), /* @__PURE__ */ import_react.default.createElement("text", { x: "866", y: y + 4, textAnchor: "end", fontSize: "11", fill: "#94a3b8" }, "$", usd.toFixed(yAxisMax > 0.5 ? 2 : 3)));
         }),
         [40, 120, 160, 200, 300, 400, 500].map((v) => {
           const x = px2(v);
           return /* @__PURE__ */ import_react.default.createElement("g", { key: `rvu-${v}` }, /* @__PURE__ */ import_react.default.createElement("line", { x1: x, y1: "115", x2: x, y2: "510", stroke: "#1e293b", strokeDasharray: "3 4" }), /* @__PURE__ */ import_react.default.createElement("text", { x, y: "534", textAnchor: "middle", fontSize: "11", fill: "#94a3b8" }, v));
         }),
-        /* @__PURE__ */ import_react.default.createElement("path", { d: l12, fill: "none", stroke: "#a78bfa", strokeWidth: selectedTier === 12 ? "3.4" : "2.2" }),
-        /* @__PURE__ */ import_react.default.createElement("path", { d: l10, fill: "none", stroke: "#38bdf8", strokeWidth: selectedTier === 10 ? "3.4" : "2.2" }),
-        /* @__PURE__ */ import_react.default.createElement("path", { d: l7, fill: "none", stroke: "#34d399", strokeWidth: selectedTier === 7 ? "3.4" : "2.2" }),
+        /* @__PURE__ */ import_react.default.createElement("path", { d: l7ComputeOnly, fill: "none", stroke: "#94a3b8", strokeWidth: "1.8", strokeDasharray: "5 3" }),
+        /* @__PURE__ */ import_react.default.createElement("path", { d: l12Total, fill: "none", stroke: "#a78bfa", strokeWidth: selectedTier === 12 ? "3.4" : "2.2" }),
+        /* @__PURE__ */ import_react.default.createElement("path", { d: l10Total, fill: "none", stroke: "#38bdf8", strokeWidth: selectedTier === 10 ? "3.4" : "2.2" }),
+        /* @__PURE__ */ import_react.default.createElement("path", { d: l7Total, fill: "none", stroke: "#34d399", strokeWidth: selectedTier === 7 ? "3.4" : "2.2" }),
         /* @__PURE__ */ import_react.default.createElement(
           "line",
           {
@@ -1673,7 +1900,7 @@ var XConnectTopologyRoiPanel = (props) => {
           "circle",
           {
             cx: px2(clampedVuForRoiAxis),
-            cy: py2User(model.roi.tiers[7].costPerUserUsd),
+            cy: py2User(model.roi.tiers[7].activeTotalCostPerUserUsd),
             r: "5.5",
             fill: "#34d399",
             stroke: "#ffffff",
@@ -1684,7 +1911,7 @@ var XConnectTopologyRoiPanel = (props) => {
           "circle",
           {
             cx: px2(clampedVuForRoiAxis),
-            cy: py2User(model.roi.tiers[10].costPerUserUsd),
+            cy: py2User(model.roi.tiers[10].activeTotalCostPerUserUsd),
             r: "5.5",
             fill: "#38bdf8",
             stroke: "#ffffff",
@@ -1695,20 +1922,22 @@ var XConnectTopologyRoiPanel = (props) => {
           "circle",
           {
             cx: px2(clampedVuForRoiAxis),
-            cy: py2User(model.roi.tiers[12].costPerUserUsd),
+            cy: py2User(model.roi.tiers[12].activeTotalCostPerUserUsd),
             r: "5.5",
             fill: "#a78bfa",
             stroke: "#ffffff",
             strokeWidth: "1.8"
           }
         ),
-        /* @__PURE__ */ import_react.default.createElement("rect", { x: "1145", y: "122", width: "310", height: "86", rx: "8", fill: "#0f172a", fillOpacity: "0.92", stroke: "#334155" }),
-        /* @__PURE__ */ import_react.default.createElement("line", { x1: "1160", y1: "144", x2: "1188", y2: "144", stroke: "#34d399", strokeWidth: "3" }),
-        /* @__PURE__ */ import_react.default.createElement("text", { x: "1196", y: "148", fontSize: "11", fill: "#e2e8f0" }, "$7/\u6708: $", model.roi.tiers[7].costPerUserUsd.toFixed(4), "/\u4EBA \xB7 $", model.roi.tiers[7].costPer1MReqUsd.toFixed(4), "/1M req"),
-        /* @__PURE__ */ import_react.default.createElement("line", { x1: "1160", y1: "166", x2: "1188", y2: "166", stroke: "#38bdf8", strokeWidth: "3" }),
-        /* @__PURE__ */ import_react.default.createElement("text", { x: "1196", y: "170", fontSize: "11", fill: "#e2e8f0" }, "$10/\u6708: $", model.roi.tiers[10].costPerUserUsd.toFixed(4), "/\u4EBA \xB7 $", model.roi.tiers[10].costPer1MReqUsd.toFixed(4), "/1M req"),
-        /* @__PURE__ */ import_react.default.createElement("line", { x1: "1160", y1: "188", x2: "1188", y2: "188", stroke: "#a78bfa", strokeWidth: "3" }),
-        /* @__PURE__ */ import_react.default.createElement("text", { x: "1196", y: "192", fontSize: "11", fill: "#e2e8f0" }, "$12/\u6708: $", model.roi.tiers[12].costPerUserUsd.toFixed(4), "/\u4EBA \xB7 $", model.roi.tiers[12].costPer1MReqUsd.toFixed(4), "/1M req"),
+        /* @__PURE__ */ import_react.default.createElement("rect", { x: "1095", y: "118", width: "362", height: "106", rx: "8", fill: "#0f172a", fillOpacity: "0.92", stroke: "#334155" }),
+        /* @__PURE__ */ import_react.default.createElement("line", { x1: "1108", y1: "138", x2: "1134", y2: "138", stroke: "#34d399", strokeWidth: "3" }),
+        /* @__PURE__ */ import_react.default.createElement("text", { x: "1142", y: "142", fontSize: "11", fill: "#e2e8f0" }, "$7/\u6708 \u7EFC\u5408: $", model.roi.tiers[7].activeTotalCostPerUserUsd.toFixed(4), "/\u4EBA (\u7B97$", model.roi.tiers[7].computeCostPerUserUsd.toFixed(4), "+\u6D41$", model.roi.tiers[7].activeTrafficCostPerUserUsd.toFixed(4), ")"),
+        /* @__PURE__ */ import_react.default.createElement("line", { x1: "1108", y1: "160", x2: "1134", y2: "160", stroke: "#38bdf8", strokeWidth: "3" }),
+        /* @__PURE__ */ import_react.default.createElement("text", { x: "1142", y: "164", fontSize: "11", fill: "#e2e8f0" }, "$10/\u6708 \u7EFC\u5408: $", model.roi.tiers[10].activeTotalCostPerUserUsd.toFixed(4), "/\u4EBA (\u7B97$", model.roi.tiers[10].computeCostPerUserUsd.toFixed(4), "+\u6D41$", model.roi.tiers[10].activeTrafficCostPerUserUsd.toFixed(4), ")"),
+        /* @__PURE__ */ import_react.default.createElement("line", { x1: "1108", y1: "182", x2: "1134", y2: "182", stroke: "#a78bfa", strokeWidth: "3" }),
+        /* @__PURE__ */ import_react.default.createElement("text", { x: "1142", y: "186", fontSize: "11", fill: "#e2e8f0" }, "$12/\u6708 \u7EFC\u5408: $", model.roi.tiers[12].activeTotalCostPerUserUsd.toFixed(4), "/\u4EBA (\u7B97$", model.roi.tiers[12].computeCostPerUserUsd.toFixed(4), "+\u6D41$", model.roi.tiers[12].activeTrafficCostPerUserUsd.toFixed(4), ")"),
+        /* @__PURE__ */ import_react.default.createElement("line", { x1: "1108", y1: "204", x2: "1134", y2: "204", stroke: "#94a3b8", strokeWidth: "2", strokeDasharray: "5 3" }),
+        /* @__PURE__ */ import_react.default.createElement("text", { x: "1142", y: "208", fontSize: "10", fill: "#94a3b8" }, "\u865A\u7EBF: $7/\u6708 \u7EAF\u8BA1\u7B97\u5747\u644A\u57FA\u7EBF (2TB \u5305\u5185\u514D\u6D41 ", model.roi.includedGbPerUser, "GB/\u4EBA)"),
         /* @__PURE__ */ import_react.default.createElement(
           "rect",
           {
@@ -1726,7 +1955,7 @@ var XConnectTopologyRoiPanel = (props) => {
           }
         ),
         /* @__PURE__ */ import_react.default.createElement("text", { x: "395", y: "576", textAnchor: "middle", fontSize: "12", fill: "#94a3b8" }, "\u70B9\u51FB\u4EFB\u610F\u67F1\u72B6\u56FE\u6216\u53F3\u4FA7\u66F2\u7EBF\u5207\u6362\u5E76\u53D1\u6863\u4F4D"),
-        /* @__PURE__ */ import_react.default.createElement("text", { x: "1175", y: "576", textAnchor: "middle", fontSize: "12", fill: "#94a3b8" }, "\u8C03\u5EA6\u76EE\u6807\u5E76\u53D1 (VUs\uFF0C40 -> 120 VU \u5355\u7528\u6237\u6210\u672C\u4E0B\u964D ~3x)")
+        /* @__PURE__ */ import_react.default.createElement("text", { x: "1175", y: "576", textAnchor: "middle", fontSize: "12", fill: "#94a3b8" }, "\u8C03\u5EA6\u76EE\u6807\u5E76\u53D1 (VUs \xB7 2C1G \u6C60\u5316\u6D41\u91CF\u5747\u644A $0.00342/GB \u6BD4 AWS \u8D85\u989D $0.09/GB \u4FBF\u5B9C 26.3x)")
       )),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ import_react.default.createElement(
         "table",
@@ -1740,10 +1969,19 @@ var XConnectTopologyRoiPanel = (props) => {
             overflow: "hidden"
           }
         },
-        /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { background: "#1e293b", color: "#cbd5e1", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px" } }, "\u8FD0\u8425\u5E76\u53D1\u6C34\u4F4D (\u70B9\u51FB\u5207\u6362)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px" } }, "\u6298\u7B97\u5728\u7EBF\u7528\u6237 (@", userMultiplier, "x)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px" } }, "\u7A33\u6001 QPS"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px" } }, "\u6708\u541E\u5410\u91CF"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#34d399" } }, "$7/\u6708 ($/VU | $/\u7528\u6237 | $/1M req)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#38bdf8" } }, "$10/\u6708 ($/VU | $/\u7528\u6237 | $/1M req)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#a78bfa" } }, "$12/\u6708 ($/VU | $/\u7528\u6237 | $/1M req)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px" } }, "\u9884\u4F30 P95 / SLO \u72B6\u6001"))),
+        /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", { style: { background: "#1e293b", color: "#cbd5e1", textAlign: "left" } }, /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px" } }, "\u8FD0\u8425\u5E76\u53D1\u6C34\u4F4D (\u70B9\u51FB\u5207\u6362)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px" } }, "\u5728\u7EBF\u7528\u6237 (@", userMultiplier, "x)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px" } }, "2TB\u5305\u5185\u514D\u6D41\u914D\u989D"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#94a3b8" } }, "$7 \u7EAF\u8BA1\u7B97\u5747\u644A"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#fbbf24" } }, "$7 \u6D41\u91CF\u5747\u644A (@", gbPerUserMonth, "GB: \u6C60\u5316 vs \u8D85\u989D)"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#34d399" } }, "$7/\u6708 \u7EFC\u5408\u603B\u6210\u672C (", trafficBillingMode === "pooled" ? "\u6C60\u5316" : "\u8D85\u989D", ")"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px", color: "#38bdf8" } }, "$10 / $12 \u7EFC\u5408\u603B\u6210\u672C"), /* @__PURE__ */ import_react.default.createElement("th", { style: { padding: "8px 10px" } }, "\u9884\u4F30 P95 / SLO \u72B6\u6001"))),
         /* @__PURE__ */ import_react.default.createElement("tbody", null, tableRows.map((row) => {
-          const rm = computeOperatingModel(row.vu, { userMultiplier, cleanTmpfs, vectorOptimized });
+          const rm = computeOperatingModel(row.vu, {
+            userMultiplier,
+            cleanTmpfs,
+            vectorOptimized,
+            gbPerUserMonth,
+            trafficBillingMode
+          });
           const isSelected = Math.abs(model.vu - row.vu) < 8;
+          const t7 = rm.roi.tiers[7];
+          const t10 = rm.roi.tiers[10];
+          const t12 = rm.roi.tiers[12];
           return /* @__PURE__ */ import_react.default.createElement(
             "tr",
             {
@@ -1757,11 +1995,11 @@ var XConnectTopologyRoiPanel = (props) => {
             },
             /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontWeight: 700, color: isSelected ? "#38bdf8" : "#f8fafc" } }, isSelected ? "\u25B6 " : "", row.tag),
             /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace" } }, "~", rm.onlineUsers, " \u4EBA"),
-            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace" } }, rm.steadyQps, " req/s"),
-            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace" } }, rm.roi.monthlyReqsM, "M / \u6708"),
-            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace", color: "#a7f3d0" } }, "$", rm.roi.tiers[7].costPerVuUsd.toFixed(4), " | ", /* @__PURE__ */ import_react.default.createElement("strong", null, "$", rm.roi.tiers[7].costPerUserUsd.toFixed(4)), " | $", rm.roi.tiers[7].costPer1MReqUsd.toFixed(4)),
-            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace", color: "#bae6fd" } }, "$", rm.roi.tiers[10].costPerVuUsd.toFixed(4), " | ", /* @__PURE__ */ import_react.default.createElement("strong", null, "$", rm.roi.tiers[10].costPerUserUsd.toFixed(4)), " | $", rm.roi.tiers[10].costPer1MReqUsd.toFixed(4)),
-            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace", color: "#ddd6fe" } }, "$", rm.roi.tiers[12].costPerVuUsd.toFixed(4), " | ", /* @__PURE__ */ import_react.default.createElement("strong", null, "$", rm.roi.tiers[12].costPerUserUsd.toFixed(4)), " | $", rm.roi.tiers[12].costPer1MReqUsd.toFixed(4)),
+            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace", color: "#cbd5e1" } }, rm.roi.includedGbPerUser, " GB/\u4EBA", " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#64748b", fontSize: "11px" } }, "(\u8D85 ", rm.roi.extraGbPerUser, "G)")),
+            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace", color: "#cbd5e1" } }, "$", t7.computeCostPerUserUsd.toFixed(4), "/\u4EBA"),
+            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace", color: "#fde68a" } }, "+$", t7.trafficCostPerUserPooledUsd.toFixed(4), " \u6C60\u5316 |", " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#fca5a5" } }, "+$", t7.trafficCostPerUserOverageUsd.toFixed(4), " \u8D85\u989D")),
+            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace", color: "#a7f3d0" } }, /* @__PURE__ */ import_react.default.createElement("strong", null, "$", t7.activeTotalCostPerUserUsd.toFixed(4), "/\u4EBA/\u6708"), " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#64748b", fontSize: "11px" } }, "($", t7.costPer1MReqUsd.toFixed(4), "/1M)")),
+            /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace", color: "#bae6fd" } }, "$", t10.activeTotalCostPerUserUsd.toFixed(4), " |", " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { color: "#ddd6fe" } }, "$", t12.activeTotalCostPerUserUsd.toFixed(4))),
             /* @__PURE__ */ import_react.default.createElement("td", { style: { padding: "7px 10px" } }, /* @__PURE__ */ import_react.default.createElement(
               "span",
               {
@@ -2147,8 +2385,26 @@ var XConnectTopologyRoiPanel = (props) => {
             color: liveTelemetry.hasLiveTelemetry ? "#86efac" : "#7dd3fc"
           }
         },
-        liveTelemetry.hasLiveTelemetry ? "\u25CF LIVE PROMETHEUS + ROI MODEL" : "\u25CF K6 1S BENCHMARK & ROI SIMULATOR"
-      )), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "12px", color: "#94a3b8", marginTop: "3px" } }, "\u91D1\u4E1D\u96C0\u8282\u70B9\uFF1A", /* @__PURE__ */ import_react.default.createElement("code", { style: { color: "#38bdf8" } }, resolvedNodeName), "\uFF08AWS Lightsail 2 vCPU /", " ", model.memory.totalRamMib, " MiB RAM / 0 Swap\uFF09\xB7 \u62D6\u52A8\u4E0B\u65B9\u5E76\u53D1\u6ED1\u5757\u6216\u70B9\u51FB\u5FEB\u6377\u6863\u4F4D\uFF0C\u56DB\u5927\u56FE\u8868\u5B9E\u65F6\u8054\u52A8\u8BA1\u7B97")), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px" } }, [
+        liveTelemetry.hasK6PipelineData ? `\u25CF LIVE K6 PIPELINE (${liveTelemetry.testId || "active"})` : liveTelemetry.hasLiveTelemetry ? "\u25CF LIVE PROMETHEUS + ROI MODEL" : "\u25CF K6 1S BENCHMARK & ROI SIMULATOR"
+      ), /* @__PURE__ */ import_react.default.createElement(
+        "a",
+        {
+          href: k6WorkflowUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          style: {
+            padding: "3px 9px",
+            borderRadius: "5px",
+            fontSize: "11px",
+            fontWeight: 700,
+            background: "rgba(251,191,36,0.16)",
+            border: "1px solid #fbbf24",
+            color: "#fde68a",
+            textDecoration: "none"
+          }
+        },
+        "\u26A1 \u89E6\u53D1 / \u67E5\u770B Playbooks k6 \u538B\u6D4B\u6D41\u6C34\u7EBF"
+      )), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "12px", color: "#94a3b8", marginTop: "3px" } }, "\u91D1\u4E1D\u96C0\u8282\u70B9\uFF1A", /* @__PURE__ */ import_react.default.createElement("code", { style: { color: "#38bdf8" } }, resolvedNodeName), "\uFF08AWS Lightsail 2 vCPU /", " ", model.memory.totalRamMib, " MiB RAM / 0 Swap / 2 TB \u514D\u6D41\u5305\uFF09\xB7 \u62D6\u52A8\u4E0B\u65B9\u5E76\u53D1\u6ED1\u5757\u6216\u5207\u6362\u4EBA\u5747\u6708\u6D41\u91CF\u4E0E\u6C60\u5316\u7B56\u7565\uFF0C\u56DB\u5927\u56FE\u8868\u5B9E\u65F6\u8054\u52A8\u8BA1\u7B97")), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px" } }, [
         { id: "all", label: "\u5168\u666F\u56DB\u5408\u4E00\u89C6\u56FE" },
         { id: "topology", label: "\u2460 \u6838\u5FC3\u670D\u52A1\u62D3\u6251" },
         { id: "timeseries", label: "\u2461 40 vs 500 VU \u65F6\u5E8F" },
@@ -2275,7 +2531,55 @@ var XConnectTopologyRoiPanel = (props) => {
           },
           mult,
           "x"
-        ))))
+        ))), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#94a3b8" } }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u4EBA\u5747\u6708\u6D41\u91CF:"), [
+          { gb: 4.27, label: "4.27G(\u5305\u5185)" },
+          { gb: 10, label: "10G" },
+          { gb: 20, label: "20G" },
+          { gb: 50, label: "50G" }
+        ].map((item) => {
+          const active = Math.abs(gbPerUserMonth - item.gb) < 0.05;
+          return /* @__PURE__ */ import_react.default.createElement(
+            "button",
+            {
+              key: item.gb,
+              onClick: () => setGbPerUserMonth(item.gb),
+              style: {
+                background: active ? "#059669" : "#1e293b",
+                border: `1px solid ${active ? "#34d399" : "#334155"}`,
+                color: "#ffffff",
+                borderRadius: "4px",
+                padding: "2px 7px",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: "pointer"
+              }
+            },
+            item.label
+          );
+        })), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#94a3b8" } }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u8D85\u989D\u6D41\u91CF\u7B56\u7565:"), [
+          { mode: "pooled", label: "2C1G\u6C60\u5316($0.0034/G)" },
+          { mode: "overage", label: "\u5355\u673A\u8D85\u989D($0.09/G)" }
+        ].map((item) => {
+          const active = trafficBillingMode === item.mode;
+          return /* @__PURE__ */ import_react.default.createElement(
+            "button",
+            {
+              key: item.mode,
+              onClick: () => setTrafficBillingMode(item.mode),
+              style: {
+                background: active ? item.mode === "pooled" ? "#2563eb" : "#dc2626" : "#1e293b",
+                border: `1px solid ${active ? item.mode === "pooled" ? "#60a5fa" : "#f87171" : "#334155"}`,
+                color: "#ffffff",
+                borderRadius: "4px",
+                padding: "2px 7px",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: "pointer"
+              }
+            },
+            item.label
+          );
+        })))
       ),
       /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))", gap: "10px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { background: "#0b1120", border: "1px solid #1e293b", borderRadius: "8px", padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#94a3b8" } }, "\u5F53\u524D\u5E76\u53D1 / \u6298\u7B97\u5728\u7EBF\u7528\u6237"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "19px", fontWeight: 800, color: "#38bdf8", marginTop: "3px", fontFamily: "monospace" } }, model.vu, " VU ", /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: "14px", color: "#cbd5e1" } }, "\u2248 ", model.onlineUsers, " \u4EBA")), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#64748b", marginTop: "2px" } }, "\u6309 ", model.userMultiplier, "x \u601D\u8003\u65F6\u95F4\u590D\u7528 \xB7 \u8FB9\u9645\u6548\u7387 ", model.marginalEfficiency, " QPS/VU")), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: "#0b1120", border: "1px solid #1e293b", borderRadius: "8px", padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#94a3b8" } }, "\u7A33\u6001\u541E\u5410 QPS / \u6708\u5904\u7406\u80FD\u529B"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "19px", fontWeight: 800, color: "#34d399", marginTop: "3px", fontFamily: "monospace" } }, liveTelemetry.liveQps ?? model.steadyQps, " req/s", " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: "13px", color: "#cbd5e1" } }, "(", model.roi.monthlyReqsM, "M/\u6708)")), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#64748b", marginTop: "2px" } }, "\u722C\u5761\u671F\u77AC\u65F6 QPS: ", model.rampQps, " req/s \xB7 2TB \u6D41\u91CF\u5305\u6D88\u8017 ~", model.roi.trafficQuotaPct2Tb, "%")), /* @__PURE__ */ import_react.default.createElement(
         "div",
@@ -2305,7 +2609,7 @@ var XConnectTopologyRoiPanel = (props) => {
           /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: "12px" } }, "(", model.sloLevel, ")")
         ),
         /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: model.sloColor, marginTop: "2px" } }, model.sloAction)
-      ), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: "#0b1120", border: "1px solid #1e293b", borderRadius: "8px", padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#94a3b8" } }, "\u6574\u673A\u5185\u5B58\u5360\u7528 / OOM \u5B89\u5168\u5BB9\u91CF"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "19px", fontWeight: 800, color: "#f8fafc", marginTop: "3px", fontFamily: "monospace" } }, liveTelemetry.memUsedMib ?? model.memory.totalUsedMib, " MiB", " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: "13px", color: model.memory.ramPct >= 80 ? "#ef4444" : "#34d399" } }, "(", model.memory.ramPct, "%)")), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#64748b", marginTop: "2px" } }, "\u53EF\u7528 ", liveTelemetry.memAvailMib ?? model.memory.availMib, " MiB \xB7 75%\u5B89\u5168\u7EBF ", model.memory.maxSafeVu75, " VU")), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: "#0b1120", border: "1px solid #1e293b", borderRadius: "8px", padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#94a3b8" } }, "Lightsail 2C1G ($", selectedTier, "/\u6708) \u5355\u4F4D ROI"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "19px", fontWeight: 800, color: "#34d399", marginTop: "3px", fontFamily: "monospace" } }, "$", activeTierCost.costPerUserUsd.toFixed(4), "/\u4EBA/\u6708"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#64748b", marginTop: "2px" } }, "$", activeTierCost.costPerVuUsd.toFixed(4), "/VU/\u6708 \xB7 $", activeTierCost.costPer1MReqUsd.toFixed(4), " / 1M req")), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: "#0b1120", border: "1px solid #1e293b", borderRadius: "8px", padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#94a3b8" } }, "5 \u5927\u6838\u5FC3\u670D\u52A1\u603B RSS"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "19px", fontWeight: 800, color: "#a78bfa", marginTop: "3px", fontFamily: "monospace" } }, model.memory.coreFiveTotalRssMib, " MiB"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#64748b", marginTop: "2px" } }, "Fluxgate ", fluxgateRss, "M + Proxy ", proxyXrayRss, "M + Vector ", vectorRss, "M")))
+      ), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: "#0b1120", border: "1px solid #1e293b", borderRadius: "8px", padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#94a3b8" } }, "\u6574\u673A\u5185\u5B58\u5360\u7528 / OOM \u5B89\u5168\u5BB9\u91CF"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "19px", fontWeight: 800, color: "#f8fafc", marginTop: "3px", fontFamily: "monospace" } }, liveTelemetry.memUsedMib ?? model.memory.totalUsedMib, " MiB", " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: "13px", color: model.memory.ramPct >= 80 ? "#ef4444" : "#34d399" } }, "(", model.memory.ramPct, "%)")), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#64748b", marginTop: "2px" } }, "\u53EF\u7528 ", liveTelemetry.memAvailMib ?? model.memory.availMib, " MiB \xB7 75%\u5B89\u5168\u7EBF ", model.memory.maxSafeVu75, " VU")), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: "#0b1120", border: "1px solid #1e293b", borderRadius: "8px", padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#94a3b8" } }, "2C1G ($", selectedTier, "/\u6708) \u8BA1\u7B97+\u6D41\u91CF\u7EFC\u5408 ROI"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "19px", fontWeight: 800, color: "#34d399", marginTop: "3px", fontFamily: "monospace" } }, "$", activeTierCost.activeTotalCostPerUserUsd.toFixed(4), "/\u4EBA/\u6708", " ", /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: "12px", color: "#cbd5e1" } }, "(@", gbPerUserMonth, "G)")), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#64748b", marginTop: "2px" } }, "\u7EAF\u8BA1\u7B97 $", activeTierCost.computeCostPerUserUsd.toFixed(4), " (\u514D\u6D41", model.roi.includedGbPerUser, "G) + \u6D41\u91CF $", activeTierCost.activeTrafficCostPerUserUsd.toFixed(4), " (", trafficBillingMode === "pooled" ? "\u6C60\u5316" : "\u8D85\u989D", ")")), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: "#0b1120", border: "1px solid #1e293b", borderRadius: "8px", padding: "10px 12px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#94a3b8" } }, "5 \u5927\u6838\u5FC3\u670D\u52A1\u603B RSS"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "19px", fontWeight: 800, color: "#a78bfa", marginTop: "3px", fontFamily: "monospace" } }, model.memory.coreFiveTotalRssMib, " MiB"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: "11px", color: "#64748b", marginTop: "2px" } }, "Fluxgate ", fluxgateRss, "M + Proxy ", proxyXrayRss, "M + Vector ", vectorRss, "M")))
     ),
     (activeView === "all" || activeView === "topology") && renderTopologySection(),
     (activeView === "all" || activeView === "timeseries") && renderTimeseriesChart(),
@@ -2371,9 +2675,33 @@ var plugin = new import_data.PanelPlugin(XConnectTopologyRoiPanel).setPanelOptio
     defaultValue: 7,
     settings: {
       options: [
-        { value: 7, label: "$7/\u6708 (2C1G IPv4 \u6807\u51C6\u6863)" },
-        { value: 10, label: "$10/\u6708 (\u5BF9\u7167\u6863)" },
-        { value: 12, label: "$12/\u6708 (\u5BF9\u7167\u6863)" }
+        { value: 7, label: "$7/\u6708 (2C1G IPv4 \u6807\u51C6\u6863, \u542B 2TB \u6D41\u91CF)" },
+        { value: 10, label: "$10/\u6708 (\u5BF9\u7167\u6863, \u542B 2TB \u6D41\u91CF)" },
+        { value: 12, label: "$12/\u6708 (\u5BF9\u7167\u6863, \u542B 2TB \u6D41\u91CF)" }
+      ]
+    }
+  }).addRadio({
+    path: "defaultGbPerUserMonth",
+    name: "\u4EBA\u5747\u6708\u6D41\u91CF\u6A21\u578B (GB/\u4EBA/\u6708)",
+    description: "\u8BA1\u7B97\u5747\u644A + \u6D41\u91CF\u5747\u644A\u6A21\u578B\u4E0B\u6BCF\u4F4D\u5728\u7EBF\u7528\u6237\u7684\u5E73\u5747\u6708\u6D88\u8017\u6D41\u91CF\uFF08120 VU @4x \u4E0B 2TB \u5305\u5185\u7EA6 4.27 GB/\u4EBA\uFF09",
+    defaultValue: 10,
+    settings: {
+      options: [
+        { value: 4.27, label: "4.27 GB (2TB \u5305\u5185\u514D\u8D85\u989D)" },
+        { value: 10, label: "10 GB (\u8F7B\u91CF\u65E5\u5E38\u529E\u516C)" },
+        { value: 20, label: "20 GB (\u6807\u51C6\u7814\u53D1+\u6D41\u5A92\u4F53)" },
+        { value: 50, label: "50 GB (\u91CD\u5EA6\u6D41\u91CF\u7528\u6237)" }
+      ]
+    }
+  }).addRadio({
+    path: "defaultTrafficBillingMode",
+    name: "\u8D85\u989D\u6D41\u91CF\u8BA1\u8D39\u4E0E\u6269\u5BB9\u7B56\u7565",
+    description: "\u5BF9\u6BD4\u591A\u53F0 2C1G \u8282\u70B9\u6C60\u5316\u6D41\u91CF\u5305 ($0.00342/GB @ $7) \u4E0E\u5355\u673A\u786C\u6297 AWS \u8D85\u989D\u6D41\u91CF\u8D39 ($0.09/GB)",
+    defaultValue: "pooled",
+    settings: {
+      options: [
+        { value: "pooled", label: "2C1G \u6D41\u91CF\u5305\u6C60\u5316\u5747\u644A ($0.00342/GB)" },
+        { value: "overage", label: "\u5355\u673A\u786C\u6297 AWS \u8D85\u989D ($0.09/GB)" }
       ]
     }
   }).addBooleanSwitch({
@@ -2399,6 +2727,10 @@ var plugin = new import_data.PanelPlugin(XConnectTopologyRoiPanel).setPanelOptio
     path: "totalRamMib",
     name: "\u8282\u70B9\u7269\u7406\u5185\u5B58\u4E0A\u9650 (MiB)",
     defaultValue: 939
+  }).addTextInput({
+    path: "k6WorkflowUrl",
+    name: "Playbooks k6 \u538B\u6D4B\u6D41\u6C34\u7EBF\u94FE\u63A5",
+    defaultValue: "https://github.com/ai-workspace-infra/playbooks/actions/workflows/k6-proxy-performance.yml"
   });
 });
 
