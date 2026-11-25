@@ -8,7 +8,7 @@ import {
   parsePrometheusTelemetry,
   simulateTimeseriesForVu,
 } from './dataModel';
-import { K6TimeseriesPoint, PanelOptions, TopologyLayer, ViewMode } from './types';
+import { K6TimeseriesPoint, PanelOptions, TopologyLayer, TrafficBillingMode, ViewMode } from './types';
 
 interface ServiceMeta {
   id: string;
@@ -104,6 +104,10 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
   const [cleanTmpfs, setCleanTmpfs] = useState<boolean>(options.cleanTmpfs ?? true);
   const [vectorOptimized, setVectorOptimized] = useState<boolean>(options.vectorOptimized ?? true);
   const [selectedTier, setSelectedTier] = useState<7 | 10 | 12>(options.defaultTierPrice || 7);
+  const [gbPerUserMonth, setGbPerUserMonth] = useState<number>(options.defaultGbPerUserMonth || 10);
+  const [trafficBillingMode, setTrafficBillingMode] = useState<TrafficBillingMode>(
+    options.defaultTrafficBillingMode || 'pooled'
+  );
 
   // Timeseries interactive state
   const [scrubIndex, setScrubIndex] = useState<number>(60); // 15.0m (steady state)
@@ -111,6 +115,7 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
   const [show40VuSeries, setShow40VuSeries] = useState<boolean>(true);
   const [show500VuSeries, setShow500VuSeries] = useState<boolean>(true);
   const [showSimVuSeries, setShowSimVuSeries] = useState<boolean>(true);
+  const [showLivePipelineSeries, setShowLivePipelineSeries] = useState<boolean>(true);
 
   useEffect(() => {
     if (options.viewMode) setActiveView(options.viewMode);
@@ -121,6 +126,8 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
   }, [options.defaultLayer]);
 
   const liveTelemetry = useMemo(() => parsePrometheusTelemetry(data?.series), [data]);
+  const k6WorkflowUrl =
+    options.k6WorkflowUrl || 'https://github.com/ai-workspace-infra/playbooks/actions/workflows/k6-proxy-performance.yml';
 
   useEffect(() => {
     if (options.followLiveVu && liveTelemetry.activeVusOrConns && liveTelemetry.activeVusOrConns > 0) {
@@ -158,8 +165,19 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
         cleanTmpfs,
         vectorOptimized,
         totalRamMib: liveTelemetry.memTotalMib || options.totalRamMib || 939,
+        gbPerUserMonth,
+        trafficBillingMode,
       }),
-    [targetVu, userMultiplier, cleanTmpfs, vectorOptimized, liveTelemetry.memTotalMib, options.totalRamMib]
+    [
+      targetVu,
+      userMultiplier,
+      cleanTmpfs,
+      vectorOptimized,
+      liveTelemetry.memTotalMib,
+      options.totalRamMib,
+      gbPerUserMonth,
+      trafficBillingMode,
+    ]
   );
 
   const simSeries = useMemo<K6TimeseriesPoint[]>(() => simulateTimeseriesForVu(targetVu), [targetVu]);
@@ -223,6 +241,22 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
       py2Lat
     );
 
+    const hasLiveCurve = liveTelemetry.liveSeries.length >= 2;
+    const p1QpsLive = hasLiveCurve
+      ? buildSvgPath(
+          liveTelemetry.liveSeries.map((p) => [p.minute, p.qps]),
+          px1,
+          py1Qps
+        )
+      : '';
+    const p2LatLive = hasLiveCurve
+      ? buildSvgPath(
+          liveTelemetry.liveSeries.map((p) => [p.minute, p.impliedLatencyMs]),
+          px2,
+          py2Lat
+        )
+      : '';
+
     const vuAreaPts: Array<[number, number]> = [
       [0, 0],
       ...K6_SERIES_500VU.map((p): [number, number] => [p.minute, p.avgVu * 0.5]),
@@ -235,6 +269,11 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
     const pt500 = K6_SERIES_500VU[idx];
     const ptSim = simSeries[idx];
     const curMin = pt500.minute;
+    const ptLive = hasLiveCurve
+      ? liveTelemetry.liveSeries.reduce((best, cand) =>
+          Math.abs(cand.minute - curMin) < Math.abs(best.minute - curMin) ? cand : best
+        )
+      : null;
     const phaseLabel =
       curMin < 7.5
         ? '0–7.5m 线性爬坡期'
@@ -345,6 +384,23 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
             >
               ◆ 当前 {targetVu} VU 动态仿真
             </button>
+            {hasLiveCurve && (
+              <button
+                onClick={() => setShowLivePipelineSeries((v) => !v)}
+                style={{
+                  background: showLivePipelineSeries ? 'rgba(251,191,36,0.22)' : '#1e293b',
+                  border: `1px solid ${showLivePipelineSeries ? '#fbbf24' : '#334155'}`,
+                  color: showLivePipelineSeries ? '#fde68a' : '#64748b',
+                  borderRadius: '6px',
+                  padding: '4px 9px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                ★ 实时流水线采样 ({liveTelemetry.testId || 'Prometheus'})
+              </button>
+            )}
           </div>
         </div>
 
@@ -396,6 +452,14 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
               {ptSim.avgVu} VU · <strong>{ptSim.qps} req/s</strong> · 均延 <strong>{ptSim.impliedLatencyMs} ms</strong>
             </span>
           </div>
+          {ptLive && (
+            <div>
+              <span style={{ color: '#fbbf24', fontWeight: 700 }}>★ 流水线实时采样：</span>
+              <span style={{ fontFamily: 'monospace', color: '#fef08a' }}>
+                {ptLive.avgVu} VU · <strong>{ptLive.qps} req/s</strong> · P95 <strong>{ptLive.impliedLatencyMs} ms</strong>
+              </span>
+            </div>
+          )}
         </div>
 
         <div style={{ overflowX: 'auto' }}>
@@ -505,11 +569,17 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
             {showSimVuSeries && (
               <path d={p1QpsSim} fill="none" stroke="#a78bfa" strokeWidth="2.2" strokeDasharray="6 3" />
             )}
+            {hasLiveCurve && showLivePipelineSeries && (
+              <path d={p1QpsLive} fill="none" stroke="#fbbf24" strokeWidth="2.8" />
+            )}
 
             {show500VuSeries && <path d={p2Lat500} fill="none" stroke="#fb7185" strokeWidth="2.4" />}
             {show40VuSeries && <path d={p2Lat40} fill="none" stroke="#34d399" strokeWidth="2.4" />}
             {showSimVuSeries && (
               <path d={p2LatSim} fill="none" stroke="#a78bfa" strokeWidth="2.2" strokeDasharray="6 3" />
+            )}
+            {hasLiveCurve && showLivePipelineSeries && (
+              <path d={p2LatLive} fill="none" stroke="#fbbf24" strokeWidth="2.8" />
             )}
 
             {/* Interactive Scrubber Crosshair on Panel A & Panel B */}
@@ -517,6 +587,9 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
             {show500VuSeries && <circle cx={px1(curMin)} cy={py1Qps(pt500.qps)} r="5" fill="#38bdf8" stroke="#0b1120" strokeWidth="1.5" />}
             {show40VuSeries && <circle cx={px1(curMin)} cy={py1Qps(pt40.qps)} r="5" fill="#34d399" stroke="#0b1120" strokeWidth="1.5" />}
             {showSimVuSeries && <circle cx={px1(curMin)} cy={py1Qps(ptSim.qps)} r="5" fill="#a78bfa" stroke="#0b1120" strokeWidth="1.5" />}
+            {ptLive && showLivePipelineSeries && (
+              <circle cx={px1(curMin)} cy={py1Qps(ptLive.qps)} r="6" fill="#fbbf24" stroke="#0b1120" strokeWidth="1.8" />
+            )}
 
             <line x1={px2(curMin)} y1="80" x2={px2(curMin)} y2="520" stroke="#f8fafc" strokeWidth="1.5" />
             {show500VuSeries && (
@@ -547,6 +620,16 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
                 fill="#a78bfa"
                 stroke="#0b1120"
                 strokeWidth="1.5"
+              />
+            )}
+            {ptLive && showLivePipelineSeries && (
+              <circle
+                cx={px2(curMin)}
+                cy={py2Lat(ptLive.impliedLatencyMs)}
+                r="6"
+                fill="#fbbf24"
+                stroke="#0b1120"
+                strokeWidth="1.8"
               />
             )}
 
@@ -1027,7 +1110,34 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
     const h = 620;
     const py1 = (ms: number) => 510 - (Math.min(ms, 5000.0) / 5000.0) * 395;
     const px2 = (vu: number) => 875 + ((vu - 40) / 460.0) * 590;
-    const py2User = (usd: number) => 510 - (Math.min(usd, 0.09) / 0.09) * 395;
+
+    const roiVus = [40, 80, 100, 120, 150, 160, 200, 250, 300, 400, 500];
+    const roiModels = roiVus.map((v) =>
+      computeOperatingModel(v, {
+        userMultiplier,
+        cleanTmpfs,
+        vectorOptimized,
+        gbPerUserMonth,
+        trafficBillingMode,
+      })
+    );
+
+    const maxRoiVal = Math.max(
+      0.08,
+      ...roiModels.map((m) => m.roi.tiers[12].activeTotalCostPerUserUsd)
+    );
+    const yAxisMax =
+      maxRoiVal <= 0.1
+        ? 0.09
+        : maxRoiVal <= 0.25
+        ? 0.24
+        : maxRoiVal <= 0.8
+        ? 0.8
+        : maxRoiVal <= 2.0
+        ? 2.0
+        : Math.ceil(maxRoiVal * 1.1 * 10) / 10;
+    const py2User = (usd: number) => 510 - (Math.min(usd, yAxisMax) / yAxisMax) * 395;
+    const yTicks = [0, 0.25, 0.5, 0.75, 1.0].map((r) => Number((r * yAxisMax).toFixed(3)));
 
     const bars = [
       { label1: '40 VU', label2: '实测基线', val: 207.1, col: '#34d399', vu: 40 },
@@ -1044,21 +1154,23 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
       },
     ];
 
-    const roiVus = [40, 80, 100, 120, 150, 160, 200, 250, 300, 400, 500];
-    const roiModels = roiVus.map((v) => computeOperatingModel(v, { userMultiplier, cleanTmpfs, vectorOptimized }));
-
-    const l7 = buildSvgPath(
-      roiModels.map((m) => [m.vu, m.roi.tiers[7].costPerUserUsd]),
+    const l7Total = buildSvgPath(
+      roiModels.map((m) => [m.vu, m.roi.tiers[7].activeTotalCostPerUserUsd]),
       px2,
       py2User
     );
-    const l10 = buildSvgPath(
-      roiModels.map((m) => [m.vu, m.roi.tiers[10].costPerUserUsd]),
+    const l10Total = buildSvgPath(
+      roiModels.map((m) => [m.vu, m.roi.tiers[10].activeTotalCostPerUserUsd]),
       px2,
       py2User
     );
-    const l12 = buildSvgPath(
-      roiModels.map((m) => [m.vu, m.roi.tiers[12].costPerUserUsd]),
+    const l12Total = buildSvgPath(
+      roiModels.map((m) => [m.vu, m.roi.tiers[12].activeTotalCostPerUserUsd]),
+      px2,
+      py2User
+    );
+    const l7ComputeOnly = buildSvgPath(
+      roiModels.map((m) => [m.vu, m.roi.tiers[7].computeCostPerUserUsd]),
       px2,
       py2User
     );
@@ -1097,11 +1209,15 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
         >
           <div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: '#f8fafc' }}>
-              ④ P95 延迟分级监控上限与 AWS Lightsail 2C1G ($7 / $10 / $12) 动态 ROI 面板
+              ④ P95 延迟分级监控上限与 AWS Lightsail 2C1G ($7 / $10 / $12) 计算+流量均摊动态 ROI 面板
             </div>
             <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
-              SLO 阈值体系（800ms 预警 / 1500ms 排空 / 3000ms 熔断）及按 <strong>{userMultiplier}x</strong>{' '}
-              思考时间复用系数折算的单在线用户月成本与百万请求成本
+              按 <strong>{userMultiplier}x</strong> 复用系数 + 单机免费配额 <strong>2 TB/月 (2,048 GB ≈ {model.roi.includedGbPerUser} GB/人)</strong>{' '}
+              + 人均 <strong>{gbPerUserMonth} GB/月</strong>（
+              {trafficBillingMode === 'pooled'
+                ? `2C1G 流量包池化 $${model.roi.tiers[selectedTier].pooledTrafficRatePerGb.toFixed(5)}/GB，需 ~${model.roi.pooledNodesNeeded} 台池化`
+                : '单机硬抗 AWS 超额流量费 $0.09/GB（贵 26.3 倍）'}
+              ）综合测算
             </div>
           </div>
 
@@ -1121,7 +1237,7 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
                   cursor: 'pointer',
                 }}
               >
-                ${price}/月 {price === 7 ? '(标准 IPv4)' : '(对照档)'}
+                ${price}/月 {price === 7 ? '(标准 IPv4 + 2TB)' : '(对照档 + 2TB)'}
               </button>
             ))}
           </div>
@@ -1139,7 +1255,7 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
               A. P95 延迟阶梯对比与分级监控红线 (含当前 {model.vu} VU 动态柱)
             </text>
             <text x="875" y="48" fontSize="14" fontWeight="700" fill="#f8fafc">
-              B. 单在线用户月成本 ($/User/mo @{userMultiplier}x) ROI 曲线
+              B. 单在线用户月综合成本 ($/人/月 @{userMultiplier}x · 计算均摊 + {gbPerUserMonth}GB 流量均摊)
             </text>
 
             {/* Panel 1 Y grid & SLO threshold lines */}
@@ -1237,13 +1353,13 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
             </text>
 
             {/* Panel 2 grids */}
-            {[0.0, 0.02, 0.04, 0.06, 0.08].map((usd) => {
+            {yTicks.map((usd) => {
               const y = py2User(usd);
               return (
                 <g key={`usd-${usd}`}>
                   <line x1="875" y1={y} x2="1465" y2={y} stroke="#1e293b" />
                   <text x="866" y={y + 4} textAnchor="end" fontSize="11" fill="#94a3b8">
-                    ${usd.toFixed(2)}
+                    ${usd.toFixed(yAxisMax > 0.5 ? 2 : 3)}
                   </text>
                 </g>
               );
@@ -1260,10 +1376,11 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
               );
             })}
 
-            {/* ROI curves */}
-            <path d={l12} fill="none" stroke="#a78bfa" strokeWidth={selectedTier === 12 ? '3.4' : '2.2'} />
-            <path d={l10} fill="none" stroke="#38bdf8" strokeWidth={selectedTier === 10 ? '3.4' : '2.2'} />
-            <path d={l7} fill="none" stroke="#34d399" strokeWidth={selectedTier === 7 ? '3.4' : '2.2'} />
+            {/* ROI curves (Total = Compute + Traffic Amortization, plus Pure Compute dashed baseline) */}
+            <path d={l7ComputeOnly} fill="none" stroke="#94a3b8" strokeWidth="1.8" strokeDasharray="5 3" />
+            <path d={l12Total} fill="none" stroke="#a78bfa" strokeWidth={selectedTier === 12 ? '3.4' : '2.2'} />
+            <path d={l10Total} fill="none" stroke="#38bdf8" strokeWidth={selectedTier === 10 ? '3.4' : '2.2'} />
+            <path d={l7Total} fill="none" stroke="#34d399" strokeWidth={selectedTier === 7 ? '3.4' : '2.2'} />
 
             {/* Live VU vertical cursor on ROI chart */}
             <line
@@ -1276,7 +1393,7 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
             />
             <circle
               cx={px2(clampedVuForRoiAxis)}
-              cy={py2User(model.roi.tiers[7].costPerUserUsd)}
+              cy={py2User(model.roi.tiers[7].activeTotalCostPerUserUsd)}
               r="5.5"
               fill="#34d399"
               stroke="#ffffff"
@@ -1284,7 +1401,7 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
             />
             <circle
               cx={px2(clampedVuForRoiAxis)}
-              cy={py2User(model.roi.tiers[10].costPerUserUsd)}
+              cy={py2User(model.roi.tiers[10].activeTotalCostPerUserUsd)}
               r="5.5"
               fill="#38bdf8"
               stroke="#ffffff"
@@ -1292,7 +1409,7 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
             />
             <circle
               cx={px2(clampedVuForRoiAxis)}
-              cy={py2User(model.roi.tiers[12].costPerUserUsd)}
+              cy={py2User(model.roi.tiers[12].activeTotalCostPerUserUsd)}
               r="5.5"
               fill="#a78bfa"
               stroke="#ffffff"
@@ -1300,18 +1417,22 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
             />
 
             {/* Legend */}
-            <rect x="1145" y="122" width="310" height="86" rx="8" fill="#0f172a" fillOpacity="0.92" stroke="#334155" />
-            <line x1="1160" y1="144" x2="1188" y2="144" stroke="#34d399" strokeWidth="3" />
-            <text x="1196" y="148" fontSize="11" fill="#e2e8f0">
-              $7/月: ${model.roi.tiers[7].costPerUserUsd.toFixed(4)}/人 · ${model.roi.tiers[7].costPer1MReqUsd.toFixed(4)}/1M req
+            <rect x="1095" y="118" width="362" height="106" rx="8" fill="#0f172a" fillOpacity="0.92" stroke="#334155" />
+            <line x1="1108" y1="138" x2="1134" y2="138" stroke="#34d399" strokeWidth="3" />
+            <text x="1142" y="142" fontSize="11" fill="#e2e8f0">
+              $7/月 综合: ${model.roi.tiers[7].activeTotalCostPerUserUsd.toFixed(4)}/人 (算${model.roi.tiers[7].computeCostPerUserUsd.toFixed(4)}+流${model.roi.tiers[7].activeTrafficCostPerUserUsd.toFixed(4)})
             </text>
-            <line x1="1160" y1="166" x2="1188" y2="166" stroke="#38bdf8" strokeWidth="3" />
-            <text x="1196" y="170" fontSize="11" fill="#e2e8f0">
-              $10/月: ${model.roi.tiers[10].costPerUserUsd.toFixed(4)}/人 · ${model.roi.tiers[10].costPer1MReqUsd.toFixed(4)}/1M req
+            <line x1="1108" y1="160" x2="1134" y2="160" stroke="#38bdf8" strokeWidth="3" />
+            <text x="1142" y="164" fontSize="11" fill="#e2e8f0">
+              $10/月 综合: ${model.roi.tiers[10].activeTotalCostPerUserUsd.toFixed(4)}/人 (算${model.roi.tiers[10].computeCostPerUserUsd.toFixed(4)}+流${model.roi.tiers[10].activeTrafficCostPerUserUsd.toFixed(4)})
             </text>
-            <line x1="1160" y1="188" x2="1188" y2="188" stroke="#a78bfa" strokeWidth="3" />
-            <text x="1196" y="192" fontSize="11" fill="#e2e8f0">
-              $12/月: ${model.roi.tiers[12].costPerUserUsd.toFixed(4)}/人 · ${model.roi.tiers[12].costPer1MReqUsd.toFixed(4)}/1M req
+            <line x1="1108" y1="182" x2="1134" y2="182" stroke="#a78bfa" strokeWidth="3" />
+            <text x="1142" y="186" fontSize="11" fill="#e2e8f0">
+              $12/月 综合: ${model.roi.tiers[12].activeTotalCostPerUserUsd.toFixed(4)}/人 (算${model.roi.tiers[12].computeCostPerUserUsd.toFixed(4)}+流${model.roi.tiers[12].activeTrafficCostPerUserUsd.toFixed(4)})
+            </text>
+            <line x1="1108" y1="204" x2="1134" y2="204" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5 3" />
+            <text x="1142" y="208" fontSize="10" fill="#94a3b8">
+              虚线: $7/月 纯计算均摊基线 (2TB 包内免流 {model.roi.includedGbPerUser}GB/人)
             </text>
 
             {/* Clickable overlay on ROI chart */}
@@ -1333,12 +1454,12 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
               点击任意柱状图或右侧曲线切换并发档位
             </text>
             <text x="1175" y="576" textAnchor="middle" fontSize="12" fill="#94a3b8">
-              调度目标并发 (VUs，40 -&gt; 120 VU 单用户成本下降 ~3x)
+              调度目标并发 (VUs · 2C1G 池化流量均摊 $0.00342/GB 比 AWS 超额 $0.09/GB 便宜 26.3x)
             </text>
           </svg>
         </div>
 
-        {/* Dynamic ROI Comparison Table */}
+        {/* Dynamic ROI Comparison Table (Compute Amortization + Traffic Amortization) */}
         <div style={{ overflowX: 'auto' }}>
           <table
             style={{
@@ -1353,19 +1474,32 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
             <thead>
               <tr style={{ background: '#1e293b', color: '#cbd5e1', textAlign: 'left' }}>
                 <th style={{ padding: '8px 10px' }}>运营并发水位 (点击切换)</th>
-                <th style={{ padding: '8px 10px' }}>折算在线用户 (@{userMultiplier}x)</th>
-                <th style={{ padding: '8px 10px' }}>稳态 QPS</th>
-                <th style={{ padding: '8px 10px' }}>月吞吐量</th>
-                <th style={{ padding: '8px 10px', color: '#34d399' }}>$7/月 ($/VU | $/用户 | $/1M req)</th>
-                <th style={{ padding: '8px 10px', color: '#38bdf8' }}>$10/月 ($/VU | $/用户 | $/1M req)</th>
-                <th style={{ padding: '8px 10px', color: '#a78bfa' }}>$12/月 ($/VU | $/用户 | $/1M req)</th>
+                <th style={{ padding: '8px 10px' }}>在线用户 (@{userMultiplier}x)</th>
+                <th style={{ padding: '8px 10px' }}>2TB包内免流配额</th>
+                <th style={{ padding: '8px 10px', color: '#94a3b8' }}>$7 纯计算均摊</th>
+                <th style={{ padding: '8px 10px', color: '#fbbf24' }}>
+                  $7 流量均摊 (@{gbPerUserMonth}GB: 池化 vs 超额)
+                </th>
+                <th style={{ padding: '8px 10px', color: '#34d399' }}>
+                  $7/月 综合总成本 ({trafficBillingMode === 'pooled' ? '池化' : '超额'})
+                </th>
+                <th style={{ padding: '8px 10px', color: '#38bdf8' }}>$10 / $12 综合总成本</th>
                 <th style={{ padding: '8px 10px' }}>预估 P95 / SLO 状态</th>
               </tr>
             </thead>
             <tbody>
               {tableRows.map((row) => {
-                const rm = computeOperatingModel(row.vu, { userMultiplier, cleanTmpfs, vectorOptimized });
+                const rm = computeOperatingModel(row.vu, {
+                  userMultiplier,
+                  cleanTmpfs,
+                  vectorOptimized,
+                  gbPerUserMonth,
+                  trafficBillingMode,
+                });
                 const isSelected = Math.abs(model.vu - row.vu) < 8;
+                const t7 = rm.roi.tiers[7];
+                const t10 = rm.roi.tiers[10];
+                const t12 = rm.roi.tiers[12];
                 return (
                   <tr
                     key={`tbl-${row.vu}`}
@@ -1381,19 +1515,24 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
                       {row.tag}
                     </td>
                     <td style={{ padding: '7px 10px', fontFamily: 'monospace' }}>~{rm.onlineUsers} 人</td>
-                    <td style={{ padding: '7px 10px', fontFamily: 'monospace' }}>{rm.steadyQps} req/s</td>
-                    <td style={{ padding: '7px 10px', fontFamily: 'monospace' }}>{rm.roi.monthlyReqsM}M / 月</td>
+                    <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#cbd5e1' }}>
+                      {rm.roi.includedGbPerUser} GB/人{' '}
+                      <span style={{ color: '#64748b', fontSize: '11px' }}>(超 {rm.roi.extraGbPerUser}G)</span>
+                    </td>
+                    <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#cbd5e1' }}>
+                      ${t7.computeCostPerUserUsd.toFixed(4)}/人
+                    </td>
+                    <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#fde68a' }}>
+                      +${t7.trafficCostPerUserPooledUsd.toFixed(4)} 池化 |{' '}
+                      <span style={{ color: '#fca5a5' }}>+${t7.trafficCostPerUserOverageUsd.toFixed(4)} 超额</span>
+                    </td>
                     <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#a7f3d0' }}>
-                      ${rm.roi.tiers[7].costPerVuUsd.toFixed(4)} | <strong>${rm.roi.tiers[7].costPerUserUsd.toFixed(4)}</strong> | $
-                      {rm.roi.tiers[7].costPer1MReqUsd.toFixed(4)}
+                      <strong>${t7.activeTotalCostPerUserUsd.toFixed(4)}/人/月</strong>{' '}
+                      <span style={{ color: '#64748b', fontSize: '11px' }}>(${t7.costPer1MReqUsd.toFixed(4)}/1M)</span>
                     </td>
                     <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#bae6fd' }}>
-                      ${rm.roi.tiers[10].costPerVuUsd.toFixed(4)} | <strong>${rm.roi.tiers[10].costPerUserUsd.toFixed(4)}</strong> | $
-                      {rm.roi.tiers[10].costPer1MReqUsd.toFixed(4)}
-                    </td>
-                    <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#ddd6fe' }}>
-                      ${rm.roi.tiers[12].costPerVuUsd.toFixed(4)} | <strong>${rm.roi.tiers[12].costPerUserUsd.toFixed(4)}</strong> | $
-                      {rm.roi.tiers[12].costPer1MReqUsd.toFixed(4)}
+                      ${t10.activeTotalCostPerUserUsd.toFixed(4)} |{' '}
+                      <span style={{ color: '#ddd6fe' }}>${t12.activeTotalCostPerUserUsd.toFixed(4)}</span>
                     </td>
                     <td style={{ padding: '7px 10px' }}>
                       <span
@@ -2136,12 +2275,33 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
                   color: liveTelemetry.hasLiveTelemetry ? '#86efac' : '#7dd3fc',
                 }}
               >
-                {liveTelemetry.hasLiveTelemetry ? '● LIVE PROMETHEUS + ROI MODEL' : '● K6 1S BENCHMARK & ROI SIMULATOR'}
+                {liveTelemetry.hasK6PipelineData
+                  ? `● LIVE K6 PIPELINE (${liveTelemetry.testId || 'active'})`
+                  : liveTelemetry.hasLiveTelemetry
+                  ? '● LIVE PROMETHEUS + ROI MODEL'
+                  : '● K6 1S BENCHMARK & ROI SIMULATOR'}
               </span>
+              <a
+                href={k6WorkflowUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  padding: '3px 9px',
+                  borderRadius: '5px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  background: 'rgba(251,191,36,0.16)',
+                  border: '1px solid #fbbf24',
+                  color: '#fde68a',
+                  textDecoration: 'none',
+                }}
+              >
+                ⚡ 触发 / 查看 Playbooks k6 压测流水线
+              </a>
             </div>
             <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '3px' }}>
               金丝雀节点：<code style={{ color: '#38bdf8' }}>{resolvedNodeName}</code>（AWS Lightsail 2 vCPU /{' '}
-              {model.memory.totalRamMib} MiB RAM / 0 Swap）· 拖动下方并发滑块或点击快捷档位，四大图表实时联动计算
+              {model.memory.totalRamMib} MiB RAM / 0 Swap / 2 TB 免流包）· 拖动下方并发滑块或切换人均月流量与池化策略，四大图表实时联动计算
             </div>
           </div>
 
@@ -2291,6 +2451,66 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
                 </button>
               ))}
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#94a3b8' }}>
+              <span>人均月流量:</span>
+              {[
+                { gb: 4.27, label: '4.27G(包内)' },
+                { gb: 10, label: '10G' },
+                { gb: 20, label: '20G' },
+                { gb: 50, label: '50G' },
+              ].map((item) => {
+                const active = Math.abs(gbPerUserMonth - item.gb) < 0.05;
+                return (
+                  <button
+                    key={item.gb}
+                    onClick={() => setGbPerUserMonth(item.gb)}
+                    style={{
+                      background: active ? '#059669' : '#1e293b',
+                      border: `1px solid ${active ? '#34d399' : '#334155'}`,
+                      color: '#ffffff',
+                      borderRadius: '4px',
+                      padding: '2px 7px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#94a3b8' }}>
+              <span>超额流量策略:</span>
+              {(
+                [
+                  { mode: 'pooled', label: '2C1G池化($0.0034/G)' },
+                  { mode: 'overage', label: '单机超额($0.09/G)' },
+                ] as Array<{ mode: TrafficBillingMode; label: string }>
+              ).map((item) => {
+                const active = trafficBillingMode === item.mode;
+                return (
+                  <button
+                    key={item.mode}
+                    onClick={() => setTrafficBillingMode(item.mode)}
+                    style={{
+                      background: active ? (item.mode === 'pooled' ? '#2563eb' : '#dc2626') : '#1e293b',
+                      border: `1px solid ${active ? (item.mode === 'pooled' ? '#60a5fa' : '#f87171') : '#334155'}`,
+                      color: '#ffffff',
+                      borderRadius: '4px',
+                      padding: '2px 7px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -2356,13 +2576,15 @@ export const XConnectTopologyRoiPanel: FC<PanelProps<PanelOptions>> = (props) =>
 
           <div style={{ background: '#0b1120', border: '1px solid #1e293b', borderRadius: '8px', padding: '10px 12px' }}>
             <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-              Lightsail 2C1G (${selectedTier}/月) 单位 ROI
+              2C1G (${selectedTier}/月) 计算+流量综合 ROI
             </div>
             <div style={{ fontSize: '19px', fontWeight: 800, color: '#34d399', marginTop: '3px', fontFamily: 'monospace' }}>
-              ${activeTierCost.costPerUserUsd.toFixed(4)}/人/月
+              ${activeTierCost.activeTotalCostPerUserUsd.toFixed(4)}/人/月{' '}
+              <span style={{ fontSize: '12px', color: '#cbd5e1' }}>(@{gbPerUserMonth}G)</span>
             </div>
             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-              ${activeTierCost.costPerVuUsd.toFixed(4)}/VU/月 · ${activeTierCost.costPer1MReqUsd.toFixed(4)} / 1M req
+              纯计算 ${activeTierCost.computeCostPerUserUsd.toFixed(4)} (免流{model.roi.includedGbPerUser}G) + 流量 $
+              {activeTierCost.activeTrafficCostPerUserUsd.toFixed(4)} ({trafficBillingMode === 'pooled' ? '池化' : '超额'})
             </div>
           </div>
 
