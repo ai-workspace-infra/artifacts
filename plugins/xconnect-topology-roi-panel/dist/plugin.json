@@ -1,0 +1,32 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "panel",
+  "name": "XConnect Topology & Dynamic ROI",
+  "id": "xconnect-topology-roi-panel",
+  "info": {
+    "description": "Dynamic XConnect 5-Service Core Topology, k6 40VU vs 500VU Timeseries, Little's Law Knee & 939 MiB Memory Scaling, and P95 SLO + AWS Lightsail 2C1G ($7/$10/$12) ROI Panel",
+    "author": {
+      "name": "AI Workspace Platform Team",
+      "url": "https://svc.plus"
+    },
+    "keywords": [
+      "xconnect",
+      "topology",
+      "fluxgate",
+      "xray",
+      "k6",
+      "roi",
+      "lightsail",
+      "capacity"
+    ],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "version": "1.0.0",
+    "updated": "2026-11-25"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=8.0.0"
+  }
+}
