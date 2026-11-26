@@ -92,13 +92,45 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.containerPort }}
-          {{- if $env }}
+          {{- $dd := dig "tracing" "ddtrace" dict $global }}
           env:
             {{- range $key := keys $env | sortAlpha }}
             - name: {{ $key }}
               value: {{ index $env $key | quote }}
             {{- end }}
-          {{- end }}
+            {{- if default false $dd.enabled }}
+            {{- if not (hasKey $env "DD_TRACE_ENABLED") }}
+            - name: DD_TRACE_ENABLED
+              value: "true"
+            {{- end }}
+            {{- if not (hasKey $env "DD_AGENT_HOST") }}
+            - name: DD_AGENT_HOST
+              value: {{ $dd.agentHost | default "datakit-service.datakit.svc" | quote }}
+            {{- end }}
+            {{- if not (hasKey $env "DD_TRACE_AGENT_PORT") }}
+            - name: DD_TRACE_AGENT_PORT
+              value: {{ $dd.agentPort | default "9529" | toString | quote }}
+            {{- end }}
+            {{- if not (hasKey $env "DD_SERVICE") }}
+            - name: DD_SERVICE
+              value: {{ $dd.service | default (include "app-service.fullname" .) | quote }}
+            {{- end }}
+            {{- if and $dd.env (not (hasKey $env "DD_ENV")) }}
+            - name: DD_ENV
+              value: {{ $dd.env | quote }}
+            {{- end }}
+            {{- if not (hasKey $env "DD_TRACE_PROPAGATION_STYLE") }}
+            - name: DD_TRACE_PROPAGATION_STYLE
+              value: {{ $dd.propagationStyle | default "datadog,tracecontext" | quote }}
+            {{- end }}
+            {{- if and (hasKey $dd "sampleRate") (ne (toString $dd.sampleRate) "") (not (hasKey $env "DD_TRACE_SAMPLE_RATE")) }}
+            - name: DD_TRACE_SAMPLE_RATE
+              value: {{ $dd.sampleRate | toString | quote }}
+            {{- end }}
+            {{- else if not (hasKey $env "DD_TRACE_ENABLED") }}
+            - name: DD_TRACE_ENABLED
+              value: "false"
+            {{- end }}
           {{- if or $existingSecretName $envFromSecretRefs }}
           envFrom:
             {{- if $existingSecretName }}

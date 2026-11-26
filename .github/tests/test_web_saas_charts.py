@@ -248,4 +248,39 @@ class Charts(unittest.TestCase):
         self.assertTrue(outputs[0])
         self.assertEqual(outputs[0],outputs[1]);self.assertEqual(outputs[1],outputs[2])
 
+    def test_ddtrace_env_injection(self):
+        v_off = config()
+        objs_off = objects(v_off)
+        deployments_off = by_kind(objs_off, 'Deployment')
+        for component in ['accounts', 'billing', 'content', 'frontend-router']:
+            dep = deployments_off[f'example-{component}']
+            env_map = {e['name']: e['value'] for e in dep['spec']['template']['spec']['containers'][0]['env']}
+            self.assertEqual(env_map['DD_TRACE_ENABLED'], 'false')
+
+        v = config()
+        v['global']['environment'] = 'sit'
+        v['global']['tracing'] = {
+            'ddtrace': {
+                'enabled': True,
+                'agentHost': 'datakit-service.observability-sit.svc',
+                'agentPort': '9529',
+                'env': 'sit',
+                'propagationStyle': 'datadog,tracecontext',
+                'sampleRate': '1.0',
+            }
+        }
+        objs = objects(v)
+        deployments = by_kind(objs, 'Deployment')
+        for component in ['accounts', 'billing', 'content', 'frontend-router']:
+            dep = deployments[f'example-{component}']
+            env_map = {e['name']: e['value'] for e in dep['spec']['template']['spec']['containers'][0]['env']}
+            self.assertEqual(env_map['DD_TRACE_ENABLED'], 'true')
+            self.assertEqual(env_map['DD_AGENT_HOST'], 'datakit-service.observability-sit.svc')
+            self.assertEqual(env_map['DD_TRACE_AGENT_PORT'], '9529')
+            self.assertIsInstance(env_map['DD_TRACE_AGENT_PORT'], str)
+            self.assertEqual(env_map['DD_SERVICE'], f'example-{component}')
+            self.assertEqual(env_map['DD_ENV'], 'sit')
+            self.assertEqual(env_map['DD_TRACE_PROPAGATION_STYLE'], 'datadog,tracecontext')
+            self.assertEqual(env_map['DD_TRACE_SAMPLE_RATE'], '1.0')
+
 if __name__ == '__main__': unittest.main()

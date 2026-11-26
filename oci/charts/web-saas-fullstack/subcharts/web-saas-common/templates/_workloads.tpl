@@ -136,6 +136,41 @@ spec:
             - name: {{ $key }}
               value: {{ $value | replace "RELEASE_NAME" $root.Release.Name | quote }}
             {{- end }}
+            {{- $dd := dig "tracing" "ddtrace" dict $root.Values.global }}
+            {{- $itemEnv := default dict $item.env }}
+            {{- if default false $dd.enabled }}
+            {{- if not (hasKey $itemEnv "DD_TRACE_ENABLED") }}
+            - name: DD_TRACE_ENABLED
+              value: "true"
+            {{- end }}
+            {{- if not (hasKey $itemEnv "DD_AGENT_HOST") }}
+            - name: DD_AGENT_HOST
+              value: {{ $dd.agentHost | default "datakit-service.datakit.svc" | quote }}
+            {{- end }}
+            {{- if not (hasKey $itemEnv "DD_TRACE_AGENT_PORT") }}
+            - name: DD_TRACE_AGENT_PORT
+              value: {{ $dd.agentPort | default "9529" | toString | quote }}
+            {{- end }}
+            {{- if not (hasKey $itemEnv "DD_SERVICE") }}
+            - name: DD_SERVICE
+              value: {{ include "websaas.name" (dict "root" $root "name" $member) | quote }}
+            {{- end }}
+            {{- if not (hasKey $itemEnv "DD_ENV") }}
+            - name: DD_ENV
+              value: {{ $dd.env | default $root.Values.global.environment | quote }}
+            {{- end }}
+            {{- if not (hasKey $itemEnv "DD_TRACE_PROPAGATION_STYLE") }}
+            - name: DD_TRACE_PROPAGATION_STYLE
+              value: {{ $dd.propagationStyle | default "datadog,tracecontext" | quote }}
+            {{- end }}
+            {{- if and (hasKey $dd "sampleRate") (ne (toString $dd.sampleRate) "") (not (hasKey $itemEnv "DD_TRACE_SAMPLE_RATE")) }}
+            - name: DD_TRACE_SAMPLE_RATE
+              value: {{ $dd.sampleRate | toString | quote }}
+            {{- end }}
+            {{- else if not (hasKey $itemEnv "DD_TRACE_ENABLED") }}
+            - name: DD_TRACE_ENABLED
+              value: "false"
+            {{- end }}
           {{- with $item.secretRefs }}
           envFrom:
             {{- range . }}

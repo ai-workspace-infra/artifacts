@@ -42,6 +42,15 @@ global:
   existingSecretName: ""
   external-service: []
   envFromSecretRefs: []
+  tracing:
+    ddtrace:
+      enabled: false
+      agentHost: datakit-service.datakit.svc
+      agentPort: "9529"
+      service: ""
+      env: ""
+      propagationStyle: datadog,tracecontext
+      sampleRate: ""
 
 # Local overrides remain available for backwards compatibility.
 env: {}

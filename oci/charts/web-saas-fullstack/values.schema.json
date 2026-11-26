@@ -23,6 +23,36 @@
         },
         "podLabels": {
           "type": "object"
+        },
+        "tracing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ddtrace": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "agentHost": {
+                  "type": "string"
+                },
+                "agentPort": {
+                  "type": ["string", "integer"]
+                },
+                "env": {
+                  "type": "string"
+                },
+                "propagationStyle": {
+                  "type": "string"
+                },
+                "sampleRate": {
+                  "type": ["string", "number"]
+                }
+              }
+            }
+          }
         }
       }
     },

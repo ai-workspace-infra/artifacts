@@ -4,6 +4,14 @@ global:
   expectedNamespace: ""
   imagePullSecrets: []
   podLabels: {}
+  tracing:
+    ddtrace:
+      enabled: false
+      agentHost: datakit-service.datakit.svc
+      agentPort: "9529"
+      env: ""
+      propagationStyle: datadog,tracecontext
+      sampleRate: ""
 console:
   enabled: false
 accounts:
