@@ -20,6 +20,8 @@ billing:
   enabled: false
 content:
   enabled: false
+xconnectController:
+  enabled: false
 edgeGateway:
   enabled: false
 postgresql:

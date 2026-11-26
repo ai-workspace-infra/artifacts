@@ -3,7 +3,7 @@ name: web-saas-fullstack
 description: Composable Web SaaS services with a Caddy HTTPS ingress
 type: application
 kubeVersion: '>=1.32.0-0'
-version: 0.2.20
+version: 0.2.21
 appVersion: 0.2.12
 dependencies:
 - name: web-saas-console
@@ -26,6 +26,11 @@ dependencies:
   version: 0.1.4
   repository: file://subcharts/content
   condition: content.enabled
+- name: web-saas-xconnect-controller
+  alias: xconnectController
+  version: 0.1.0
+  repository: file://subcharts/xconnect-controller
+  condition: xconnectController.enabled
 - name: web-saas-edge-gateway
   alias: edgeGateway
   version: 0.1.2

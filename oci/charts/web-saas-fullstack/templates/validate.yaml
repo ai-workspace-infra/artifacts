@@ -5,7 +5,7 @@
 {{- if eq .Values.global.environment "prod" }}
 {{- if or (not .Values.global.expectedNamespace) (eq .Release.Namespace "default") (ne .Release.Namespace .Values.global.expectedNamespace) }}{{ fail "production requires an explicit matching global.expectedNamespace and non-default release namespace" }}{{ end }}
 {{- if and .Values.caddy.enabled .Values.caddy.httpOnly }}{{ fail "production Caddy requires HTTPS with existing TLS Secrets" }}{{ end }}
-{{- range $name := list "accounts" "billing" "content" }}
+{{- range $name := list "accounts" "billing" "content" "xconnectController" }}
 {{- $config := index $.Values $name }}
 {{- if and $config.enabled (not $config.workload.secretRefs) }}{{ fail (printf "production %s requires existing runtime Secret references" $name) }}{{ end }}
 {{- end }}
@@ -15,7 +15,7 @@
 {{- end }}
 {{- if .Values.caddy.enabled }}
 {{- if .Values.caddy.externalBackends.enabled }}
-{{- if or .Values.console.enabled .Values.accounts.enabled .Values.billing.enabled .Values.content.enabled .Values.edgeGateway.enabled .Values.postgresql.enabled }}{{ fail "standalone Caddy externalBackends must not enable application or database components" }}{{ end }}
+{{- if or .Values.console.enabled .Values.accounts.enabled .Values.billing.enabled .Values.content.enabled .Values.xconnectController.enabled .Values.edgeGateway.enabled .Values.postgresql.enabled }}{{ fail "standalone Caddy externalBackends must not enable application or database components" }}{{ end }}
 {{- if or (not .Values.caddy.externalBackends.accounts) (not .Values.caddy.externalBackends.frontend) }}{{ fail "standalone Caddy requires explicit accounts and frontend backends" }}{{ end }}
 {{- if and (or .Values.caddy.routes.billingHost .Values.caddy.routes.billingAliases) (not .Values.caddy.externalBackends.billing) }}{{ fail "standalone Caddy billing routes require an explicit billing backend" }}{{ end }}
 {{- if .Values.caddy.gatewayEnabled }}{{ fail "standalone Caddy externalBackends does not support implicit local gateways" }}{{ end }}
