@@ -283,4 +283,36 @@ class Charts(unittest.TestCase):
             self.assertEqual(env_map['DD_TRACE_PROPAGATION_STYLE'], 'datadog,tracecontext')
             self.assertEqual(env_map['DD_TRACE_SAMPLE_RATE'], '1.0')
 
+    def test_xconnect_controller_subchart_and_validation(self):
+        v = yaml.safe_load((CHART / 'values.yaml').read_text())
+        v['xconnectController'] = defaults('xconnect-controller')
+        v['xconnectController']['enabled'] = True
+        v['xconnectController']['workload']['image'] = IMAGE
+        v['global']['tracing']['ddtrace'] = {
+            'enabled': True,
+            'agentHost': 'datakit-service.observability-prod.svc',
+            'agentPort': '9529',
+            'env': 'prod',
+            'propagationStyle': 'datadog,tracecontext',
+            'sampleRate': '1.0',
+        }
+        objs = objects(v)
+        deployments = by_kind(objs, 'Deployment')
+        services = by_kind(objs, 'Service')
+        self.assertIn('example-xconnect-controller', deployments)
+        self.assertIn('example-xconnect-controller', services)
+        container = deployments['example-xconnect-controller']['spec']['template']['spec']['containers'][0]
+        self.assertEqual(container['readinessProbe']['httpGet']['path'], '/readyz')
+        env_map = {e['name']: e['value'] for e in container['env']}
+        self.assertEqual(env_map['DD_TRACE_ENABLED'], 'true')
+        self.assertEqual(env_map['DD_SERVICE'], 'example-xconnect-controller')
+        self.assertEqual(env_map['XCONNECT_SCHEMA_MANAGED'], 'true')
+
+        v['global']['environment'] = 'prod'
+        v['global']['expectedNamespace'] = 'example-sit'
+        v['xconnectController']['workload']['secretRefs'] = []
+        r = render(v)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('production xconnectController requires existing runtime Secret references', r.stderr)
+
 if __name__ == '__main__': unittest.main()

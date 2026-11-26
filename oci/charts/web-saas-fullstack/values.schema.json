@@ -71,6 +71,9 @@
     "content": {
       "type": "object"
     },
+    "xconnectController": {
+      "type": "object"
+    },
     "edgeGateway": {
       "type": "object"
     },
