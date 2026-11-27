@@ -1,39 +1,39 @@
 dependencies:
 - name: web-saas-console
   repository: file://subcharts/console
-  version: 0.1.2
+  version: 0.1.3
 - name: web-saas-accounts
   repository: file://subcharts/accounts
-  version: 0.1.4
+  version: 0.1.5
 - name: web-saas-billing
   repository: file://subcharts/billing
-  version: 0.1.4
+  version: 0.1.5
 - name: web-saas-content
   repository: file://subcharts/content
-  version: 0.1.4
+  version: 0.1.5
 - name: web-saas-xconnect-controller
   repository: file://subcharts/xconnect-controller
   version: 0.1.0
 - name: web-saas-edge-gateway
   repository: file://subcharts/edge-gateway
-  version: 0.1.2
+  version: 0.1.3
 - name: web-saas-postgresql
   repository: file://subcharts/postgresql
-  version: 0.1.8
+  version: 0.1.9
 - name: web-saas-caddy
   repository: file://subcharts/caddy
-  version: 0.1.7
+  version: 0.1.8
 - name: web-saas-stunnel-client
   repository: file://subcharts/stunnel-client
-  version: 0.1.2
+  version: 0.1.3
 - name: web-saas-stunnel-server
   repository: file://subcharts/stunnel-server
-  version: 0.1.2
+  version: 0.1.3
 - name: flagger
   repository: https://flagger.app
   version: 1.45.0
 - name: traefik
   repository: https://traefik.github.io/charts
   version: 42.3.0
-digest: sha256:57639bb5752e855c63ba1a7d8c5a9fc88c6493d2d5926631fbaa9947c7d85560
-generated: "2026-11-27T00:29:20.069763+08:00"
+digest: sha256:f74e7b33f8972ba67fe1382e2f1fe5a08135a527f23de176b7bd4fdf8b0d031a
+generated: "2026-11-27T08:19:35.915198+08:00"
