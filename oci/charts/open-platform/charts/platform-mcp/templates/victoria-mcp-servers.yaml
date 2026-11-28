@@ -24,6 +24,7 @@ data:
     	@authorized header Authorization "Bearer {$MCP_AUTH_TOKEN}"
     	handle @authorized {
     		reverse_proxy 127.0.0.1:{$UPSTREAM_PORT} {
+          header_up Host {upstream_hostport}
     			flush_interval -1
     		}
     	}
