@@ -2,7 +2,7 @@ apiVersion: v2
 name: open-platform
 description: Cloud-Neutral Open Platform Umbrella Helm Chart aggregating core platform services (Caddy and the Zitadel server are optional, off by default)
 type: application
-version: 1.6.1
+version: 1.6.2
 appVersion: "2026.10"
 keywords:
   - platform-engineering
@@ -71,7 +71,7 @@ dependencies:
     repository: "file://./charts/ai-gateway"
     condition: ai-gateway.enabled
   - name: platform-mcp
-    version: 1.0.1
+    version: 1.0.2
     repository: "file://./charts/platform-mcp"
     condition: platform-mcp.enabled
   - name: caddy
