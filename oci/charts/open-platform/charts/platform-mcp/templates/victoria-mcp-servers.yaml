@@ -87,7 +87,11 @@ spec:
         - name: auth-proxy
           image: "{{ $root.Values.authProxy.image.repository }}:{{ $root.Values.authProxy.image.tag }}"
           imagePullPolicy: {{ $root.Values.authProxy.image.pullPolicy }}
-          args: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+          # The official Caddy binary carries a file capability. Copying it to
+          # the writable emptyDir lets no-new-privileges execute it unprivileged.
+          command: ["/bin/sh", "-ec"]
+          args:
+            - cp /usr/bin/caddy /tmp/caddy-bin && exec /tmp/caddy-bin run --config /etc/caddy/Caddyfile --adapter caddyfile
           env:
             - name: LISTEN_PORT
               value: {{ $v.port | quote }}
